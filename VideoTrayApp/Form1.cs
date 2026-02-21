@@ -28,6 +28,33 @@ namespace VideoTrayApp
         {
             InitializeComponent();
             folderPath = LoadFolderPathFromConfig();
+
+            // If no folder is configured, prompt the user to set one
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                using var dlg = new FolderBrowserDialog 
+                { 
+                    Description = "Select the folder to monitor for video files" 
+                };
+
+                if (dlg.ShowDialog() == DialogResult.OK)
+                {
+                    folderPath = dlg.SelectedPath;
+                    SaveFolderPathToConfig(folderPath);
+                }
+                else
+                {
+                    // If user cancels, use a temporary folder or show a warning
+                    MessageBox.Show(
+                        "No folder configured. Please set one using the tray menu.",
+                        "Configuration Required",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning
+                    );
+                    folderPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                }
+            }
+
             SetupTrayIcon();
             SetupWatcher();
             SetStartup();
@@ -37,37 +64,93 @@ namespace VideoTrayApp
             this.ShowInTaskbar = false;
         }
 
-        private string LoadFolderPathFromConfig()
+        private string GetConfigPath()
         {
-            string configPath = Path.Combine(
+            return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "VideoTrayApp",
                 "config.txt"
             );
+        }
+
+        private string LoadFolderPathFromConfig()
+        {
+            string configPath = GetConfigPath();
 
             if (System.IO.File.Exists(configPath))
             {
                 return System.IO.File.ReadAllText(configPath).Trim();
             }
 
-            return @"F:\EXPORT\clips\current"; // Fallback
+            return string.Empty; // Return empty if no config exists
+        }
+
+        private void SaveFolderPathToConfig(string path)
+        {
+            string configPath = GetConfigPath();
+            string configDir = Path.GetDirectoryName(configPath);
+
+            // Ensure the config directory exists
+            if (!Directory.Exists(configDir))
+            {
+                Directory.CreateDirectory(configDir);
+            }
+
+            System.IO.File.WriteAllText(configPath, path);
         }
 
         private void SetupTrayIcon()
         {
             trayIcon = new NotifyIcon()
             {
-                Icon = SystemIcons.Application, // You can use a custom .ico here!
+                Icon = LoadApplicationIcon(),
                 Visible = true,
                 Text = "Video Duration Tracker"
+            };
+
+            // Left-click to toggle window visibility
+            trayIcon.MouseClick += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    ToggleWindowVisibility();
+                }
             };
 
             // Right-click menu for the icon
             var menu = new ContextMenuStrip();
             menu.Items.Add("Check Now", null, (s, e) => UpdateDuration());
+            menu.Items.Add("Set Folder", null, SetFolderPath);
             menu.Items.Add("Show Window", null, ShowWindow);
             menu.Items.Add("Exit", null, (s, e) => Application.Exit());
             trayIcon.ContextMenuStrip = menu;
+        }
+
+        private Icon LoadApplicationIcon()
+        {
+            try
+            {
+                // Try to load icon from the application directory
+                string iconPath = Path.Combine(AppContext.BaseDirectory, "icon.ico");
+                if (File.Exists(iconPath))
+                {
+                    return new Icon(iconPath);
+                }
+
+                // Try loading from current directory as fallback
+                if (File.Exists("icon.ico"))
+                {
+                    return new Icon("icon.ico");
+                }
+
+                // If icon not found, use system application icon
+                return SystemIcons.Application;
+            }
+            catch
+            {
+                // If anything fails, use system application icon
+                return SystemIcons.Application;
+            }
         }
 
         private void SetupWatcher()
@@ -88,7 +171,7 @@ namespace VideoTrayApp
             watcher.Filters.Add("*.3gp");
             watcher.Filters.Add("*.flv");
             watcher.Filters.Add("*.webm");
-            
+
             watcher.Created += (s, e) => ScheduleUpdate();
             watcher.Deleted += (s, e) => ScheduleUpdate();
             watcher.Renamed += (s, e) => ScheduleUpdate();
@@ -241,7 +324,8 @@ namespace VideoTrayApp
                 }
 
                 // Update the label with priority: parent folder first, then first subfolder
-                lblTotalTime.Invoke((MethodInvoker)delegate {
+                lblTotalTime.Invoke((MethodInvoker)delegate
+                {
                     if (parentFolderTotal > TimeSpan.Zero)
                     {
                         string fileNameOnly = $"{(int)parentFolderTotal.TotalMinutes}M{parentFolderTotal.Seconds}S";
@@ -276,6 +360,7 @@ namespace VideoTrayApp
         {
             base.OnLoad(e);
             this.Hide(); // Ensure it stays hidden
+            UpdateDuration(); // Calculate duration on startup
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -303,6 +388,51 @@ namespace VideoTrayApp
             this.BringToFront();
         }
 
+        private void ToggleWindowVisibility()
+        {
+            if (this.Visible && this.WindowState == FormWindowState.Normal)
+            {
+                // Window is visible, so hide it
+                this.Hide();
+                this.WindowState = FormWindowState.Minimized;
+                this.ShowInTaskbar = false;
+            }
+            else
+            {
+                // Window is hidden, so show it
+                this.Show();
+                this.WindowState = FormWindowState.Normal;
+                this.ShowInTaskbar = true;
+                this.BringToFront();
+            }
+        }
+
+        private void SetFolderPath(object? sender, EventArgs e)
+        {
+            using var settingsForm = new SettingsForm(folderPath);
+
+            if (settingsForm.ShowDialog() == DialogResult.OK)
+            {
+                // Update and save the new folder path
+                folderPath = settingsForm.SelectedFolderPath;
+                SaveFolderPathToConfig(folderPath);
+
+                // Restart the watcher with the new folder
+                watcher?.Dispose();
+                SetupWatcher();
+
+                // Trigger an immediate duration check
+                UpdateDuration();
+
+                MessageBox.Show(
+                    $"Folder updated to:\n{folderPath}",
+                    "Folder Updated",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information
+                );
+            }
+        }
+
         private void label1_Click(object sender, EventArgs e)
         {
 
@@ -324,7 +454,8 @@ namespace VideoTrayApp
             string prefix = Interaction.InputBox("Optional filename prefix:", "Prefix", "");
 
             // Show calculating indicator
-            lblTotalTime.Invoke((MethodInvoker)delegate {
+            lblTotalTime.Invoke((MethodInvoker)delegate
+            {
                 lblTotalTime.Text = "Calculating...";
             });
 
@@ -352,7 +483,8 @@ namespace VideoTrayApp
             if (!int.TryParse(string.IsNullOrWhiteSpace(startInput) ? "0" : startInput.Trim(), out int start)) start = 0;
 
             // Show calculating indicator
-            lblTotalTime.Invoke((MethodInvoker)delegate {
+            lblTotalTime.Invoke((MethodInvoker)delegate
+            {
                 lblTotalTime.Text = "Calculating...";
             });
 
@@ -372,10 +504,74 @@ namespace VideoTrayApp
         private void btnCheck_Click(object? sender, EventArgs e)
         {
             // Provide quick feedback and trigger an immediate duration update
-            lblTotalTime.Invoke((MethodInvoker)delegate {
+            lblTotalTime.Invoke((MethodInvoker)delegate
+            {
                 lblTotalTime.Text = "Checking...";
             });
             UpdateDuration();
+        }
+
+        private void btnPrepare_Click(object? sender, EventArgs e)
+        {
+            // Step 1: Select source folder (where numbered clips are)
+            using var sourceDialog = new FolderBrowserDialog 
+            { 
+                Description = "Select folder containing numbered clips (e.g., 349.mp4)" 
+            };
+            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) 
+                sourceDialog.SelectedPath = folderPath;
+            if (sourceDialog.ShowDialog() != DialogResult.OK) return;
+
+            string sourceFolder = sourceDialog.SelectedPath;
+
+            // Step 2: Select destination folder or create new one
+            var destResult = MessageBox.Show(
+                "Create a new folder for this batch?\n\nYes = Create new folder\nNo = Select existing folder",
+                "Destination Folder",
+                MessageBoxButtons.YesNoCancel,
+                MessageBoxIcon.Question
+            );
+
+            if (destResult == DialogResult.Cancel) return;
+
+            string destinationFolder;
+
+            if (destResult == DialogResult.Yes)
+            {
+                // Create new folder with timestamp
+                string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                string batchFolderName = $"batch_{timestamp}";
+                destinationFolder = Path.Combine(sourceFolder, batchFolderName);
+                Directory.CreateDirectory(destinationFolder);
+            }
+            else
+            {
+                // User selects existing folder
+                using var destDialog = new FolderBrowserDialog 
+                { 
+                    Description = "Select destination folder (where to move numbered clips)" 
+                };
+                if (destDialog.ShowDialog() != DialogResult.OK) return;
+                destinationFolder = destDialog.SelectedPath;
+            }
+
+            // Show calculating indicator
+            lblTotalTime.Invoke((MethodInvoker)delegate
+            {
+                lblTotalTime.Text = "Calculating...";
+            });
+
+            try
+            {
+                BatchNumberedVideos(sourceFolder, destinationFolder);
+                MessageBox.Show("Batch preparation completed.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UpdateDuration(); // Refresh the display
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Operation failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UpdateDuration(); // Reset display on error
+            }
         }
 
         //
@@ -487,7 +683,132 @@ namespace VideoTrayApp
             File.WriteAllText(logPath, sb.ToString(), Encoding.UTF8);
         }
 
-        // Small helpers
+        //
+        // Implementation of BatchNumberedVideos - moves numbered .mp4 files from source to destination,
+        // keeping total duration under 20 minutes. If moving a file exceeds the limit,
+        // it stops and leaves that file in the source folder.
+        //
+        private void BatchNumberedVideos(string sourceFolder, string destinationFolder)
+        {
+            var srcDir = new DirectoryInfo(sourceFolder);
+            if (!srcDir.Exists) throw new DirectoryNotFoundException($"Source folder not found: {sourceFolder}");
+
+            var destDir = new DirectoryInfo(destinationFolder);
+            if (!destDir.Exists) throw new DirectoryNotFoundException($"Destination folder not found: {destinationFolder}");
+
+            // Filter for .mp4 files in source where filename is strictly a number (e.g., "349.mp4")
+            var files = srcDir.EnumerateFiles("*.mp4", SearchOption.TopDirectoryOnly)
+                .Where(fi => IsStrictlyNumeric(Path.GetFileNameWithoutExtension(fi.Name)))
+                .OrderBy(fi =>
+                {
+                    if (int.TryParse(Path.GetFileNameWithoutExtension(fi.Name), out int num))
+                        return num;
+                    return int.MaxValue;
+                })
+                .ToList();
+
+            if (files.Count == 0)
+            {
+                lblTotalTime.Invoke((MethodInvoker)delegate
+                {
+                    lblTotalTime.Text = "No numbered videos found in source";
+                });
+                return;
+            }
+
+            // Calculate existing duration in destination folder (all video files)
+            TimeSpan existingDuration = TimeSpan.Zero;
+            var destFiles = destDir.EnumerateFiles()
+                .Where(fi => DefaultVideoExts.Contains(fi.Extension))
+                .ToList();
+
+            foreach (var file in destFiles)
+            {
+                try
+                {
+                    using var video = TagLib.File.Create(file.FullName);
+                    existingDuration += video.Properties.Duration;
+                }
+                catch (IOException)
+                {
+                    // File is being written - skip for now
+                    continue;
+                }
+                catch
+                {
+                    // Skip files that can't be read
+                    continue;
+                }
+            }
+
+            // Duration limit: 20 minutes (aiming for ~19m40s = 1180 seconds)
+            TimeSpan durationLimit = TimeSpan.FromSeconds(1180);
+            TimeSpan totalDuration = existingDuration;
+            int movedCount = 0;
+
+            foreach (var file in files)
+            {
+                try
+                {
+                    // Get video duration using TagLib
+                    TimeSpan videoDuration;
+                    try
+                    {
+                        using var video = TagLib.File.Create(file.FullName);
+                        videoDuration = video.Properties.Duration;
+                    }
+                    catch (IOException)
+                    {
+                        // File is being written - skip for now
+                        continue;
+                    }
+                    catch
+                    {
+                        // Skip files that can't be read
+                        continue;
+                    }
+
+                    // Check if adding this file would exceed the limit
+                    TimeSpan projectedTotal = totalDuration + videoDuration;
+
+                    if (projectedTotal <= durationLimit)
+                    {
+                        // Safe to move this file
+                        string targetPath = Path.Combine(destinationFolder, file.Name);
+                        file.MoveTo(targetPath);
+                        totalDuration = projectedTotal;
+                        movedCount++;
+                    }
+                    else
+                    {
+                        // Moving this file would exceed the limit - stop here
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log error but continue with next file
+                    System.Diagnostics.Debug.WriteLine($"Error processing {file.Name}: {ex.Message}");
+                    continue;
+                }
+            }
+
+            // Update label with result
+            lblTotalTime.Invoke((MethodInvoker)delegate
+            {
+                int minutes = (int)totalDuration.TotalMinutes;
+                int seconds = totalDuration.Seconds;
+                lblTotalTime.Text = $"Batched: {movedCount} files ({minutes}m{seconds}s)";
+            });
+        }
+
+        //
+        // Helper method to check if filename is strictly numeric
+        //
+        private static bool IsStrictlyNumeric(string text)
+        {
+            return !string.IsNullOrEmpty(text) && text.All(char.IsDigit);
+        }
 
         private static string EscapeCsv(string s)
         {
@@ -565,6 +886,11 @@ namespace VideoTrayApp
             {
                 return false;
             }
+        }
+
+        private void folderBrowserDialog1_HelpRequest(object sender, EventArgs e)
+        {
+
         }
     }
 }
