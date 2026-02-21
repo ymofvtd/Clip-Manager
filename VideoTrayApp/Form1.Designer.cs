@@ -31,6 +31,7 @@
             lblTotalTime = new Label();
             btnShuffleAndName = new Button();
             btnNameTenSteps = new Button();
+            btnCheck = new Button();
             SuspendLayout();
             // 
             // lblTotalTime
@@ -56,7 +57,7 @@
             // 
             // btnNameTenSteps
             // 
-            btnNameTenSteps.Location = new Point(12, 48);
+            btnNameTenSteps.Location = new Point(198, 12);
             btnNameTenSteps.Name = "btnNameTenSteps";
             btnNameTenSteps.Size = new Size(180, 30);
             btnNameTenSteps.TabIndex = 2;
@@ -64,11 +65,22 @@
             btnNameTenSteps.UseVisualStyleBackColor = true;
             btnNameTenSteps.Click += btnNameTenSteps_Click;
             // 
+            // btnCheck
+            // 
+            btnCheck.Location = new Point(384, 12);
+            btnCheck.Name = "btnCheck";
+            btnCheck.Size = new Size(80, 30);
+            btnCheck.TabIndex = 3;
+            btnCheck.Text = "Check";
+            btnCheck.UseVisualStyleBackColor = true;
+            btnCheck.Click += btnCheck_Click;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1129, 544);
+            Controls.Add(btnCheck);
             Controls.Add(btnNameTenSteps);
             Controls.Add(btnShuffleAndName);
             Controls.Add(lblTotalTime);
@@ -83,5 +95,6 @@
         private Label lblTotalTime;
         private Button btnShuffleAndName;
         private Button btnNameTenSteps;
+        private Button btnCheck;
     }
 }

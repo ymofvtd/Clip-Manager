@@ -72,9 +72,27 @@ namespace VideoTrayApp
 
         private void SetupWatcher()
         {
-            watcher = new FileSystemWatcher(folderPath, "*.mp4");
+            watcher = new FileSystemWatcher(folderPath);
+            // Filter to only watch for video files
+            watcher.Filters.Add("*.mp4");
+            watcher.Filters.Add("*.mov");
+            watcher.Filters.Add("*.m4v");
+            watcher.Filters.Add("*.mxf");
+            watcher.Filters.Add("*.avi");
+            watcher.Filters.Add("*.mkv");
+            watcher.Filters.Add("*.wmv");
+            watcher.Filters.Add("*.mts");
+            watcher.Filters.Add("*.m2ts");
+            watcher.Filters.Add("*.mpg");
+            watcher.Filters.Add("*.mpeg");
+            watcher.Filters.Add("*.3gp");
+            watcher.Filters.Add("*.flv");
+            watcher.Filters.Add("*.webm");
+            
             watcher.Created += (s, e) => ScheduleUpdate();
             watcher.Deleted += (s, e) => ScheduleUpdate();
+            watcher.Renamed += (s, e) => ScheduleUpdate();
+            watcher.IncludeSubdirectories = true;
             watcher.EnableRaisingEvents = true;
 
             debounceTimer = new System.Timers.Timer(500);
@@ -87,8 +105,6 @@ namespace VideoTrayApp
                 }
             };
             debounceTimer.AutoReset = false;
-
-            UpdateDuration(); // Run once at start
         }
 
         private void ScheduleUpdate()
@@ -102,19 +118,25 @@ namespace VideoTrayApp
         {
             try
             {
-                TimeSpan total = TimeSpan.Zero;
-
-                // Ensure the folder exists before looking inside
+                // Ensure the parent folder exists
                 if (!Directory.Exists(folderPath)) return;
 
-                var files = Directory.GetFiles(folderPath, "*.mp4");
+                var parentDir = new DirectoryInfo(folderPath);
+                TimeSpan parentFolderTotal = TimeSpan.Zero;
+                TimeSpan firstSubfolderTotal = TimeSpan.Zero;
+                string firstSubfolderName = "";
 
-                foreach (var file in files)
+                // Process videos in the parent folder itself
+                var parentFiles = parentDir.GetFiles()
+                    .Where(f => DefaultVideoExts.Contains(f.Extension))
+                    .ToList();
+
+                foreach (var file in parentFiles)
                 {
                     try
                     {
-                        using var video = TagLib.File.Create(file);
-                        total += video.Properties.Duration;
+                        using var video = TagLib.File.Create(file.FullName);
+                        parentFolderTotal += video.Properties.Duration;
                     }
                     catch (IOException)
                     {
@@ -127,29 +149,113 @@ namespace VideoTrayApp
                     }
                 }
 
-                // Create the 20M23S style name
-                string fileNameOnly = $"{(int)total.TotalMinutes}M{total.Seconds}S";
-                string fullFileName = fileNameOnly + ".txt";
+                // Create duration file for parent folder if it has videos
+                if (parentFolderTotal > TimeSpan.Zero)
+                {
+                    string fileNameOnly = $"{(int)parentFolderTotal.TotalMinutes}M{parentFolderTotal.Seconds}S";
+                    string fullFileName = fileNameOnly + ".txt";
 
-                // Remove any old .txt files first
-                foreach (var txtFile in Directory.GetFiles(folderPath, "*.txt"))
+                    // Remove any old .txt files in parent folder
+                    foreach (var txtFile in parentDir.GetFiles("*.txt"))
+                    {
+                        try
+                        {
+                            txtFile.Delete();
+                        }
+                        catch
+                        {
+                            // Ignore if file is in use
+                        }
+                    }
+
+                    // Create the new text file
+                    System.IO.File.WriteAllText(Path.Combine(folderPath, fullFileName), "Total Duration Updated");
+                }
+
+                // Process each subfolder
+                foreach (var subfolder in parentDir.GetDirectories())
                 {
                     try
                     {
-                        System.IO.File.Delete(txtFile);
+                        TimeSpan subfolderTotal = TimeSpan.Zero;
+
+                        // Get all video files in this subfolder (not recursive)
+                        var files = subfolder.GetFiles()
+                            .Where(f => DefaultVideoExts.Contains(f.Extension))
+                            .ToList();
+
+                        if (files.Count == 0) continue;
+
+                        foreach (var file in files)
+                        {
+                            try
+                            {
+                                using var video = TagLib.File.Create(file.FullName);
+                                subfolderTotal += video.Properties.Duration;
+                            }
+                            catch (IOException)
+                            {
+                                // File is being written - skip for now
+                                continue;
+                            }
+                            catch
+                            {
+                                // Skip other errors
+                            }
+                        }
+
+                        // Create the duration file for this subfolder
+                        if (subfolderTotal > TimeSpan.Zero)
+                        {
+                            string fileNameOnly = $"{(int)subfolderTotal.TotalMinutes}M{subfolderTotal.Seconds}S";
+                            string fullFileName = fileNameOnly + ".txt";
+
+                            // Remove any old .txt files in this subfolder
+                            foreach (var txtFile in subfolder.GetFiles("*.txt"))
+                            {
+                                try
+                                {
+                                    txtFile.Delete();
+                                }
+                                catch
+                                {
+                                    // Ignore if file is in use
+                                }
+                            }
+
+                            // Create the new text file
+                            System.IO.File.WriteAllText(Path.Combine(subfolder.FullName, fullFileName), "Total Duration Updated");
+
+                            // Track first subfolder for display
+                            if (string.IsNullOrEmpty(firstSubfolderName))
+                            {
+                                firstSubfolderName = subfolder.Name;
+                                firstSubfolderTotal = subfolderTotal;
+                            }
+                        }
                     }
                     catch
                     {
-                        // Ignore if file is in use
+                        // Skip this subfolder if there's an error
                     }
                 }
 
-                // Create the new text file
-                System.IO.File.WriteAllText(Path.Combine(folderPath, fullFileName), "Total Duration Updated");
-
-                // Update the label safely
+                // Update the label with priority: parent folder first, then first subfolder
                 lblTotalTime.Invoke((MethodInvoker)delegate {
-                    lblTotalTime.Text = $"Total Time: {fileNameOnly}";
+                    if (parentFolderTotal > TimeSpan.Zero)
+                    {
+                        string fileNameOnly = $"{(int)parentFolderTotal.TotalMinutes}M{parentFolderTotal.Seconds}S";
+                        lblTotalTime.Text = $"Parent: {fileNameOnly}";
+                    }
+                    else if (!string.IsNullOrEmpty(firstSubfolderName))
+                    {
+                        string fileNameOnly = $"{(int)firstSubfolderTotal.TotalMinutes}M{firstSubfolderTotal.Seconds}S";
+                        lblTotalTime.Text = $"{firstSubfolderName}: {fileNameOnly}";
+                    }
+                    else
+                    {
+                        lblTotalTime.Text = "No videos found";
+                    }
                 });
             }
             catch (Exception ex)
@@ -261,6 +367,15 @@ namespace VideoTrayApp
                 MessageBox.Show($"Operation failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 UpdateDuration(); // Reset display on error
             }
+        }
+
+        private void btnCheck_Click(object? sender, EventArgs e)
+        {
+            // Provide quick feedback and trigger an immediate duration update
+            lblTotalTime.Invoke((MethodInvoker)delegate {
+                lblTotalTime.Text = "Checking...";
+            });
+            UpdateDuration();
         }
 
         //
