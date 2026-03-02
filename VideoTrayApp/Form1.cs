@@ -377,8 +377,9 @@ namespace VideoTrayApp
                 watcher?.Dispose();
                 debounceTimer?.Dispose();
                 trayIcon?.Dispose();
-                base.OnFormClosing(e);
             }
+
+            base.OnFormClosing(e);
         }
 
         private void ShowWindow(object? sender, EventArgs e)
@@ -768,22 +769,19 @@ namespace VideoTrayApp
                         continue;
                     }
 
-                    // Check if adding this file would exceed the limit
-                    TimeSpan projectedTotal = totalDuration + videoDuration;
-
-                    if (projectedTotal <= durationLimit)
+                    // Check if we've already reached the limit
+                    if (totalDuration >= durationLimit)
                     {
-                        // Safe to move this file
-                        string targetPath = Path.Combine(destinationFolder, file.Name);
-                        file.MoveTo(targetPath);
-                        totalDuration = projectedTotal;
-                        movedCount++;
-                    }
-                    else
-                    {
-                        // Moving this file would exceed the limit - stop here
+                        // Already at or exceeded the limit - stop here
                         break;
                     }
+
+                    // Add this file to reach the limit
+                    TimeSpan projectedTotal = totalDuration + videoDuration;
+                    string targetPath = Path.Combine(destinationFolder, file.Name);
+                    file.MoveTo(targetPath);
+                    totalDuration = projectedTotal;
+                    movedCount++;
                 }
                 catch (Exception ex)
                 {
