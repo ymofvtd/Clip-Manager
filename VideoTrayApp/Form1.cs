@@ -556,6 +556,20 @@ namespace VideoTrayApp
                 destinationFolder = destDialog.SelectedPath;
             }
 
+            // Step 3: Ask for desired batch duration
+            string durationInput = Interaction.InputBox(
+                "Desired batch duration in minutes (default 20):",
+                "Batch Duration",
+                "20"
+            );
+
+            if (!int.TryParse(durationInput, out int durationMinutes) || durationMinutes <= 0)
+            {
+                durationMinutes = 20; // Default to 20 minutes
+            }
+
+            TimeSpan batchDurationLimit = TimeSpan.FromMinutes(durationMinutes);
+
             // Show calculating indicator
             lblTotalTime.Invoke((MethodInvoker)delegate
             {
@@ -564,7 +578,7 @@ namespace VideoTrayApp
 
             try
             {
-                BatchNumberedVideos(sourceFolder, destinationFolder);
+                BatchNumberedVideos(sourceFolder, destinationFolder, batchDurationLimit);
                 MessageBox.Show("Batch preparation completed.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 UpdateDuration(); // Refresh the display
             }
@@ -686,10 +700,10 @@ namespace VideoTrayApp
 
         //
         // Implementation of BatchNumberedVideos - moves numbered .mp4 files from source to destination,
-        // keeping total duration under 20 minutes. If moving a file exceeds the limit,
+        // keeping total duration under the specified limit. If moving a file exceeds the limit,
         // it stops and leaves that file in the source folder.
         //
-        private void BatchNumberedVideos(string sourceFolder, string destinationFolder)
+        private void BatchNumberedVideos(string sourceFolder, string destinationFolder, TimeSpan durationLimit)
         {
             var srcDir = new DirectoryInfo(sourceFolder);
             if (!srcDir.Exists) throw new DirectoryNotFoundException($"Source folder not found: {sourceFolder}");
@@ -742,8 +756,7 @@ namespace VideoTrayApp
                 }
             }
 
-            // Duration limit: 20 minutes (aiming for ~19m40s = 1180 seconds)
-            TimeSpan durationLimit = TimeSpan.FromSeconds(1180);
+            // Use the provided duration limit
             TimeSpan totalDuration = existingDuration;
             int movedCount = 0;
 
