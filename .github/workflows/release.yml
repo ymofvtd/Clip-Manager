@@ -37,11 +37,13 @@ jobs:
           echo "version=$ver" >> $env:GITHUB_OUTPUT
           echo "Using version: $ver"
 
+      - name: Restore NuGet packages
+        run: dotnet restore VideoTrayApp/VideoTrayApp.csproj
+
       - name: Publish single-file Release EXE
         run: |
           dotnet publish VideoTrayApp/VideoTrayApp.csproj `
             -c Release `
-            --no-restore `
             -p:Version=${{ steps.get-version.outputs.version }} `
             -p:AssemblyVersion=${{ steps.get-version.outputs.version }}.0 `
             -p:FileVersion=${{ steps.get-version.outputs.version }}.0 `
