@@ -29,13 +29,27 @@ jobs:
         shell: pwsh
         run: |
           if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ inputs.version }}' -ne '') {
-            $ver = '${{ inputs.version }}'
+            $fullVer = '${{ inputs.version }}'
           } else {
             # Strip leading 'v' from tag (v1.0.2 -> 1.0.2)
-            $ver = '${{ github.ref_name }}' -replace '^v', ''
+            $fullVer = '${{ github.ref_name }}' -replace '^v', ''
           }
-          echo "version=$ver" >> $env:GITHUB_OUTPUT
-          echo "Using version: $ver"
+
+          # For AssemblyVersion and FileVersion we MUST use a numeric version (major.minor.build.revision)
+          # Strip any pre-release suffix (everything after - or +)
+          $base = $fullVer -replace '[-+].*$', ''
+          if ($base -notmatch '^\d') {
+            $base = '1.0.0'
+          }
+
+          # Ensure we have at least 3 parts (major.minor.build)
+          $parts = $base.Split('.')
+          while ($parts.Count -lt 3) { $parts += '0' }
+          $cleanVersion = ($parts[0..2] -join '.') + '.0'   # e.g. "1.0.2.0"
+
+          echo "version=$fullVer" >> $env:GITHUB_OUTPUT
+          echo "cleanVersion=$cleanVersion" >> $env:GITHUB_OUTPUT
+          echo "Using version: $fullVer (assembly: $cleanVersion)"
 
       - name: Restore NuGet packages
         run: dotnet restore VideoTrayApp/VideoTrayApp.csproj
@@ -45,8 +59,8 @@ jobs:
           dotnet publish VideoTrayApp/VideoTrayApp.csproj `
             -c Release `
             -p:Version=${{ steps.get-version.outputs.version }} `
-            -p:AssemblyVersion=${{ steps.get-version.outputs.version }}.0 `
-            -p:FileVersion=${{ steps.get-version.outputs.version }}.0 `
+            -p:AssemblyVersion=${{ steps.get-version.outputs.cleanVersion }} `
+            -p:FileVersion=${{ steps.get-version.outputs.cleanVersion }} `
             -p:PublishSingleFile=true `
             -p:SelfContained=true `
             -p:RuntimeIdentifier=win-x64 `
