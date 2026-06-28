@@ -40,6 +40,7 @@
             btnNameTenSteps = new Button();
             btnCheck = new Button();
             btnPrepare = new Button();
+            btnShuffleRandom = new Button();
 
             SuspendLayout();
 
@@ -143,10 +144,24 @@
             btnPrepare.Cursor = Cursors.Hand;
             btnPrepare.Click += btnPrepare_Click;
 
+            // Shuffle to Random Button
+            btnShuffleRandom.Text = "🎲 Shuffle Random";
+            btnShuffleRandom.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            btnShuffleRandom.BackColor = Color.FromArgb(255, 152, 0);
+            btnShuffleRandom.ForeColor = Color.White;
+            btnShuffleRandom.Size = new Size(160, 50);
+            btnShuffleRandom.Location = new Point(760, 20);
+            btnShuffleRandom.TabIndex = 5;
+            btnShuffleRandom.FlatStyle = FlatStyle.Flat;
+            btnShuffleRandom.FlatAppearance.BorderSize = 0;
+            btnShuffleRandom.Cursor = Cursors.Hand;
+            btnShuffleRandom.Click += btnShuffleRandom_Click;
+
             pnlActions.Controls.Add(btnShuffleAndName);
             pnlActions.Controls.Add(btnNameTenSteps);
             pnlActions.Controls.Add(btnCheck);
             pnlActions.Controls.Add(btnPrepare);
+            pnlActions.Controls.Add(btnShuffleRandom);
 
             // Main Content Panel
             pnlContent.BackColor = Color.FromArgb(45, 45, 48);
@@ -156,7 +171,7 @@
             // Form1
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(900, 400);
+            ClientSize = new Size(960, 400);
             BackColor = Color.FromArgb(45, 45, 48);
             ForeColor = Color.White;
             Controls.Add(pnlContent);
@@ -176,5 +191,6 @@
         private Button btnNameTenSteps;
         private Button btnCheck;
         private Button btnPrepare;
+        private Button btnShuffleRandom;
     }
 }

@@ -6,13 +6,25 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- Single File Deployment -->
+
+    <!-- Versioning - bump this before releases -->
+    <Version>1.0.1</Version>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <FileVersion>1.0.1.0</FileVersion>
+
+    <!-- Single File Deployment - produces one portable .exe -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
     <!-- Application Icon -->
     <ApplicationIcon>icon.ico</ApplicationIcon>
+
+    <!-- Nice metadata for the .exe file properties -->
+    <Product>VideoTrayApp</Product>
+    <Authors>glpzghoo</Authors>
+    <Description>Video Duration Tracker tray application</Description>
   </PropertyGroup>
 
   <ItemGroup>

@@ -589,6 +589,36 @@ namespace VideoTrayApp
             }
         }
 
+        private void btnShuffleRandom_Click(object? sender, EventArgs e)
+        {
+            using var dlg = new FolderBrowserDialog { Description = "Select folder to shuffle videos to random character names" };
+            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) dlg.SelectedPath = folderPath;
+            if (dlg.ShowDialog() != DialogResult.OK) return;
+
+            string targetFolder = dlg.SelectedPath;
+
+            string lenInput = Interaction.InputBox("Random name length (default 12):", "Length", "12");
+            if (!int.TryParse(lenInput.Trim(), out int len) || len < 4) len = 12;
+            if (len > 64) len = 64;
+
+            lblTotalTime.Invoke((MethodInvoker)delegate
+            {
+                lblTotalTime.Text = "Shuffling...";
+            });
+
+            try
+            {
+                ShuffleToRandom(targetFolder, len);
+                MessageBox.Show("Shuffle to random names completed.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UpdateDuration(); // Refresh the display
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Operation failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UpdateDuration(); // Reset display on error
+            }
+        }
+
         //
         // Implementation of NameTenSteps (two-pass rename to clear namespace and then 0,10,20...)
         //
@@ -693,6 +723,47 @@ namespace VideoTrayApp
                 sb.AppendLine($"{EscapeCsv(original)},{EscapeCsv(current.Name)},{EscapeCsv(Path.GetFileName(finalPath))}");
                 File.Move(current.FullName, finalPath);
                 seq += 10;
+            }
+
+            File.WriteAllText(logPath, sb.ToString(), Encoding.UTF8);
+        }
+
+        //
+        // Implementation of ShuffleToRandom: renames all videos in folder to random character names
+        //
+        private void ShuffleToRandom(string folder, int length)
+        {
+            var dir = new DirectoryInfo(folder);
+            if (!dir.Exists) throw new DirectoryNotFoundException(folder);
+
+            var files = dir.EnumerateFiles()
+                .Where(fi => !fi.Name.StartsWith(".") && DefaultVideoExts.Contains(fi.Extension))
+                .OrderBy(fi => fi.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (files.Count == 0) return;
+
+            var rng = new Random();
+            var usedIds = new HashSet<string>();
+            string now = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            string logPath = Path.Combine(folder, $"random_shuffle_{now}.csv");
+            var sb = new StringBuilder();
+            sb.AppendLine("original,random");
+
+            foreach (var fi in files)
+            {
+                string rid;
+                string candidatePath;
+                do
+                {
+                    rid = GenId(rng, length);
+                    string candidateName = rid + fi.Extension;
+                    candidatePath = Path.Combine(folder, candidateName);
+                } while (usedIds.Contains(rid) || File.Exists(candidatePath) || Directory.Exists(candidatePath));
+
+                usedIds.Add(rid);
+                File.Move(fi.FullName, candidatePath);
+                sb.AppendLine($"{EscapeCsv(fi.Name)},{EscapeCsv(Path.GetFileName(candidatePath))}");
             }
 
             File.WriteAllText(logPath, sb.ToString(), Encoding.UTF8);
