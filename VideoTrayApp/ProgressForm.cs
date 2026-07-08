@@ -1,6 +1,6 @@
 namespace VideoTrayApp
 {
-    public partial class ProgressForm : Form
+    public partial class ProgressForm : Form, IOperationProgress
     {
         private CancellationTokenSource? cancellationTokenSource;
 

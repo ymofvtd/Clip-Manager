@@ -17,6 +17,7 @@ namespace VideoTrayApp
         private string folderPath;
         private System.Timers.Timer debounceTimer;
         private bool isDirty = false;
+        private CancellationTokenSource? operationCts;
 
         // Common video extensions used by original Python scripts
         private static readonly HashSet<string> DefaultVideoExts = new(StringComparer.OrdinalIgnoreCase)
@@ -187,7 +188,7 @@ namespace VideoTrayApp
                 if (isDirty)
                 {
                     isDirty = false;
-                    UpdateDuration();
+                    UpdateVideoCount();
                 }
             };
             debounceTimer.AutoReset = false;
@@ -200,146 +201,113 @@ namespace VideoTrayApp
             debounceTimer.Start();
         }
 
-        private void UpdateDuration()
+        private void UpdateVideoCount()
         {
             try
             {
-                UpdateDurationCore(null, CancellationToken.None);
+                int count = CountVideosInFolder(folderPath);
+                if (InvokeRequired)
+                {
+                    Invoke(UpdateVideoCountDisplay, count);
+                    return;
+                }
+
+                UpdateVideoCountDisplay(count);
             }
             catch
             {
-                // Log or silently handle
+                // Ignore count errors
             }
         }
 
-        private void UpdateDurationCore(ProgressForm? progress, CancellationToken cancellationToken)
+        private static int CountVideosInFolder(string folder)
         {
-            if (!Directory.Exists(folderPath)) return;
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+                return 0;
 
-            var parentDir = new DirectoryInfo(folderPath);
-            TimeSpan parentFolderTotal = TimeSpan.Zero;
+            return Directory.EnumerateFiles(folder)
+                .Count(path => DefaultVideoExts.Contains(Path.GetExtension(path)));
+        }
 
-            var parentFiles = parentDir.GetFiles()
-                .Where(f => DefaultVideoExts.Contains(f.Extension))
-                .ToList();
+        private void UpdateVideoCountDisplay(int count)
+        {
+            lblVideoCount.Text = count == 1 ? "1 video" : $"{count} videos";
+        }
 
-            var subfolders = parentDir.GetDirectories().ToList();
-            int totalFiles = parentFiles.Count + subfolders.Sum(sf =>
+        private sealed class EmbeddedOperationProgress : IOperationProgress
+        {
+            private readonly Form1 form;
+
+            public EmbeddedOperationProgress(Form1 form)
             {
-                try
-                {
-                    return sf.GetFiles().Count(f => DefaultVideoExts.Contains(f.Extension));
-                }
-                catch
-                {
-                    return 0;
-                }
-            });
-
-            int processed = 0;
-            progress?.Report(0, totalFiles, "Checking videos...");
-
-            foreach (var file in parentFiles)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                processed++;
-                progress?.Report(processed, totalFiles, $"Reading {file.Name}...");
-
-                try
-                {
-                    using var video = TagLib.File.Create(file.FullName);
-                    parentFolderTotal += video.Properties.Duration;
-                }
-                catch (IOException)
-                {
-                    continue;
-                }
-                catch
-                {
-                    // Skip other errors
-                }
+                this.form = form;
             }
 
-            if (parentFolderTotal > TimeSpan.Zero)
+            public CancellationToken CancellationToken =>
+                form.operationCts?.Token ?? CancellationToken.None;
+
+            public void Report(int current, int total, string message) =>
+                form.ReportEmbeddedProgress(current, total, message);
+
+            public void SetIndeterminate(string message) =>
+                form.ReportEmbeddedProgress(0, 0, message);
+        }
+
+        private void BeginEmbeddedOperation(string title)
+        {
+            operationCts?.Dispose();
+            operationCts = new CancellationTokenSource();
+
+            lblProgressStatus.Text = title;
+            progressBarMain.Style = ProgressBarStyle.Marquee;
+            progressBarMain.MarqueeAnimationSpeed = 30;
+            btnCancelOperation.Visible = true;
+            btnCancelOperation.Enabled = true;
+        }
+
+        private void ReportEmbeddedProgress(int current, int total, string message)
+        {
+            if (InvokeRequired)
             {
-                string fileNameOnly = $"{(int)parentFolderTotal.TotalMinutes}M{parentFolderTotal.Seconds}S";
-                string fullFileName = fileNameOnly + ".txt";
-
-                foreach (var txtFile in parentDir.GetFiles("*.txt"))
-                {
-                    try
-                    {
-                        txtFile.Delete();
-                    }
-                    catch
-                    {
-                        // Ignore if file is in use
-                    }
-                }
-
-                System.IO.File.WriteAllText(Path.Combine(folderPath, fullFileName), "Total Duration Updated");
+                Invoke(ReportEmbeddedProgress, current, total, message);
+                return;
             }
 
-            foreach (var subfolder in subfolders)
+            lblProgressStatus.Text = message;
+            if (total <= 0)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
-                {
-                    TimeSpan subfolderTotal = TimeSpan.Zero;
-                    var files = subfolder.GetFiles()
-                        .Where(f => DefaultVideoExts.Contains(f.Extension))
-                        .ToList();
-
-                    if (files.Count == 0) continue;
-
-                    foreach (var file in files)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        processed++;
-                        progress?.Report(processed, totalFiles, $"Reading {subfolder.Name}\\{file.Name}...");
-
-                        try
-                        {
-                            using var video = TagLib.File.Create(file.FullName);
-                            subfolderTotal += video.Properties.Duration;
-                        }
-                        catch (IOException)
-                        {
-                            continue;
-                        }
-                        catch
-                        {
-                            // Skip other errors
-                        }
-                    }
-
-                    if (subfolderTotal > TimeSpan.Zero)
-                    {
-                        string fileNameOnly = $"{(int)subfolderTotal.TotalMinutes}M{subfolderTotal.Seconds}S";
-                        string fullFileName = fileNameOnly + ".txt";
-
-                        foreach (var txtFile in subfolder.GetFiles("*.txt"))
-                        {
-                            try
-                            {
-                                txtFile.Delete();
-                            }
-                            catch
-                            {
-                                // Ignore if file is in use
-                            }
-                        }
-
-                        System.IO.File.WriteAllText(Path.Combine(subfolder.FullName, fullFileName), "Total Duration Updated");
-                    }
-                }
-                catch
-                {
-                    // Skip this subfolder if there's an error
-                }
+                progressBarMain.Style = ProgressBarStyle.Marquee;
+                progressBarMain.MarqueeAnimationSpeed = 30;
+                return;
             }
 
+            progressBarMain.Style = ProgressBarStyle.Continuous;
+            progressBarMain.Maximum = Math.Max(total, 1);
+            progressBarMain.Value = Math.Min(Math.Max(current, 0), progressBarMain.Maximum);
+        }
+
+        private void CompleteEmbeddedOperation(string message)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(CompleteEmbeddedOperation, message);
+                return;
+            }
+
+            lblProgressStatus.Text = message;
+            progressBarMain.Style = ProgressBarStyle.Continuous;
+            progressBarMain.Value = progressBarMain.Maximum > 0 ? progressBarMain.Maximum : 0;
+            btnCancelOperation.Visible = false;
+            btnCancelOperation.Enabled = false;
+            operationCts?.Dispose();
+            operationCts = null;
+        }
+
+        private void btnCancelOperation_Click(object? sender, EventArgs e)
+        {
+            operationCts?.Cancel();
+            btnCancelOperation.Enabled = false;
+            lblProgressStatus.Text = "Cancelling...";
         }
 
         private void SetButtonsEnabled(bool enabled)
@@ -356,26 +324,26 @@ namespace VideoTrayApp
             btnShuffleRandom.Enabled = enabled;
             btnArchive.Enabled = enabled;
             btnBrowseFolder.Enabled = enabled;
+            if (!enabled)
+                btnCancelOperation.Enabled = enabled;
         }
 
         private async Task RunWithProgressAsync(
             string title,
-            Func<ProgressForm, CancellationToken, Task<string?>> work,
-            bool refreshDurationOnComplete = true,
+            Func<IOperationProgress, CancellationToken, Task<string?>> work,
+            bool refreshVideoCountOnComplete = true,
             bool showSuccessMessage = false,
             string? successMessage = null)
         {
             SetButtonsEnabled(false);
+            BeginEmbeddedOperation(title);
 
-            using var progressForm = new ProgressForm();
-            progressForm.BeginOperation(title);
-            progressForm.Show(this);
-
-            var workTask = Task.Run(() => work(progressForm, progressForm.CancellationToken));
+            var progress = new EmbeddedOperationProgress(this);
+            var workTask = Task.Run(() => work(progress, progress.CancellationToken));
             try
             {
                 string? resultMessage = await workTask;
-                progressForm.Complete("Done");
+                CompleteEmbeddedOperation("Done");
 
                 if (showSuccessMessage)
                 {
@@ -388,26 +356,23 @@ namespace VideoTrayApp
             }
             catch (OperationCanceledException)
             {
+                CompleteEmbeddedOperation("Cancelled");
                 MessageBox.Show("Operation cancelled.", "Cancelled", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
+                CompleteEmbeddedOperation("Failed");
                 MessageBox.Show($"Operation failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
-                if (progressForm.Visible)
-                {
-                    progressForm.Close();
-                }
-
                 SetButtonsEnabled(true);
 
-                if (refreshDurationOnComplete)
+                if (refreshVideoCountOnComplete)
                 {
                     try
                     {
-                        UpdateDuration();
+                        UpdateVideoCount();
                     }
                     catch
                     {
@@ -420,24 +385,15 @@ namespace VideoTrayApp
         private async Task RunCheckForUpdateAsync()
         {
             SetButtonsEnabled(false);
+            BeginEmbeddedOperation("Check for Updates");
 
             try
             {
-                using var checkForm = new ProgressForm();
-                checkForm.BeginOperation("Check for Updates");
-                checkForm.Show(this);
-                checkForm.SetIndeterminate("Checking for updates...");
+                var progress = new EmbeddedOperationProgress(this);
+                progress.SetIndeterminate("Checking for updates...");
 
-                UpdateCheckResult result;
-                try
-                {
-                    result = await AppUpdater.CheckForUpdateAsync(checkForm.CancellationToken);
-                }
-                finally
-                {
-                    if (checkForm.Visible)
-                        checkForm.Close();
-                }
+                UpdateCheckResult result = await AppUpdater.CheckForUpdateAsync(progress.CancellationToken);
+                CompleteEmbeddedOperation("Ready");
 
                 if (!result.UpdateAvailable)
                 {
@@ -485,17 +441,19 @@ namespace VideoTrayApp
                         AppUpdater.ApplyUpdate(downloadedPath);
                         return "The app will now restart to finish updating.";
                     },
-                    refreshDurationOnComplete: false,
+                    refreshVideoCountOnComplete: false,
                     showSuccessMessage: true);
 
                 Application.Exit();
             }
             catch (OperationCanceledException)
             {
+                CompleteEmbeddedOperation("Cancelled");
                 MessageBox.Show("Update cancelled.", "Cancelled", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
+                CompleteEmbeddedOperation("Failed");
                 MessageBox.Show($"Update failed:\n{ex.Message}", "Update Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
@@ -522,7 +480,7 @@ namespace VideoTrayApp
         {
             base.OnLoad(e);
             this.Hide(); // Ensure it stays hidden
-            UpdateDuration(); // Calculate duration on startup
+            UpdateVideoCount();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -605,7 +563,7 @@ namespace VideoTrayApp
 
             watcher?.Dispose();
             SetupWatcher();
-            UpdateDuration();
+            UpdateVideoCount();
         }
 
         private void UpdateFolderDisplay()
@@ -619,6 +577,7 @@ namespace VideoTrayApp
             txtSelectedFolder.Text = string.IsNullOrEmpty(folderPath)
                 ? "(not set)"
                 : folderPath;
+            UpdateVideoCount();
         }
 
         private bool TryGetWorkingFolder(out string folder, string actionName)
@@ -678,10 +637,18 @@ namespace VideoTrayApp
 
         private async void btnPrepare_Click(object? sender, EventArgs e)
         {
-            if (!TryGetWorkingFolder(out string sourceFolder, "Prepare Batch"))
+            using var sourceDialog = new FolderBrowserDialog
+            {
+                Description = "Select folder containing numbered clips (e.g., 349.mp4)"
+            };
+            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath))
+                sourceDialog.SelectedPath = folderPath;
+            if (sourceDialog.ShowDialog() != DialogResult.OK)
                 return;
 
-            // Step 2: Select destination folder or create new one
+            string sourceFolder = sourceDialog.SelectedPath;
+
+            // Select destination folder or create new one
             var destResult = MessageBox.Show(
                 "Create a new folder for this batch?\n\nYes = Create new folder\nNo = Select existing folder",
                 "Destination Folder",
@@ -776,7 +743,7 @@ namespace VideoTrayApp
         //
         // Implementation of NameTenSteps (two-pass rename to clear namespace and then 0,10,20...)
         //
-        private void NameTenSteps(string folder, int start, ProgressForm? progress = null, CancellationToken cancellationToken = default)
+        private void NameTenSteps(string folder, int start, IOperationProgress? progress = null, CancellationToken cancellationToken = default)
         {
             var dir = new DirectoryInfo(folder);
             if (!dir.Exists) throw new DirectoryNotFoundException(folder);
@@ -827,7 +794,7 @@ namespace VideoTrayApp
         //
         // Implementation of ShuffleAndNameStepTen (two-pass: randomize ids then rename by tens)
         //
-        private void ShuffleAndNameStepTen(string folder, int start, int pad, string prefix, ProgressForm? progress = null, CancellationToken cancellationToken = default)
+        private void ShuffleAndNameStepTen(string folder, int start, int pad, string prefix, IOperationProgress? progress = null, CancellationToken cancellationToken = default)
         {
             var dir = new DirectoryInfo(folder);
             if (!dir.Exists) throw new DirectoryNotFoundException(folder);
@@ -871,11 +838,6 @@ namespace VideoTrayApp
                 .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            string now = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-            string logPath = Path.Combine(folder, $"rename_mapping_{now}.csv");
-            var sb = new StringBuilder();
-            sb.AppendLine("original,random,final");
-
             int seq = start;
             progress?.Report(processed, total, "Naming videos (stage 2)...");
             foreach (var current in randomizedFiles)
@@ -888,19 +850,15 @@ namespace VideoTrayApp
                 var finalName = $"{prefix}{numStr}{current.Extension}";
                 var finalPath = Path.Combine(folder, finalName);
                 finalPath = EnsureUniquePath(finalPath);
-                var original = stage1Map.FirstOrDefault(t => t.RandomName == current.Name).Original ?? "";
-                sb.AppendLine($"{EscapeCsv(original)},{EscapeCsv(current.Name)},{EscapeCsv(Path.GetFileName(finalPath))}");
                 File.Move(current.FullName, finalPath);
                 seq += 10;
             }
-
-            File.WriteAllText(logPath, sb.ToString(), Encoding.UTF8);
         }
 
         //
         // Implementation of ShuffleToRandom: renames all videos in folder to random character names
         //
-        private void ShuffleToRandom(string folder, int length, ProgressForm? progress = null, CancellationToken cancellationToken = default)
+        private void ShuffleToRandom(string folder, int length, IOperationProgress? progress = null, CancellationToken cancellationToken = default)
         {
             var dir = new DirectoryInfo(folder);
             if (!dir.Exists) throw new DirectoryNotFoundException(folder);
@@ -914,10 +872,6 @@ namespace VideoTrayApp
 
             var rng = new Random();
             var usedIds = new HashSet<string>();
-            string now = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-            string logPath = Path.Combine(folder, $"random_shuffle_{now}.csv");
-            var sb = new StringBuilder();
-            sb.AppendLine("original,random");
 
             int processed = 0;
             progress?.Report(0, files.Count, "Shuffling videos...");
@@ -939,10 +893,7 @@ namespace VideoTrayApp
 
                 usedIds.Add(rid);
                 File.Move(fi.FullName, candidatePath);
-                sb.AppendLine($"{EscapeCsv(fi.Name)},{EscapeCsv(Path.GetFileName(candidatePath))}");
             }
-
-            File.WriteAllText(logPath, sb.ToString(), Encoding.UTF8);
         }
 
         //
@@ -950,7 +901,7 @@ namespace VideoTrayApp
         // keeping total duration under the specified limit. If moving a file exceeds the limit,
         // it stops and leaves that file in the source folder.
         //
-        private void BatchNumberedVideos(string sourceFolder, string destinationFolder, TimeSpan durationLimit, ProgressForm? progress = null, CancellationToken cancellationToken = default)
+        private void BatchNumberedVideos(string sourceFolder, string destinationFolder, TimeSpan durationLimit, IOperationProgress? progress = null, CancellationToken cancellationToken = default)
         {
             var srcDir = new DirectoryInfo(sourceFolder);
             if (!srcDir.Exists) throw new DirectoryNotFoundException($"Source folder not found: {sourceFolder}");
@@ -1050,7 +1001,7 @@ namespace VideoTrayApp
 
         private static readonly TimeSpan MaxArchiveDuration = TimeSpan.FromSeconds(90);
 
-        private string ArchiveVideos(string sourceFolder, ProgressForm progress, CancellationToken cancellationToken)
+        private string ArchiveVideos(string sourceFolder, IOperationProgress progress, CancellationToken cancellationToken)
         {
             var sourceDir = new DirectoryInfo(sourceFolder);
             if (!sourceDir.Exists)
@@ -1086,10 +1037,6 @@ namespace VideoTrayApp
             int skippedDuplicates = 0;
             int skippedTooLong = 0;
             int errors = 0;
-            string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-            string logPath = Path.Combine(archiveFolder, $"archive_log_{timestamp}.csv");
-            var log = new StringBuilder();
-            log.AppendLine("source_path,action,size_bytes,duration_seconds,destination_path,error");
 
             for (int i = 0; i < sourceFiles.Count; i++)
             {
@@ -1098,25 +1045,22 @@ namespace VideoTrayApp
                 string fileName = Path.GetFileName(sourcePath);
                 progress.Report(i + 1, sourceFiles.Count, $"Checking {fileName}...");
 
-                if (!VideoFingerprintFactory.TryCreate(sourcePath, out var fingerprint, out var error)
+                if (!VideoFingerprintFactory.TryCreate(sourcePath, out var fingerprint, out _)
                     || fingerprint is null)
                 {
                     errors++;
-                    log.AppendLine($"{EscapeCsv(sourcePath)},error,,,,,{EscapeCsv(error ?? "Unknown error")}");
                     continue;
                 }
 
                 if (!knownFingerprints.Add(fingerprint))
                 {
                     skippedDuplicates++;
-                    log.AppendLine($"{EscapeCsv(sourcePath)},skipped_duplicate,{fingerprint.Size},{fingerprint.Duration.TotalSeconds:0.###},,");
                     continue;
                 }
 
                 if (fingerprint.Duration > MaxArchiveDuration)
                 {
                     skippedTooLong++;
-                    log.AppendLine($"{EscapeCsv(sourcePath)},skipped_too_long,{fingerprint.Size},{fingerprint.Duration.TotalSeconds:0.###},,");
                     continue;
                 }
 
@@ -1126,21 +1070,15 @@ namespace VideoTrayApp
                     progress.Report(i + 1, sourceFiles.Count, $"Copying {fileName}...");
                     File.Copy(sourcePath, destinationPath, overwrite: false);
                     copied++;
-                    log.AppendLine($"{EscapeCsv(sourcePath)},copied,{fingerprint.Size},{fingerprint.Duration.TotalSeconds:0.###},{EscapeCsv(destinationPath)},");
                 }
-                catch (Exception ex)
+                catch
                 {
                     knownFingerprints.Remove(fingerprint);
                     errors++;
-                    log.AppendLine($"{EscapeCsv(sourcePath)},error,{fingerprint.Size},{fingerprint.Duration.TotalSeconds:0.###},,{EscapeCsv(ex.Message)}");
                 }
             }
 
-            File.WriteAllText(logPath, log.ToString(), Encoding.UTF8);
-
-            string summary = $"Archive completed.\n\nCopied: {copied}\nSkipped duplicates: {skippedDuplicates}\nSkipped (over 1m30s): {skippedTooLong}\nErrors: {errors}\n\nLog: {logPath}";
-
-            return summary;
+            return $"Archive completed.\n\nCopied: {copied}\nSkipped duplicates: {skippedDuplicates}\nSkipped (over 1m30s): {skippedTooLong}\nErrors: {errors}";
         }
 
         private static bool IsUnderDirectory(string filePath, string directoryPath)
@@ -1160,15 +1098,6 @@ namespace VideoTrayApp
         private static bool IsStrictlyNumeric(string text)
         {
             return !string.IsNullOrEmpty(text) && text.All(char.IsDigit);
-        }
-
-        private static string EscapeCsv(string s)
-        {
-            if (s.Contains(',') || s.Contains('"') || s.Contains('\n'))
-            {
-                return $"\"{s.Replace("\"", "\"\"")}\"";
-            }
-            return s;
         }
 
         private static string GenId(Random rng, int length)
