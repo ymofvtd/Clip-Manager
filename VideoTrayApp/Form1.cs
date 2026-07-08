@@ -1,11 +1,12 @@
 using Microsoft.Win32;
 using System.IO;
-using System.Reflection.Emit;
 using System.Diagnostics;
 using Microsoft.VisualBasic; // for InputBox
 using System.Text.RegularExpressions;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace VideoTrayApp
 {
@@ -119,7 +120,8 @@ namespace VideoTrayApp
 
             // Right-click menu for the icon
             var menu = new ContextMenuStrip();
-            menu.Items.Add("Check Now", null, (s, e) => UpdateDuration());
+            menu.Items.Add("Check Now", null, async (s, e) => await RunCheckWithProgressAsync());
+            menu.Items.Add("Archive", null, async (s, e) => await RunArchiveAsync());
             menu.Items.Add("Set Folder", null, SetFolderPath);
             menu.Items.Add("Show Window", null, ShowWindow);
             menu.Items.Add("Exit", null, (s, e) => Application.Exit());
@@ -201,151 +203,254 @@ namespace VideoTrayApp
         {
             try
             {
-                // Ensure the parent folder exists
-                if (!Directory.Exists(folderPath)) return;
-
-                var parentDir = new DirectoryInfo(folderPath);
-                TimeSpan parentFolderTotal = TimeSpan.Zero;
-                TimeSpan firstSubfolderTotal = TimeSpan.Zero;
-                string firstSubfolderName = "";
-
-                // Process videos in the parent folder itself
-                var parentFiles = parentDir.GetFiles()
-                    .Where(f => DefaultVideoExts.Contains(f.Extension))
-                    .ToList();
-
-                foreach (var file in parentFiles)
-                {
-                    try
-                    {
-                        using var video = TagLib.File.Create(file.FullName);
-                        parentFolderTotal += video.Properties.Duration;
-                    }
-                    catch (IOException)
-                    {
-                        // File is being written - skip for now
-                        continue;
-                    }
-                    catch
-                    {
-                        // Skip other errors
-                    }
-                }
-
-                // Create duration file for parent folder if it has videos
-                if (parentFolderTotal > TimeSpan.Zero)
-                {
-                    string fileNameOnly = $"{(int)parentFolderTotal.TotalMinutes}M{parentFolderTotal.Seconds}S";
-                    string fullFileName = fileNameOnly + ".txt";
-
-                    // Remove any old .txt files in parent folder
-                    foreach (var txtFile in parentDir.GetFiles("*.txt"))
-                    {
-                        try
-                        {
-                            txtFile.Delete();
-                        }
-                        catch
-                        {
-                            // Ignore if file is in use
-                        }
-                    }
-
-                    // Create the new text file
-                    System.IO.File.WriteAllText(Path.Combine(folderPath, fullFileName), "Total Duration Updated");
-                }
-
-                // Process each subfolder
-                foreach (var subfolder in parentDir.GetDirectories())
-                {
-                    try
-                    {
-                        TimeSpan subfolderTotal = TimeSpan.Zero;
-
-                        // Get all video files in this subfolder (not recursive)
-                        var files = subfolder.GetFiles()
-                            .Where(f => DefaultVideoExts.Contains(f.Extension))
-                            .ToList();
-
-                        if (files.Count == 0) continue;
-
-                        foreach (var file in files)
-                        {
-                            try
-                            {
-                                using var video = TagLib.File.Create(file.FullName);
-                                subfolderTotal += video.Properties.Duration;
-                            }
-                            catch (IOException)
-                            {
-                                // File is being written - skip for now
-                                continue;
-                            }
-                            catch
-                            {
-                                // Skip other errors
-                            }
-                        }
-
-                        // Create the duration file for this subfolder
-                        if (subfolderTotal > TimeSpan.Zero)
-                        {
-                            string fileNameOnly = $"{(int)subfolderTotal.TotalMinutes}M{subfolderTotal.Seconds}S";
-                            string fullFileName = fileNameOnly + ".txt";
-
-                            // Remove any old .txt files in this subfolder
-                            foreach (var txtFile in subfolder.GetFiles("*.txt"))
-                            {
-                                try
-                                {
-                                    txtFile.Delete();
-                                }
-                                catch
-                                {
-                                    // Ignore if file is in use
-                                }
-                            }
-
-                            // Create the new text file
-                            System.IO.File.WriteAllText(Path.Combine(subfolder.FullName, fullFileName), "Total Duration Updated");
-
-                            // Track first subfolder for display
-                            if (string.IsNullOrEmpty(firstSubfolderName))
-                            {
-                                firstSubfolderName = subfolder.Name;
-                                firstSubfolderTotal = subfolderTotal;
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        // Skip this subfolder if there's an error
-                    }
-                }
-
-                // Update the label with priority: parent folder first, then first subfolder
-                lblTotalTime.Invoke((MethodInvoker)delegate
-                {
-                    if (parentFolderTotal > TimeSpan.Zero)
-                    {
-                        string fileNameOnly = $"{(int)parentFolderTotal.TotalMinutes}M{parentFolderTotal.Seconds}S";
-                        lblTotalTime.Text = $"Parent: {fileNameOnly}";
-                    }
-                    else if (!string.IsNullOrEmpty(firstSubfolderName))
-                    {
-                        string fileNameOnly = $"{(int)firstSubfolderTotal.TotalMinutes}M{firstSubfolderTotal.Seconds}S";
-                        lblTotalTime.Text = $"{firstSubfolderName}: {fileNameOnly}";
-                    }
-                    else
-                    {
-                        lblTotalTime.Text = "No videos found";
-                    }
-                });
+                UpdateDurationCore(null, CancellationToken.None);
             }
-            catch (Exception ex)
+            catch
             {
                 // Log or silently handle
             }
+        }
+
+        private void UpdateDurationCore(ProgressForm? progress, CancellationToken cancellationToken)
+        {
+            if (!Directory.Exists(folderPath)) return;
+
+            var parentDir = new DirectoryInfo(folderPath);
+            TimeSpan parentFolderTotal = TimeSpan.Zero;
+            TimeSpan firstSubfolderTotal = TimeSpan.Zero;
+            string firstSubfolderName = "";
+
+            var parentFiles = parentDir.GetFiles()
+                .Where(f => DefaultVideoExts.Contains(f.Extension))
+                .ToList();
+
+            var subfolders = parentDir.GetDirectories().ToList();
+            int totalFiles = parentFiles.Count + subfolders.Sum(sf =>
+            {
+                try
+                {
+                    return sf.GetFiles().Count(f => DefaultVideoExts.Contains(f.Extension));
+                }
+                catch
+                {
+                    return 0;
+                }
+            });
+
+            int processed = 0;
+            progress?.Report(0, totalFiles, "Checking videos...");
+
+            foreach (var file in parentFiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                processed++;
+                progress?.Report(processed, totalFiles, $"Reading {file.Name}...");
+
+                try
+                {
+                    using var video = TagLib.File.Create(file.FullName);
+                    parentFolderTotal += video.Properties.Duration;
+                }
+                catch (IOException)
+                {
+                    continue;
+                }
+                catch
+                {
+                    // Skip other errors
+                }
+            }
+
+            if (parentFolderTotal > TimeSpan.Zero)
+            {
+                string fileNameOnly = $"{(int)parentFolderTotal.TotalMinutes}M{parentFolderTotal.Seconds}S";
+                string fullFileName = fileNameOnly + ".txt";
+
+                foreach (var txtFile in parentDir.GetFiles("*.txt"))
+                {
+                    try
+                    {
+                        txtFile.Delete();
+                    }
+                    catch
+                    {
+                        // Ignore if file is in use
+                    }
+                }
+
+                System.IO.File.WriteAllText(Path.Combine(folderPath, fullFileName), "Total Duration Updated");
+            }
+
+            foreach (var subfolder in subfolders)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    TimeSpan subfolderTotal = TimeSpan.Zero;
+                    var files = subfolder.GetFiles()
+                        .Where(f => DefaultVideoExts.Contains(f.Extension))
+                        .ToList();
+
+                    if (files.Count == 0) continue;
+
+                    foreach (var file in files)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        processed++;
+                        progress?.Report(processed, totalFiles, $"Reading {subfolder.Name}\\{file.Name}...");
+
+                        try
+                        {
+                            using var video = TagLib.File.Create(file.FullName);
+                            subfolderTotal += video.Properties.Duration;
+                        }
+                        catch (IOException)
+                        {
+                            continue;
+                        }
+                        catch
+                        {
+                            // Skip other errors
+                        }
+                    }
+
+                    if (subfolderTotal > TimeSpan.Zero)
+                    {
+                        string fileNameOnly = $"{(int)subfolderTotal.TotalMinutes}M{subfolderTotal.Seconds}S";
+                        string fullFileName = fileNameOnly + ".txt";
+
+                        foreach (var txtFile in subfolder.GetFiles("*.txt"))
+                        {
+                            try
+                            {
+                                txtFile.Delete();
+                            }
+                            catch
+                            {
+                                // Ignore if file is in use
+                            }
+                        }
+
+                        System.IO.File.WriteAllText(Path.Combine(subfolder.FullName, fullFileName), "Total Duration Updated");
+
+                        if (string.IsNullOrEmpty(firstSubfolderName))
+                        {
+                            firstSubfolderName = subfolder.Name;
+                            firstSubfolderTotal = subfolderTotal;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Skip this subfolder if there's an error
+                }
+            }
+
+            lblTotalTime.Invoke((MethodInvoker)delegate
+            {
+                if (parentFolderTotal > TimeSpan.Zero)
+                {
+                    string fileNameOnly = $"{(int)parentFolderTotal.TotalMinutes}M{parentFolderTotal.Seconds}S";
+                    lblTotalTime.Text = $"Parent: {fileNameOnly}";
+                }
+                else if (!string.IsNullOrEmpty(firstSubfolderName))
+                {
+                    string fileNameOnly = $"{(int)firstSubfolderTotal.TotalMinutes}M{firstSubfolderTotal.Seconds}S";
+                    lblTotalTime.Text = $"{firstSubfolderName}: {fileNameOnly}";
+                }
+                else
+                {
+                    lblTotalTime.Text = "No videos found";
+                }
+            });
+        }
+
+        private void SetButtonsEnabled(bool enabled)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(SetButtonsEnabled, enabled);
+                return;
+            }
+
+            btnShuffleAndName.Enabled = enabled;
+            btnNameTenSteps.Enabled = enabled;
+            btnCheck.Enabled = enabled;
+            btnPrepare.Enabled = enabled;
+            btnShuffleRandom.Enabled = enabled;
+            btnArchive.Enabled = enabled;
+        }
+
+        private async Task RunWithProgressAsync(
+            string title,
+            Func<ProgressForm, CancellationToken, Task<string?>> work,
+            bool refreshDurationOnComplete = true,
+            bool showSuccessMessage = false,
+            string? successMessage = null)
+        {
+            SetButtonsEnabled(false);
+
+            using var progressForm = new ProgressForm();
+            progressForm.BeginOperation(title);
+            progressForm.Show(this);
+
+            var workTask = Task.Run(() => work(progressForm, progressForm.CancellationToken));
+            try
+            {
+                string? resultMessage = await workTask;
+                progressForm.Complete("Done");
+
+                if (showSuccessMessage)
+                {
+                    MessageBox.Show(
+                        resultMessage ?? successMessage ?? "Operation completed.",
+                        "Done",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                MessageBox.Show("Operation cancelled.", "Cancelled", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Operation failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                if (progressForm.Visible)
+                {
+                    progressForm.Close();
+                }
+
+                SetButtonsEnabled(true);
+
+                if (refreshDurationOnComplete)
+                {
+                    try
+                    {
+                        UpdateDuration();
+                    }
+                    catch
+                    {
+                        // Ignore refresh errors
+                    }
+                }
+            }
+        }
+
+        private Task RunCheckWithProgressAsync()
+        {
+            return RunWithProgressAsync(
+                "Check Duration",
+                (progress, ct) =>
+                {
+                    UpdateDurationCore(progress, ct);
+                    return Task.FromResult<string?>(null);
+                },
+                refreshDurationOnComplete: false);
         }
 
         private void SetStartup()
@@ -440,7 +545,7 @@ namespace VideoTrayApp
         }
 
         // Button handlers now call the internal C# implementations
-        private void btnShuffleAndName_Click(object? sender, EventArgs e)
+        private async void btnShuffleAndName_Click(object? sender, EventArgs e)
         {
             using var dlg = new FolderBrowserDialog { Description = "Select folder to process" };
             if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) dlg.SelectedPath = folderPath;
@@ -454,26 +559,18 @@ namespace VideoTrayApp
             if (!int.TryParse(padInput.Trim(), out int pad)) pad = 0;
             string prefix = Interaction.InputBox("Optional filename prefix:", "Prefix", "");
 
-            // Show calculating indicator
-            lblTotalTime.Invoke((MethodInvoker)delegate
-            {
-                lblTotalTime.Text = "Calculating...";
-            });
-
-            try
-            {
-                ShuffleAndNameStepTen(targetFolder, start, pad, prefix);
-                MessageBox.Show("Shuffle & Name completed.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                UpdateDuration(); // Refresh the display
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Operation failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                UpdateDuration(); // Reset display on error
-            }
+            await RunWithProgressAsync(
+                "Shuffle & Name",
+                (progress, ct) =>
+                {
+                    ShuffleAndNameStepTen(targetFolder, start, pad, prefix, progress, ct);
+                    return Task.FromResult<string?>(null);
+                },
+                showSuccessMessage: true,
+                successMessage: "Shuffle & Name completed.");
         }
 
-        private void btnNameTenSteps_Click(object? sender, EventArgs e)
+        private async void btnNameTenSteps_Click(object? sender, EventArgs e)
         {
             using var dlg = new FolderBrowserDialog { Description = "Select folder to process" };
             if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) dlg.SelectedPath = folderPath;
@@ -483,36 +580,23 @@ namespace VideoTrayApp
             string startInput = Interaction.InputBox("Starting number (leave blank for 0):", "Start Number", "0");
             if (!int.TryParse(string.IsNullOrWhiteSpace(startInput) ? "0" : startInput.Trim(), out int start)) start = 0;
 
-            // Show calculating indicator
-            lblTotalTime.Invoke((MethodInvoker)delegate
-            {
-                lblTotalTime.Text = "Calculating...";
-            });
-
-            try
-            {
-                NameTenSteps(targetFolder, start);
-                MessageBox.Show("Name by 10s completed.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                UpdateDuration(); // Refresh the display
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Operation failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                UpdateDuration(); // Reset display on error
-            }
+            await RunWithProgressAsync(
+                "Name by 10s",
+                (progress, ct) =>
+                {
+                    NameTenSteps(targetFolder, start, progress, ct);
+                    return Task.FromResult<string?>(null);
+                },
+                showSuccessMessage: true,
+                successMessage: "Name by 10s completed.");
         }
 
-        private void btnCheck_Click(object? sender, EventArgs e)
+        private async void btnCheck_Click(object? sender, EventArgs e)
         {
-            // Provide quick feedback and trigger an immediate duration update
-            lblTotalTime.Invoke((MethodInvoker)delegate
-            {
-                lblTotalTime.Text = "Checking...";
-            });
-            UpdateDuration();
+            await RunCheckWithProgressAsync();
         }
 
-        private void btnPrepare_Click(object? sender, EventArgs e)
+        private async void btnPrepare_Click(object? sender, EventArgs e)
         {
             // Step 1: Select source folder (where numbered clips are)
             using var sourceDialog = new FolderBrowserDialog 
@@ -570,26 +654,18 @@ namespace VideoTrayApp
 
             TimeSpan batchDurationLimit = TimeSpan.FromMinutes(durationMinutes);
 
-            // Show calculating indicator
-            lblTotalTime.Invoke((MethodInvoker)delegate
-            {
-                lblTotalTime.Text = "Calculating...";
-            });
-
-            try
-            {
-                BatchNumberedVideos(sourceFolder, destinationFolder, batchDurationLimit);
-                MessageBox.Show("Batch preparation completed.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                UpdateDuration(); // Refresh the display
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Operation failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                UpdateDuration(); // Reset display on error
-            }
+            await RunWithProgressAsync(
+                "Prepare Batch",
+                (progress, ct) =>
+                {
+                    BatchNumberedVideos(sourceFolder, destinationFolder, batchDurationLimit, progress, ct);
+                    return Task.FromResult<string?>(null);
+                },
+                showSuccessMessage: true,
+                successMessage: "Batch preparation completed.");
         }
 
-        private void btnShuffleRandom_Click(object? sender, EventArgs e)
+        private async void btnShuffleRandom_Click(object? sender, EventArgs e)
         {
             using var dlg = new FolderBrowserDialog { Description = "Select folder to shuffle videos to random character names" };
             if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) dlg.SelectedPath = folderPath;
@@ -601,47 +677,64 @@ namespace VideoTrayApp
             if (!int.TryParse(lenInput.Trim(), out int len) || len < 4) len = 12;
             if (len > 64) len = 64;
 
-            lblTotalTime.Invoke((MethodInvoker)delegate
-            {
-                lblTotalTime.Text = "Shuffling...";
-            });
+            await RunWithProgressAsync(
+                "Shuffle Random",
+                (progress, ct) =>
+                {
+                    ShuffleToRandom(targetFolder, len, progress, ct);
+                    return Task.FromResult<string?>(null);
+                },
+                showSuccessMessage: true,
+                successMessage: "Shuffle to random names completed.");
+        }
 
-            try
-            {
-                ShuffleToRandom(targetFolder, len);
-                MessageBox.Show("Shuffle to random names completed.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                UpdateDuration(); // Refresh the display
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Operation failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                UpdateDuration(); // Reset display on error
-            }
+        private async void btnArchive_Click(object? sender, EventArgs e)
+        {
+            await RunArchiveAsync();
+        }
+
+        private async Task RunArchiveAsync()
+        {
+            using var dlg = new FolderBrowserDialog { Description = "Select folder to archive .mp4 files from" };
+            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) dlg.SelectedPath = folderPath;
+            if (dlg.ShowDialog() != DialogResult.OK) return;
+
+            string sourceFolder = dlg.SelectedPath;
+
+            await RunWithProgressAsync(
+                "Archive Videos",
+                (progress, ct) => Task.FromResult<string?>(ArchiveVideos(sourceFolder, progress, ct)),
+                showSuccessMessage: true);
         }
 
         //
         // Implementation of NameTenSteps (two-pass rename to clear namespace and then 0,10,20...)
         //
-        private void NameTenSteps(string folder, int start)
+        private void NameTenSteps(string folder, int start, ProgressForm? progress = null, CancellationToken cancellationToken = default)
         {
             var dir = new DirectoryInfo(folder);
             if (!dir.Exists) throw new DirectoryNotFoundException(folder);
 
-            // Gather files filtered by known video extensions
             var files = dir.EnumerateFiles()
                 .Where(fi => !fi.Name.StartsWith(".") && DefaultVideoExts.Contains(fi.Extension))
                 .ToList();
 
             if (files.Count == 0) return;
 
-            // Natural sort similar to Python version
             files.Sort((a, b) => NaturalSortCompare(a.Name, b.Name));
 
-            // Pass 1: rename to TEMP_<random>
             var rng = new Random();
             var tempMap = new List<(string OriginalName, FileInfo TempFile)>();
+            int processed = 0;
+            int total = files.Count * 2;
+            progress?.Report(0, total, "Renaming videos (pass 1)...");
+
             foreach (var fi in files)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                processed++;
+                progress?.Report(processed, total, $"Pass 1: {fi.Name}");
+
                 var tempName = $"TEMP_{GenId(rng, 12)}{fi.Extension}";
                 var tempPath = Path.Combine(folder, tempName);
                 tempPath = EnsureUniquePath(tempPath);
@@ -649,10 +742,14 @@ namespace VideoTrayApp
                 tempMap.Add((fi.Name, new FileInfo(tempPath)));
             }
 
-            // Pass 2: final naming by tens
             int seq = start;
+            progress?.Report(processed, total, "Renaming videos (pass 2)...");
             foreach (var (originalName, currentFile) in tempMap)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                processed++;
+                progress?.Report(processed, total, $"Pass 2: {currentFile.Name}");
+
                 var finalName = $"{seq}{currentFile.Extension}";
                 var finalPath = Path.Combine(folder, finalName);
                 finalPath = EnsureUniquePath(finalPath);
@@ -664,12 +761,11 @@ namespace VideoTrayApp
         //
         // Implementation of ShuffleAndNameStepTen (two-pass: randomize ids then rename by tens)
         //
-        private void ShuffleAndNameStepTen(string folder, int start, int pad, string prefix)
+        private void ShuffleAndNameStepTen(string folder, int start, int pad, string prefix, ProgressForm? progress = null, CancellationToken cancellationToken = default)
         {
             var dir = new DirectoryInfo(folder);
             if (!dir.Exists) throw new DirectoryNotFoundException(folder);
 
-            // Gather files matching default video extensions
             var files = dir.EnumerateFiles()
                 .Where(fi => !fi.Name.StartsWith(".") && DefaultVideoExts.Contains(fi.Extension))
                 .OrderBy(fi => fi.Name, StringComparer.OrdinalIgnoreCase)
@@ -679,11 +775,17 @@ namespace VideoTrayApp
 
             var rng = new Random();
             var usedIds = new HashSet<string>();
-            var stage1Map = new List<(string Original, string RandomName)>(); // store names
+            var stage1Map = new List<(string Original, string RandomName)>();
+            int processed = 0;
+            int total = files.Count * 2;
+            progress?.Report(0, total, "Shuffling videos (stage 1)...");
 
-            // Stage 1: assign unique random ids and rename files
             foreach (var fi in files)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                processed++;
+                progress?.Report(processed, total, $"Stage 1: {fi.Name}");
+
                 string rid;
                 do
                 {
@@ -697,28 +799,29 @@ namespace VideoTrayApp
                 stage1Map.Add((fi.Name, Path.GetFileName(newPath)));
             }
 
-            // After renaming, collect produced random files and sort by name
             var producedNames = new HashSet<string>(stage1Map.Select(t => t.RandomName));
             var randomizedFiles = dir.EnumerateFiles()
                 .Where(f => producedNames.Contains(f.Name))
                 .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            // Prepare CSV log
             string now = DateTime.Now.ToString("yyyyMMdd-HHmmss");
             string logPath = Path.Combine(folder, $"rename_mapping_{now}.csv");
             var sb = new StringBuilder();
             sb.AppendLine("original,random,final");
 
-            // Stage 2: rename with step 10
             int seq = start;
+            progress?.Report(processed, total, "Naming videos (stage 2)...");
             foreach (var current in randomizedFiles)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                processed++;
+                progress?.Report(processed, total, $"Stage 2: {current.Name}");
+
                 string numStr = pad > 0 ? seq.ToString().PadLeft(pad, '0') : seq.ToString();
                 var finalName = $"{prefix}{numStr}{current.Extension}";
                 var finalPath = Path.Combine(folder, finalName);
                 finalPath = EnsureUniquePath(finalPath);
-                // Append to CSV
                 var original = stage1Map.FirstOrDefault(t => t.RandomName == current.Name).Original ?? "";
                 sb.AppendLine($"{EscapeCsv(original)},{EscapeCsv(current.Name)},{EscapeCsv(Path.GetFileName(finalPath))}");
                 File.Move(current.FullName, finalPath);
@@ -731,7 +834,7 @@ namespace VideoTrayApp
         //
         // Implementation of ShuffleToRandom: renames all videos in folder to random character names
         //
-        private void ShuffleToRandom(string folder, int length)
+        private void ShuffleToRandom(string folder, int length, ProgressForm? progress = null, CancellationToken cancellationToken = default)
         {
             var dir = new DirectoryInfo(folder);
             if (!dir.Exists) throw new DirectoryNotFoundException(folder);
@@ -750,8 +853,15 @@ namespace VideoTrayApp
             var sb = new StringBuilder();
             sb.AppendLine("original,random");
 
+            int processed = 0;
+            progress?.Report(0, files.Count, "Shuffling videos...");
+
             foreach (var fi in files)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                processed++;
+                progress?.Report(processed, files.Count, $"Shuffling {fi.Name}...");
+
                 string rid;
                 string candidatePath;
                 do
@@ -774,7 +884,7 @@ namespace VideoTrayApp
         // keeping total duration under the specified limit. If moving a file exceeds the limit,
         // it stops and leaves that file in the source folder.
         //
-        private void BatchNumberedVideos(string sourceFolder, string destinationFolder, TimeSpan durationLimit)
+        private void BatchNumberedVideos(string sourceFolder, string destinationFolder, TimeSpan durationLimit, ProgressForm? progress = null, CancellationToken cancellationToken = default)
         {
             var srcDir = new DirectoryInfo(sourceFolder);
             if (!srcDir.Exists) throw new DirectoryNotFoundException($"Source folder not found: {sourceFolder}");
@@ -782,7 +892,6 @@ namespace VideoTrayApp
             var destDir = new DirectoryInfo(destinationFolder);
             if (!destDir.Exists) throw new DirectoryNotFoundException($"Destination folder not found: {destinationFolder}");
 
-            // Filter for .mp4 files in source where filename is strictly a number (e.g., "349.mp4")
             var files = srcDir.EnumerateFiles("*.mp4", SearchOption.TopDirectoryOnly)
                 .Where(fi => IsStrictlyNumeric(Path.GetFileNameWithoutExtension(fi.Name)))
                 .OrderBy(fi =>
@@ -802,14 +911,21 @@ namespace VideoTrayApp
                 return;
             }
 
-            // Calculate existing duration in destination folder (all video files)
             TimeSpan existingDuration = TimeSpan.Zero;
             var destFiles = destDir.EnumerateFiles()
                 .Where(fi => DefaultVideoExts.Contains(fi.Extension))
                 .ToList();
 
+            int totalSteps = destFiles.Count + files.Count;
+            int processed = 0;
+            progress?.Report(0, totalSteps, "Scanning destination folder...");
+
             foreach (var file in destFiles)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                processed++;
+                progress?.Report(processed, totalSteps, $"Reading destination: {file.Name}");
+
                 try
                 {
                     using var video = TagLib.File.Create(file.FullName);
@@ -817,25 +933,26 @@ namespace VideoTrayApp
                 }
                 catch (IOException)
                 {
-                    // File is being written - skip for now
                     continue;
                 }
                 catch
                 {
-                    // Skip files that can't be read
                     continue;
                 }
             }
 
-            // Use the provided duration limit
             TimeSpan totalDuration = existingDuration;
             int movedCount = 0;
+            progress?.Report(processed, totalSteps, "Moving numbered videos...");
 
             foreach (var file in files)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                processed++;
+                progress?.Report(processed, totalSteps, $"Processing {file.Name}...");
+
                 try
                 {
-                    // Get video duration using TagLib
                     TimeSpan videoDuration;
                     try
                     {
@@ -844,23 +961,18 @@ namespace VideoTrayApp
                     }
                     catch (IOException)
                     {
-                        // File is being written - skip for now
                         continue;
                     }
                     catch
                     {
-                        // Skip files that can't be read
                         continue;
                     }
 
-                    // Check if we've already reached the limit
                     if (totalDuration >= durationLimit)
                     {
-                        // Already at or exceeded the limit - stop here
                         break;
                     }
 
-                    // Add this file to reach the limit
                     TimeSpan projectedTotal = totalDuration + videoDuration;
                     string targetPath = Path.Combine(destinationFolder, file.Name);
                     file.MoveTo(targetPath);
@@ -869,19 +981,117 @@ namespace VideoTrayApp
                 }
                 catch (Exception ex)
                 {
-                    // Log error but continue with next file
                     System.Diagnostics.Debug.WriteLine($"Error processing {file.Name}: {ex.Message}");
                     continue;
                 }
             }
 
-            // Update label with result
             lblTotalTime.Invoke((MethodInvoker)delegate
             {
                 int minutes = (int)totalDuration.TotalMinutes;
                 int seconds = totalDuration.Seconds;
                 lblTotalTime.Text = $"Batched: {movedCount} files ({minutes}m{seconds}s)";
             });
+        }
+
+        private string ArchiveVideos(string sourceFolder, ProgressForm progress, CancellationToken cancellationToken)
+        {
+            var sourceDir = new DirectoryInfo(sourceFolder);
+            if (!sourceDir.Exists)
+                throw new DirectoryNotFoundException($"Source folder not found: {sourceFolder}");
+
+            string archiveFolder = Path.Combine(sourceFolder, "Archive");
+            Directory.CreateDirectory(archiveFolder);
+
+            var knownFingerprints = new HashSet<VideoFingerprint>(VideoFingerprintComparer.Instance);
+            var archiveFiles = Directory.EnumerateFiles(archiveFolder, "*.mp4", SearchOption.AllDirectories).ToList();
+
+            progress.Report(0, 0, "Indexing existing archive...");
+            int archiveIndexed = 0;
+            foreach (var archivePath in archiveFiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                archiveIndexed++;
+                progress.Report(archiveIndexed, archiveFiles.Count, $"Indexing archive: {Path.GetFileName(archivePath)}");
+
+                if (VideoFingerprintFactory.TryCreate(archivePath, out var fingerprint, out _))
+                {
+                    knownFingerprints.Add(fingerprint!);
+                }
+            }
+
+            progress.SetIndeterminate("Scanning for .mp4 files...");
+            var sourceFiles = Directory
+                .EnumerateFiles(sourceFolder, "*.mp4", SearchOption.AllDirectories)
+                .Where(path => !IsUnderDirectory(path, archiveFolder))
+                .ToList();
+
+            int copied = 0;
+            int skippedDuplicates = 0;
+            int errors = 0;
+            string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            string logPath = Path.Combine(archiveFolder, $"archive_log_{timestamp}.csv");
+            var log = new StringBuilder();
+            log.AppendLine("source_path,action,size_bytes,duration_seconds,sha256,destination_path,error");
+
+            for (int i = 0; i < sourceFiles.Count; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string sourcePath = sourceFiles[i];
+                string fileName = Path.GetFileName(sourcePath);
+                progress.Report(i + 1, sourceFiles.Count, $"Analyzing {fileName}...");
+
+                if (!VideoFingerprintFactory.TryCreate(sourcePath, out var fingerprint, out var error)
+                    || fingerprint is null)
+                {
+                    errors++;
+                    log.AppendLine($"{EscapeCsv(sourcePath)},error,,,,,{EscapeCsv(error ?? "Unknown error")}");
+                    continue;
+                }
+
+                if (!knownFingerprints.Add(fingerprint))
+                {
+                    skippedDuplicates++;
+                    log.AppendLine($"{EscapeCsv(sourcePath)},skipped_duplicate,{fingerprint.Size},{fingerprint.Duration.TotalSeconds:0.###},{fingerprint.Sha256},,");
+                    continue;
+                }
+
+                try
+                {
+                    string destinationPath = EnsureUniquePath(Path.Combine(archiveFolder, fileName));
+                    progress.Report(i + 1, sourceFiles.Count, $"Copying {fileName}...");
+                    File.Copy(sourcePath, destinationPath, overwrite: false);
+                    copied++;
+                    log.AppendLine($"{EscapeCsv(sourcePath)},copied,{fingerprint.Size},{fingerprint.Duration.TotalSeconds:0.###},{fingerprint.Sha256},{EscapeCsv(destinationPath)},");
+                }
+                catch (Exception ex)
+                {
+                    knownFingerprints.Remove(fingerprint);
+                    errors++;
+                    log.AppendLine($"{EscapeCsv(sourcePath)},error,{fingerprint.Size},{fingerprint.Duration.TotalSeconds:0.###},{fingerprint.Sha256},,{EscapeCsv(ex.Message)}");
+                }
+            }
+
+            File.WriteAllText(logPath, log.ToString(), Encoding.UTF8);
+
+            string summary = $"Archive completed.\n\nCopied: {copied}\nSkipped duplicates: {skippedDuplicates}\nErrors: {errors}\n\nLog: {logPath}";
+            lblTotalTime.Invoke((MethodInvoker)delegate
+            {
+                lblTotalTime.Text = $"Archived: {copied} copied, {skippedDuplicates} skipped";
+            });
+
+            return summary;
+        }
+
+        private static bool IsUnderDirectory(string filePath, string directoryPath)
+        {
+            string normalizedFile = Path.GetFullPath(filePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string normalizedDirectory = Path.GetFullPath(directoryPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            return normalizedFile.StartsWith(normalizedDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalizedFile, normalizedDirectory, StringComparison.OrdinalIgnoreCase);
         }
 
         //

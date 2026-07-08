@@ -4,7 +4,7 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-1.0.1
+1.0.2
 
 ## Manual Build (Release .exe)
 

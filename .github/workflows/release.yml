@@ -51,7 +51,8 @@ jobs:
 
           echo "version=$fullVer" >> $env:GITHUB_OUTPUT
           echo "cleanVersion=$cleanVersion" >> $env:GITHUB_OUTPUT
-          echo "Using version: $fullVer (assembly: $cleanVersion)"
+          echo "displayVersion=$base" >> $env:GITHUB_OUTPUT
+          echo "Using version: $fullVer (assembly: $cleanVersion, release: $base)"
 
       - name: Restore NuGet packages
         run: dotnet restore VideoTrayApp/VideoTrayApp.csproj
@@ -87,7 +88,7 @@ jobs:
       - name: Upload build artifact (for manual download)
         uses: actions/upload-artifact@v4
         with:
-          name: VideoTrayApp-${{ steps.get-version.outputs.version }}
+          name: VideoTrayApp-${{ steps.get-version.outputs.displayVersion }}
           path: artifacts/VideoTrayApp-*.exe
           retention-days: 30
 
@@ -97,9 +98,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          name: VideoTrayApp v${{ steps.get-version.outputs.version }}
+          name: VideoTrayApp v${{ steps.get-version.outputs.displayVersion }}
           draft: false
           prerelease: false
           generate_release_notes: true
+          body: |
+            Official release **VideoTrayApp v${{ steps.get-version.outputs.displayVersion }}**
+
+            Download `VideoTrayApp-${{ steps.get-version.outputs.version }}.exe` below and run it on Windows 10/11 (x64). No .NET runtime install required.
           files: |
             artifacts/VideoTrayApp-${{ steps.get-version.outputs.version }}.exe

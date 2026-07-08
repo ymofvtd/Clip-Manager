@@ -41,6 +41,7 @@
             btnCheck = new Button();
             btnPrepare = new Button();
             btnShuffleRandom = new Button();
+            btnArchive = new Button();
 
             SuspendLayout();
 
@@ -157,11 +158,25 @@
             btnShuffleRandom.Cursor = Cursors.Hand;
             btnShuffleRandom.Click += btnShuffleRandom_Click;
 
+            // Archive Button
+            btnArchive.Text = "📦 Archive";
+            btnArchive.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            btnArchive.BackColor = Color.FromArgb(63, 81, 181);
+            btnArchive.ForeColor = Color.White;
+            btnArchive.Size = new Size(200, 50);
+            btnArchive.Location = new Point(20, 85);
+            btnArchive.TabIndex = 6;
+            btnArchive.FlatStyle = FlatStyle.Flat;
+            btnArchive.FlatAppearance.BorderSize = 0;
+            btnArchive.Cursor = Cursors.Hand;
+            btnArchive.Click += btnArchive_Click;
+
             pnlActions.Controls.Add(btnShuffleAndName);
             pnlActions.Controls.Add(btnNameTenSteps);
             pnlActions.Controls.Add(btnCheck);
             pnlActions.Controls.Add(btnPrepare);
             pnlActions.Controls.Add(btnShuffleRandom);
+            pnlActions.Controls.Add(btnArchive);
 
             // Main Content Panel
             pnlContent.BackColor = Color.FromArgb(45, 45, 48);
@@ -171,7 +186,7 @@
             // Form1
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(960, 400);
+            ClientSize = new Size(960, 450);
             BackColor = Color.FromArgb(45, 45, 48);
             ForeColor = Color.White;
             Controls.Add(pnlContent);
@@ -192,5 +207,6 @@
         private Button btnCheck;
         private Button btnPrepare;
         private Button btnShuffleRandom;
+        private Button btnArchive;
     }
 }
