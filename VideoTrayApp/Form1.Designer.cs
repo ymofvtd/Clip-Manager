@@ -165,7 +165,7 @@
             lblArchiveHint.ForeColor = Color.FromArgb(150, 150, 150);
             lblArchiveHint.AutoSize = true;
             lblArchiveHint.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            lblArchiveHint.Location = new Point(330, 248);
+            lblArchiveHint.Location = new Point(330, 218);
 
             btnArchive.Text = "📦 Archive";
             btnArchive.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
@@ -173,33 +173,32 @@
             btnArchive.ForeColor = Color.White;
             btnArchive.Size = new Size(120, 34);
             btnArchive.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnArchive.Location = new Point(360, 268);
+            btnArchive.Location = new Point(360, 238);
             btnArchive.TabIndex = 6;
             btnArchive.FlatStyle = FlatStyle.Flat;
             btnArchive.FlatAppearance.BorderSize = 0;
             btnArchive.Cursor = Cursors.Hand;
             btnArchive.Click += btnArchive_Click;
 
-            btnPrepare.Text = "⚙️";
-            btnPrepare.Font = new Font("Segoe UI", 22F);
+            pnlActions.Controls.Add(btnShuffleAndName);
+            pnlActions.Controls.Add(btnNameTenSteps);
+            pnlActions.Controls.Add(btnShuffleRandom);
+            pnlActions.Controls.Add(lblArchiveHint);
+            pnlActions.Controls.Add(btnArchive);
+
+            btnPrepare.Text = "⚙️ Prepare Batch";
+            btnPrepare.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
             btnPrepare.BackColor = Color.FromArgb(156, 39, 176);
             btnPrepare.ForeColor = Color.White;
-            btnPrepare.Size = new Size(52, 52);
+            btnPrepare.Size = new Size(150, 40);
             btnPrepare.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnPrepare.Location = new Point(20, 256);
+            btnPrepare.Location = new Point(20, 328);
             btnPrepare.TabIndex = 0;
             btnPrepare.FlatStyle = FlatStyle.Flat;
             btnPrepare.FlatAppearance.BorderSize = 0;
             btnPrepare.Cursor = Cursors.Hand;
             btnPrepare.Click += btnPrepare_Click;
             toolTips.SetToolTip(btnPrepare, "Prepare Batch");
-
-            pnlActions.Controls.Add(btnShuffleAndName);
-            pnlActions.Controls.Add(btnNameTenSteps);
-            pnlActions.Controls.Add(btnShuffleRandom);
-            pnlActions.Controls.Add(lblArchiveHint);
-            pnlActions.Controls.Add(btnArchive);
-            pnlActions.Controls.Add(btnPrepare);
 
             // Main Content Panel
             pnlContent.BackColor = Color.FromArgb(45, 45, 48);
@@ -209,12 +208,13 @@
             // Form1
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(520, 380);
+            ClientSize = new Size(520, 400);
             BackColor = Color.FromArgb(45, 45, 48);
             ForeColor = Color.White;
-            MinimumSize = new Size(520, 380);
+            MinimumSize = new Size(520, 400);
             Controls.Add(pnlContent);
             Controls.Add(pnlFolder);
+            Controls.Add(btnPrepare);
             Name = "Form1";
             Text = "Video Tray";
             StartPosition = FormStartPosition.CenterScreen;
