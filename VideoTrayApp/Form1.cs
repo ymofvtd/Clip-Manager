@@ -59,6 +59,7 @@ namespace VideoTrayApp
             SetupTrayIcon();
             SetupWatcher();
             SetStartup();
+            UpdateFolderDisplay();
 
             // Hide the window immediately
             this.WindowState = FormWindowState.Minimized;
@@ -106,7 +107,7 @@ namespace VideoTrayApp
             {
                 Icon = LoadApplicationIcon(),
                 Visible = true,
-                Text = "Video Duration Tracker"
+                Text = "Video Tray"
             };
 
             // Left-click to toggle window visibility
@@ -120,7 +121,6 @@ namespace VideoTrayApp
 
             // Right-click menu for the icon
             var menu = new ContextMenuStrip();
-            menu.Items.Add("Check Now", null, async (s, e) => await RunCheckWithProgressAsync());
             menu.Items.Add("Archive", null, async (s, e) => await RunArchiveAsync());
             menu.Items.Add("Set Folder", null, SetFolderPath);
             menu.Items.Add("Show Window", null, ShowWindow);
@@ -218,8 +218,6 @@ namespace VideoTrayApp
 
             var parentDir = new DirectoryInfo(folderPath);
             TimeSpan parentFolderTotal = TimeSpan.Zero;
-            TimeSpan firstSubfolderTotal = TimeSpan.Zero;
-            string firstSubfolderName = "";
 
             var parentFiles = parentDir.GetFiles()
                 .Where(f => DefaultVideoExts.Contains(f.Extension))
@@ -334,12 +332,6 @@ namespace VideoTrayApp
                         }
 
                         System.IO.File.WriteAllText(Path.Combine(subfolder.FullName, fullFileName), "Total Duration Updated");
-
-                        if (string.IsNullOrEmpty(firstSubfolderName))
-                        {
-                            firstSubfolderName = subfolder.Name;
-                            firstSubfolderTotal = subfolderTotal;
-                        }
                     }
                 }
                 catch
@@ -348,23 +340,6 @@ namespace VideoTrayApp
                 }
             }
 
-            lblTotalTime.Invoke((MethodInvoker)delegate
-            {
-                if (parentFolderTotal > TimeSpan.Zero)
-                {
-                    string fileNameOnly = $"{(int)parentFolderTotal.TotalMinutes}M{parentFolderTotal.Seconds}S";
-                    lblTotalTime.Text = $"Parent: {fileNameOnly}";
-                }
-                else if (!string.IsNullOrEmpty(firstSubfolderName))
-                {
-                    string fileNameOnly = $"{(int)firstSubfolderTotal.TotalMinutes}M{firstSubfolderTotal.Seconds}S";
-                    lblTotalTime.Text = $"{firstSubfolderName}: {fileNameOnly}";
-                }
-                else
-                {
-                    lblTotalTime.Text = "No videos found";
-                }
-            });
         }
 
         private void SetButtonsEnabled(bool enabled)
@@ -377,10 +352,10 @@ namespace VideoTrayApp
 
             btnShuffleAndName.Enabled = enabled;
             btnNameTenSteps.Enabled = enabled;
-            btnCheck.Enabled = enabled;
             btnPrepare.Enabled = enabled;
             btnShuffleRandom.Enabled = enabled;
             btnArchive.Enabled = enabled;
+            btnBrowseFolder.Enabled = enabled;
         }
 
         private async Task RunWithProgressAsync(
@@ -440,18 +415,6 @@ namespace VideoTrayApp
                     }
                 }
             }
-        }
-
-        private Task RunCheckWithProgressAsync()
-        {
-            return RunWithProgressAsync(
-                "Check Duration",
-                (progress, ct) =>
-                {
-                    UpdateDurationCore(progress, ct);
-                    return Task.FromResult<string?>(null);
-                },
-                refreshDurationOnComplete: false);
         }
 
         private async Task RunCheckForUpdateAsync()
@@ -585,6 +548,8 @@ namespace VideoTrayApp
         {
             this.Show();
             this.WindowState = FormWindowState.Normal;
+            this.ShowInTaskbar = true;
+            UpdateFolderDisplay();
             this.BringToFront();
         }
 
@@ -603,49 +568,78 @@ namespace VideoTrayApp
                 this.Show();
                 this.WindowState = FormWindowState.Normal;
                 this.ShowInTaskbar = true;
+                UpdateFolderDisplay();
                 this.BringToFront();
             }
         }
 
         private void SetFolderPath(object? sender, EventArgs e)
         {
-            using var settingsForm = new SettingsForm(folderPath);
-
-            if (settingsForm.ShowDialog() == DialogResult.OK)
-            {
-                // Update and save the new folder path
-                folderPath = settingsForm.SelectedFolderPath;
-                SaveFolderPathToConfig(folderPath);
-
-                // Restart the watcher with the new folder
-                watcher?.Dispose();
-                SetupWatcher();
-
-                // Trigger an immediate duration check
-                UpdateDuration();
-
-                MessageBox.Show(
-                    $"Folder updated to:\n{folderPath}",
-                    "Folder Updated",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information
-                );
-            }
+            BrowseForWorkingFolder();
         }
 
-        private void label1_Click(object sender, EventArgs e)
+        private void btnBrowseFolder_Click(object? sender, EventArgs e)
         {
+            BrowseForWorkingFolder();
+        }
 
+        private void BrowseForWorkingFolder()
+        {
+            using var dlg = new FolderBrowserDialog
+            {
+                Description = "Select the working folder to manage",
+                SelectedPath = Directory.Exists(folderPath) ? folderPath : string.Empty
+            };
+
+            if (dlg.ShowDialog() != DialogResult.OK)
+                return;
+
+            ApplyWorkingFolder(dlg.SelectedPath);
+        }
+
+        private void ApplyWorkingFolder(string path)
+        {
+            folderPath = path;
+            SaveFolderPathToConfig(folderPath);
+            UpdateFolderDisplay();
+
+            watcher?.Dispose();
+            SetupWatcher();
+            UpdateDuration();
+        }
+
+        private void UpdateFolderDisplay()
+        {
+            if (InvokeRequired)
+            {
+                Invoke(UpdateFolderDisplay);
+                return;
+            }
+
+            txtSelectedFolder.Text = string.IsNullOrEmpty(folderPath)
+                ? "(not set)"
+                : folderPath;
+        }
+
+        private bool TryGetWorkingFolder(out string folder, string actionName)
+        {
+            folder = folderPath;
+            if (!string.IsNullOrEmpty(folder) && Directory.Exists(folder))
+                return true;
+
+            MessageBox.Show(
+                $"Please select a working folder before running {actionName}.",
+                "Folder Required",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return false;
         }
 
         // Button handlers now call the internal C# implementations
         private async void btnShuffleAndName_Click(object? sender, EventArgs e)
         {
-            using var dlg = new FolderBrowserDialog { Description = "Select folder to process" };
-            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) dlg.SelectedPath = folderPath;
-            if (dlg.ShowDialog() != DialogResult.OK) return;
-
-            string targetFolder = dlg.SelectedPath;
+            if (!TryGetWorkingFolder(out string targetFolder, "Shuffle & Name"))
+                return;
             string startInput = Interaction.InputBox("Starting number (leave blank for 0):", "Start Number", "0");
             if (!int.TryParse(string.IsNullOrWhiteSpace(startInput) ? "0" : startInput.Trim(), out int start)) start = 0;
 
@@ -666,11 +660,8 @@ namespace VideoTrayApp
 
         private async void btnNameTenSteps_Click(object? sender, EventArgs e)
         {
-            using var dlg = new FolderBrowserDialog { Description = "Select folder to process" };
-            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) dlg.SelectedPath = folderPath;
-            if (dlg.ShowDialog() != DialogResult.OK) return;
-
-            string targetFolder = dlg.SelectedPath;
+            if (!TryGetWorkingFolder(out string targetFolder, "Name by 10s"))
+                return;
             string startInput = Interaction.InputBox("Starting number (leave blank for 0):", "Start Number", "0");
             if (!int.TryParse(string.IsNullOrWhiteSpace(startInput) ? "0" : startInput.Trim(), out int start)) start = 0;
 
@@ -685,23 +676,10 @@ namespace VideoTrayApp
                 successMessage: "Name by 10s completed.");
         }
 
-        private async void btnCheck_Click(object? sender, EventArgs e)
-        {
-            await RunCheckWithProgressAsync();
-        }
-
         private async void btnPrepare_Click(object? sender, EventArgs e)
         {
-            // Step 1: Select source folder (where numbered clips are)
-            using var sourceDialog = new FolderBrowserDialog 
-            { 
-                Description = "Select folder containing numbered clips (e.g., 349.mp4)" 
-            };
-            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) 
-                sourceDialog.SelectedPath = folderPath;
-            if (sourceDialog.ShowDialog() != DialogResult.OK) return;
-
-            string sourceFolder = sourceDialog.SelectedPath;
+            if (!TryGetWorkingFolder(out string sourceFolder, "Prepare Batch"))
+                return;
 
             // Step 2: Select destination folder or create new one
             var destResult = MessageBox.Show(
@@ -761,11 +739,8 @@ namespace VideoTrayApp
 
         private async void btnShuffleRandom_Click(object? sender, EventArgs e)
         {
-            using var dlg = new FolderBrowserDialog { Description = "Select folder to shuffle videos to random character names" };
-            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) dlg.SelectedPath = folderPath;
-            if (dlg.ShowDialog() != DialogResult.OK) return;
-
-            string targetFolder = dlg.SelectedPath;
+            if (!TryGetWorkingFolder(out string targetFolder, "Shuffle Random"))
+                return;
 
             string lenInput = Interaction.InputBox("Random name length (default 12):", "Length", "12");
             if (!int.TryParse(lenInput.Trim(), out int len) || len < 4) len = 12;
@@ -789,11 +764,8 @@ namespace VideoTrayApp
 
         private async Task RunArchiveAsync()
         {
-            using var dlg = new FolderBrowserDialog { Description = "Select folder to archive .mp4 files from" };
-            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath)) dlg.SelectedPath = folderPath;
-            if (dlg.ShowDialog() != DialogResult.OK) return;
-
-            string sourceFolder = dlg.SelectedPath;
+            if (!TryGetWorkingFolder(out string sourceFolder, "Archive"))
+                return;
 
             await RunWithProgressAsync(
                 "Archive Videos",
@@ -997,13 +969,7 @@ namespace VideoTrayApp
                 .ToList();
 
             if (files.Count == 0)
-            {
-                lblTotalTime.Invoke((MethodInvoker)delegate
-                {
-                    lblTotalTime.Text = "No numbered videos found in source";
-                });
                 return;
-            }
 
             TimeSpan existingDuration = TimeSpan.Zero;
             var destFiles = destDir.EnumerateFiles()
@@ -1080,12 +1046,6 @@ namespace VideoTrayApp
                 }
             }
 
-            lblTotalTime.Invoke((MethodInvoker)delegate
-            {
-                int minutes = (int)totalDuration.TotalMinutes;
-                int seconds = totalDuration.Seconds;
-                lblTotalTime.Text = $"Batched: {movedCount} files ({minutes}m{seconds}s)";
-            });
         }
 
         private static readonly TimeSpan MaxArchiveDuration = TimeSpan.FromSeconds(90);
@@ -1179,10 +1139,6 @@ namespace VideoTrayApp
             File.WriteAllText(logPath, log.ToString(), Encoding.UTF8);
 
             string summary = $"Archive completed.\n\nCopied: {copied}\nSkipped duplicates: {skippedDuplicates}\nSkipped (over 1m30s): {skippedTooLong}\nErrors: {errors}\n\nLog: {logPath}";
-            lblTotalTime.Invoke((MethodInvoker)delegate
-            {
-                lblTotalTime.Text = $"Archived: {copied} copied, {skippedDuplicates} dup, {skippedTooLong} too long";
-            });
 
             return summary;
         }

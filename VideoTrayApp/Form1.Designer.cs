@@ -28,143 +28,137 @@
         /// </summary>
         private void InitializeComponent()
         {
-            var pnlHeader = new Panel();
+            components = new System.ComponentModel.Container();
+            var pnlTop = new Panel();
+            var pnlFolder = new Panel();
             var pnlContent = new Panel();
-            var pnlStats = new Panel();
-            var lblTitle = new Label();
-            var lblSubtitle = new Label();
-            lblTotalTime = new Label();
-            var lblTotalTimeLabel = new Label();
             var pnlActions = new Panel();
+            var lblFolderLabel = new Label();
+            btnPrepare = new Button();
             btnShuffleAndName = new Button();
             btnNameTenSteps = new Button();
-            btnCheck = new Button();
-            btnPrepare = new Button();
             btnShuffleRandom = new Button();
             btnArchive = new Button();
+            btnBrowseFolder = new Button();
+            txtSelectedFolder = new TextBox();
+            lblArchiveHint = new Label();
+            toolTips = new ToolTip(components);
 
             SuspendLayout();
 
-            // Header Panel
-            pnlHeader.BackColor = Color.FromArgb(45, 45, 48);
-            pnlHeader.Dock = DockStyle.Top;
-            pnlHeader.Height = 80;
-            pnlHeader.Padding = new Padding(20);
+            // Top Panel - Prepare Batch (main action)
+            pnlTop.BackColor = Color.FromArgb(37, 37, 40);
+            pnlTop.Dock = DockStyle.Top;
+            pnlTop.Height = 64;
+            pnlTop.Padding = new Padding(20, 10, 20, 10);
 
-            lblTitle.Text = "Video Duration Tracker";
-            lblTitle.Font = new Font("Segoe UI", 18F, FontStyle.Bold);
-            lblTitle.ForeColor = Color.White;
-            lblTitle.AutoSize = true;
-            lblTitle.Location = new Point(20, 15);
+            btnPrepare.Text = "⚙️";
+            btnPrepare.Font = new Font("Segoe UI", 22F);
+            btnPrepare.BackColor = Color.FromArgb(156, 39, 176);
+            btnPrepare.ForeColor = Color.White;
+            btnPrepare.Size = new Size(48, 48);
+            btnPrepare.Location = new Point(20, 8);
+            btnPrepare.TabIndex = 0;
+            btnPrepare.FlatStyle = FlatStyle.Flat;
+            btnPrepare.FlatAppearance.BorderSize = 0;
+            btnPrepare.Cursor = Cursors.Hand;
+            btnPrepare.Click += btnPrepare_Click;
+            toolTips.SetToolTip(btnPrepare, "Prepare Batch");
 
-            lblSubtitle.Text = "Manage and organize your video files";
-            lblSubtitle.Font = new Font("Segoe UI", 10F);
-            lblSubtitle.ForeColor = Color.FromArgb(200, 200, 200);
-            lblSubtitle.AutoSize = true;
-            lblSubtitle.Location = new Point(20, 45);
+            pnlTop.Controls.Add(btnPrepare);
 
-            pnlHeader.Controls.Add(lblTitle);
-            pnlHeader.Controls.Add(lblSubtitle);
+            // Folder Panel
+            pnlFolder.BackColor = Color.FromArgb(37, 37, 40);
+            pnlFolder.Dock = DockStyle.Top;
+            pnlFolder.Height = 96;
+            pnlFolder.Padding = new Padding(20);
 
-            // Stats Panel
-            pnlStats.BackColor = Color.FromArgb(37, 37, 40);
-            pnlStats.Dock = DockStyle.Top;
-            pnlStats.Height = 120;
-            pnlStats.Padding = new Padding(20);
+            lblFolderLabel.Text = "Working Folder";
+            lblFolderLabel.Font = new Font("Segoe UI", 10F);
+            lblFolderLabel.ForeColor = Color.FromArgb(150, 150, 150);
+            lblFolderLabel.Location = new Point(20, 16);
+            lblFolderLabel.AutoSize = true;
 
-            lblTotalTimeLabel.Text = "Total Duration";
-            lblTotalTimeLabel.Font = new Font("Segoe UI", 10F);
-            lblTotalTimeLabel.ForeColor = Color.FromArgb(150, 150, 150);
-            lblTotalTimeLabel.Location = new Point(20, 20);
-            lblTotalTimeLabel.AutoSize = true;
+            txtSelectedFolder.Font = new Font("Segoe UI", 10F);
+            txtSelectedFolder.BackColor = Color.FromArgb(30, 30, 30);
+            txtSelectedFolder.ForeColor = Color.White;
+            txtSelectedFolder.BorderStyle = BorderStyle.FixedSingle;
+            txtSelectedFolder.ReadOnly = true;
+            txtSelectedFolder.Location = new Point(20, 40);
+            txtSelectedFolder.Size = new Size(300, 27);
+            txtSelectedFolder.TabIndex = 1;
 
-            lblTotalTime.Text = "Calculating...";
-            lblTotalTime.Font = new Font("Segoe UI", 42F, FontStyle.Bold);
-            lblTotalTime.ForeColor = Color.FromArgb(0, 176, 240);
-            lblTotalTime.Location = new Point(20, 45);
-            lblTotalTime.AutoSize = true;
-            lblTotalTime.Click += label1_Click;
+            btnBrowseFolder.Text = "Browse...";
+            btnBrowseFolder.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnBrowseFolder.BackColor = Color.FromArgb(100, 100, 100);
+            btnBrowseFolder.ForeColor = Color.White;
+            btnBrowseFolder.Size = new Size(90, 27);
+            btnBrowseFolder.Location = new Point(330, 40);
+            btnBrowseFolder.TabIndex = 2;
+            btnBrowseFolder.FlatStyle = FlatStyle.Flat;
+            btnBrowseFolder.FlatAppearance.BorderSize = 0;
+            btnBrowseFolder.Cursor = Cursors.Hand;
+            btnBrowseFolder.Click += btnBrowseFolder_Click;
 
-            pnlStats.Controls.Add(lblTotalTimeLabel);
-            pnlStats.Controls.Add(lblTotalTime);
+            pnlFolder.Controls.Add(lblFolderLabel);
+            pnlFolder.Controls.Add(txtSelectedFolder);
+            pnlFolder.Controls.Add(btnBrowseFolder);
 
             // Actions Panel
             pnlActions.BackColor = Color.FromArgb(45, 45, 48);
             pnlActions.Dock = DockStyle.Fill;
             pnlActions.Padding = new Padding(20);
 
-            // Shuffle and Name Button
-            btnShuffleAndName.Text = "🔀 Shuffle && Name";
-            btnShuffleAndName.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            btnShuffleAndName.Text = "🔀 Shuffle & Name";
+            btnShuffleAndName.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnShuffleAndName.BackColor = Color.FromArgb(0, 176, 240);
             btnShuffleAndName.ForeColor = Color.White;
-            btnShuffleAndName.Size = new Size(200, 50);
-            btnShuffleAndName.Location = new Point(20, 20);
-            btnShuffleAndName.TabIndex = 1;
+            btnShuffleAndName.Size = new Size(180, 34);
+            btnShuffleAndName.Location = new Point(20, 16);
+            btnShuffleAndName.TabIndex = 3;
             btnShuffleAndName.FlatStyle = FlatStyle.Flat;
             btnShuffleAndName.FlatAppearance.BorderSize = 0;
             btnShuffleAndName.Cursor = Cursors.Hand;
             btnShuffleAndName.Click += btnShuffleAndName_Click;
 
-            // Name by 10s Button
             btnNameTenSteps.Text = "📝 Name by 10s";
-            btnNameTenSteps.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            btnNameTenSteps.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnNameTenSteps.BackColor = Color.FromArgb(100, 100, 100);
             btnNameTenSteps.ForeColor = Color.White;
-            btnNameTenSteps.Size = new Size(200, 50);
-            btnNameTenSteps.Location = new Point(230, 20);
-            btnNameTenSteps.TabIndex = 2;
+            btnNameTenSteps.Size = new Size(180, 34);
+            btnNameTenSteps.Location = new Point(20, 58);
+            btnNameTenSteps.TabIndex = 4;
             btnNameTenSteps.FlatStyle = FlatStyle.Flat;
             btnNameTenSteps.FlatAppearance.BorderSize = 0;
             btnNameTenSteps.Cursor = Cursors.Hand;
             btnNameTenSteps.Click += btnNameTenSteps_Click;
 
-            // Check Button
-            btnCheck.Text = "✓ Check";
-            btnCheck.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
-            btnCheck.BackColor = Color.FromArgb(76, 175, 80);
-            btnCheck.ForeColor = Color.White;
-            btnCheck.Size = new Size(150, 50);
-            btnCheck.Location = new Point(440, 20);
-            btnCheck.TabIndex = 3;
-            btnCheck.FlatStyle = FlatStyle.Flat;
-            btnCheck.FlatAppearance.BorderSize = 0;
-            btnCheck.Cursor = Cursors.Hand;
-            btnCheck.Click += btnCheck_Click;
-
-            // Prepare Batch Button
-            btnPrepare.Text = "⚙️ Prepare Batch";
-            btnPrepare.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
-            btnPrepare.BackColor = Color.FromArgb(156, 39, 176);
-            btnPrepare.ForeColor = Color.White;
-            btnPrepare.Size = new Size(150, 50);
-            btnPrepare.Location = new Point(600, 20);
-            btnPrepare.TabIndex = 4;
-            btnPrepare.FlatStyle = FlatStyle.Flat;
-            btnPrepare.FlatAppearance.BorderSize = 0;
-            btnPrepare.Cursor = Cursors.Hand;
-            btnPrepare.Click += btnPrepare_Click;
-
-            // Shuffle to Random Button
             btnShuffleRandom.Text = "🎲 Shuffle Random";
-            btnShuffleRandom.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            btnShuffleRandom.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnShuffleRandom.BackColor = Color.FromArgb(255, 152, 0);
             btnShuffleRandom.ForeColor = Color.White;
-            btnShuffleRandom.Size = new Size(160, 50);
-            btnShuffleRandom.Location = new Point(760, 20);
+            btnShuffleRandom.Size = new Size(180, 34);
+            btnShuffleRandom.Location = new Point(20, 100);
             btnShuffleRandom.TabIndex = 5;
             btnShuffleRandom.FlatStyle = FlatStyle.Flat;
             btnShuffleRandom.FlatAppearance.BorderSize = 0;
             btnShuffleRandom.Cursor = Cursors.Hand;
             btnShuffleRandom.Click += btnShuffleRandom_Click;
 
-            // Archive Button
+            lblArchiveHint.Text = "Click here to archive";
+            lblArchiveHint.Font = new Font("Segoe UI", 8F);
+            lblArchiveHint.ForeColor = Color.FromArgb(150, 150, 150);
+            lblArchiveHint.AutoSize = true;
+            lblArchiveHint.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            lblArchiveHint.Location = new Point(20, 280);
+
             btnArchive.Text = "📦 Archive";
-            btnArchive.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            btnArchive.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnArchive.BackColor = Color.FromArgb(63, 81, 181);
             btnArchive.ForeColor = Color.White;
-            btnArchive.Size = new Size(200, 50);
-            btnArchive.Location = new Point(20, 85);
+            btnArchive.Size = new Size(140, 34);
+            btnArchive.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnArchive.Location = new Point(20, 302);
             btnArchive.TabIndex = 6;
             btnArchive.FlatStyle = FlatStyle.Flat;
             btnArchive.FlatAppearance.BorderSize = 0;
@@ -173,9 +167,8 @@
 
             pnlActions.Controls.Add(btnShuffleAndName);
             pnlActions.Controls.Add(btnNameTenSteps);
-            pnlActions.Controls.Add(btnCheck);
-            pnlActions.Controls.Add(btnPrepare);
             pnlActions.Controls.Add(btnShuffleRandom);
+            pnlActions.Controls.Add(lblArchiveHint);
             pnlActions.Controls.Add(btnArchive);
 
             // Main Content Panel
@@ -186,14 +179,15 @@
             // Form1
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(960, 450);
+            ClientSize = new Size(440, 520);
             BackColor = Color.FromArgb(45, 45, 48);
             ForeColor = Color.White;
+            MinimumSize = new Size(440, 520);
             Controls.Add(pnlContent);
-            Controls.Add(pnlStats);
-            Controls.Add(pnlHeader);
+            Controls.Add(pnlFolder);
+            Controls.Add(pnlTop);
             Name = "Form1";
-            Text = "Video Duration Tracker";
+            Text = "Video Tray";
             StartPosition = FormStartPosition.CenterScreen;
             ResumeLayout(false);
             PerformLayout();
@@ -201,12 +195,14 @@
 
         #endregion
 
-        private Label lblTotalTime;
+        private Button btnPrepare;
         private Button btnShuffleAndName;
         private Button btnNameTenSteps;
-        private Button btnCheck;
-        private Button btnPrepare;
         private Button btnShuffleRandom;
         private Button btnArchive;
+        private Button btnBrowseFolder;
+        private TextBox txtSelectedFolder;
+        private Label lblArchiveHint;
+        private ToolTip toolTips;
     }
 }
