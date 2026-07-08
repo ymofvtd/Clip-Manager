@@ -3,7 +3,12 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'           # Push a tag like v1.0.2 to trigger a release
+      - 'v*'           # Push a tag like v1.0.5 to trigger a release
+    branches:
+      - main
+    paths:
+      - 'VideoTrayApp/**'
+      - '.github/workflows/**'
   workflow_dispatch:   # Also allow manual trigger from GitHub Actions tab
     inputs:
       version:
@@ -20,6 +25,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # Compare against previous commit for version-bump detection
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
@@ -30,22 +37,27 @@ jobs:
         id: get-version
         shell: pwsh
         run: |
+          function Get-CsprojVersion {
+            $csproj = Get-Content 'VideoTrayApp/VideoTrayApp.csproj' -Raw
+            if ($csproj -match '<Version>([^<]+)</Version>') {
+              return $Matches[1].Trim()
+            }
+            Write-Error 'No <Version> found in VideoTrayApp/VideoTrayApp.csproj'
+            exit 1
+          }
+
           if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
             if ('${{ inputs.version }}' -ne '') {
               $fullVer = '${{ inputs.version }}'
             } else {
-              # Manual run without a version: use the version from the .csproj
-              $csproj = Get-Content 'VideoTrayApp/VideoTrayApp.csproj' -Raw
-              if ($csproj -match '<Version>([^<]+)</Version>') {
-                $fullVer = $Matches[1].Trim()
-              } else {
-                Write-Error 'No version input and no <Version> found in VideoTrayApp.csproj'
-                exit 1
-              }
+              $fullVer = Get-CsprojVersion
             }
-          } else {
+          } elseif ('${{ github.ref }}' -like 'refs/tags/*') {
             # Tag push: strip leading 'v' (v1.0.2 -> 1.0.2)
             $fullVer = '${{ github.ref_name }}' -replace '^v', ''
+          } else {
+            # main branch push: use version from .csproj
+            $fullVer = Get-CsprojVersion
           }
 
           # For AssemblyVersion and FileVersion we MUST use a numeric version (major.minor.build.revision)
@@ -64,6 +76,28 @@ jobs:
           echo "cleanVersion=$cleanVersion" >> $env:GITHUB_OUTPUT
           echo "displayVersion=$base" >> $env:GITHUB_OUTPUT
           echo "Using version: $fullVer (assembly: $cleanVersion, release: $base)"
+
+      - name: Detect version bump on main
+        id: version-bump
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $changed = 'false'
+          try {
+            $prev = git show HEAD~1:VideoTrayApp/VideoTrayApp.csproj
+            $curr = Get-Content 'VideoTrayApp/VideoTrayApp.csproj' -Raw
+            $prevVer = if ($prev -match '<Version>([^<]+)</Version>') { $Matches[1].Trim() } else { '' }
+            $currVer = if ($curr -match '<Version>([^<]+)</Version>') { $Matches[1].Trim() } else { '' }
+            if ($prevVer -ne $currVer -and $currVer -ne '') {
+              $changed = 'true'
+              Write-Host "Version bumped: $prevVer -> $currVer"
+            } else {
+              Write-Host "Version unchanged ($currVer); build only, no release"
+            }
+          } catch {
+            Write-Host "Could not compare previous commit; skipping auto-release"
+          }
+          echo "changed=$changed" >> $env:GITHUB_OUTPUT
 
       - name: Restore NuGet packages
         run: dotnet restore VideoTrayApp/VideoTrayApp.csproj
@@ -104,11 +138,15 @@ jobs:
           retention-days: 30
 
       - name: Create GitHub Release + attach EXE
-        # Only create the actual GitHub Release when triggered by a tag
-        if: startsWith(github.ref, 'refs/tags/')
+        if: |
+          startsWith(github.ref, 'refs/tags/') ||
+          github.event_name == 'workflow_dispatch' ||
+          steps.version-bump.outputs.changed == 'true'
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: v${{ steps.get-version.outputs.displayVersion }}
+          target_commitish: ${{ github.sha }}
           name: VideoTrayApp v${{ steps.get-version.outputs.displayVersion }}
           draft: false
           prerelease: false

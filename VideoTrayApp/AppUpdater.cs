@@ -15,8 +15,8 @@ namespace VideoTrayApp
 
     public static class AppUpdater
     {
-        private const string RepoOwner = "glpzghoo";
-        private const string RepoName = "VideoTrayApp";
+        private const string RepoOwner = "ymofvtd";
+        private const string RepoName = "Clip-Manager";
 
         private static readonly HttpClient Http = new()
         {
