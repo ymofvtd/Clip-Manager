@@ -30,10 +30,21 @@ jobs:
         id: get-version
         shell: pwsh
         run: |
-          if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ inputs.version }}' -ne '') {
-            $fullVer = '${{ inputs.version }}'
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            if ('${{ inputs.version }}' -ne '') {
+              $fullVer = '${{ inputs.version }}'
+            } else {
+              # Manual run without a version: use the version from the .csproj
+              $csproj = Get-Content 'VideoTrayApp/VideoTrayApp.csproj' -Raw
+              if ($csproj -match '<Version>([^<]+)</Version>') {
+                $fullVer = $Matches[1].Trim()
+              } else {
+                Write-Error 'No version input and no <Version> found in VideoTrayApp.csproj'
+                exit 1
+              }
+            }
           } else {
-            # Strip leading 'v' from tag (v1.0.2 -> 1.0.2)
+            # Tag push: strip leading 'v' (v1.0.2 -> 1.0.2)
             $fullVer = '${{ github.ref_name }}' -replace '^v', ''
           }
 
