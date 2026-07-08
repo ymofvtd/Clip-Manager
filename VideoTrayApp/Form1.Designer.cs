@@ -215,7 +215,7 @@
             Controls.Add(pnlContent);
             Controls.Add(pnlFolder);
             Name = "Form1";
-            Text = "Video Tray";
+            Text = "Clips Manager";
             StartPosition = FormStartPosition.CenterScreen;
             ResumeLayout(false);
             PerformLayout();

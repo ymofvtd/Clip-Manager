@@ -16,7 +16,7 @@ namespace VideoTrayApp
             {
                 // Check if another instance is already running
                 bool isNewInstance = false;
-                singleInstanceMutex = new Mutex(true, "VideoTrayApp_SingleInstance", out isNewInstance);
+                singleInstanceMutex = new Mutex(true, "ClipsManager_SingleInstance", out isNewInstance);
 
                 if (!isNewInstance)
                 {
@@ -35,7 +35,7 @@ namespace VideoTrayApp
                 // Log any critical errors
                 string errorLog = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "VideoTrayApp",
+                    "ClipsManager",
                     "error.log"
                 );
 
@@ -67,7 +67,7 @@ namespace VideoTrayApp
                 notifyIcon.Visible = true;
                 notifyIcon.ShowBalloonTip(
                     3000,
-                    "Video Duration Tracker",
+                    "Clips Manager",
                     "Already running! Refreshed duration.",
                     ToolTipIcon.Info
                 );

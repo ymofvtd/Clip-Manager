@@ -67,13 +67,18 @@ namespace VideoTrayApp
             this.ShowInTaskbar = false;
         }
 
-        private string GetConfigPath()
+        private static string AppDataFolder =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClipsManager");
+
+        private static string LegacyAppDataFolder =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VideoTrayApp");
+
+        private string GetConfigPath() => Path.Combine(AppDataFolder, "config.txt");
+
+        private string? GetLegacyConfigPath()
         {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "VideoTrayApp",
-                "config.txt"
-            );
+            string legacyPath = Path.Combine(LegacyAppDataFolder, "config.txt");
+            return System.IO.File.Exists(legacyPath) ? legacyPath : null;
         }
 
         private string LoadFolderPathFromConfig()
@@ -81,11 +86,18 @@ namespace VideoTrayApp
             string configPath = GetConfigPath();
 
             if (System.IO.File.Exists(configPath))
-            {
                 return System.IO.File.ReadAllText(configPath).Trim();
+
+            string? legacyConfigPath = GetLegacyConfigPath();
+            if (legacyConfigPath is not null)
+            {
+                string folderPath = System.IO.File.ReadAllText(legacyConfigPath).Trim();
+                if (!string.IsNullOrEmpty(folderPath))
+                    SaveFolderPathToConfig(folderPath);
+                return folderPath;
             }
 
-            return string.Empty; // Return empty if no config exists
+            return string.Empty;
         }
 
         private void SaveFolderPathToConfig(string path)
@@ -108,7 +120,7 @@ namespace VideoTrayApp
             {
                 Icon = LoadApplicationIcon(),
                 Visible = true,
-                Text = "Video Tray"
+                Text = "Clips Manager"
             };
 
             // Left-click to toggle window visibility
@@ -473,7 +485,8 @@ namespace VideoTrayApp
             // This adds your app to the Windows Registry to run on boot
             RegistryKey rk = Registry.CurrentUser.OpenSubKey
                 ("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
-            rk.SetValue("VideoTrayApp", Application.ExecutablePath);
+            try { rk.DeleteValue("VideoTrayApp", false); } catch { }
+            rk.SetValue("ClipsManager", Application.ExecutablePath);
         }
 
         protected override void OnLoad(EventArgs e)

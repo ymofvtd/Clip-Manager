@@ -22,7 +22,7 @@ namespace VideoTrayApp
         {
             DefaultRequestHeaders =
             {
-                { "User-Agent", "VideoTrayApp-Updater" },
+                { "User-Agent", "ClipsManager-Updater" },
                 { "Accept", "application/vnd.github+json" }
             }
         };
@@ -52,7 +52,8 @@ namespace VideoTrayApp
             {
                 string? name = asset.GetProperty("name").GetString();
                 if (name is not null
-                    && name.StartsWith("VideoTrayApp-", StringComparison.OrdinalIgnoreCase)
+                    && (name.StartsWith("ClipsManager-", StringComparison.OrdinalIgnoreCase)
+                        || name.StartsWith("VideoTrayApp-", StringComparison.OrdinalIgnoreCase))
                     && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                 {
                     downloadUrl = asset.GetProperty("browser_download_url").GetString();
@@ -78,10 +79,14 @@ namespace VideoTrayApp
             Action<long, long?> reportProgress,
             CancellationToken cancellationToken = default)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "VideoTrayApp");
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClipsManager");
             Directory.CreateDirectory(tempDir);
 
-            string destinationPath = Path.Combine(tempDir, $"VideoTrayApp-{version.Major}.{version.Minor}.{GetBuild(version)}.exe");
+            string fileName = Path.GetFileName(new Uri(downloadUrl).LocalPath);
+            if (string.IsNullOrWhiteSpace(fileName))
+                fileName = $"ClipsManager-{version.Major}.{version.Minor}.{GetBuild(version)}.exe";
+
+            string destinationPath = Path.Combine(tempDir, fileName);
             if (File.Exists(destinationPath))
                 File.Delete(destinationPath);
 
@@ -113,7 +118,7 @@ namespace VideoTrayApp
                 ?? throw new InvalidOperationException("Could not determine the application path.");
 
             int pid = Environment.ProcessId;
-            string scriptPath = Path.Combine(Path.GetTempPath(), "VideoTrayApp", $"update_{pid}.bat");
+            string scriptPath = Path.Combine(Path.GetTempPath(), "ClipsManager", $"update_{pid}.bat");
 
             Directory.CreateDirectory(Path.GetDirectoryName(scriptPath)!);
 

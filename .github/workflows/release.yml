@@ -119,8 +119,8 @@ jobs:
         shell: pwsh
         run: |
           $ver = '${{ steps.get-version.outputs.version }}'
-          $source = 'artifacts/VideoTrayApp.exe'
-          $target = "artifacts/VideoTrayApp-$ver.exe"
+          $source = 'artifacts/ClipsManager.exe'
+          $target = "artifacts/ClipsManager-$ver.exe"
           
           if (Test-Path $source) {
             Move-Item -Path $source -Destination $target -Force
@@ -133,8 +133,8 @@ jobs:
       - name: Upload build artifact (for manual download)
         uses: actions/upload-artifact@v4
         with:
-          name: VideoTrayApp-${{ steps.get-version.outputs.displayVersion }}
-          path: artifacts/VideoTrayApp-*.exe
+          name: ClipsManager-${{ steps.get-version.outputs.displayVersion }}
+          path: artifacts/ClipsManager-*.exe
           retention-days: 30
 
       - name: Create GitHub Release + attach EXE
@@ -147,13 +147,13 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: v${{ steps.get-version.outputs.displayVersion }}
           target_commitish: ${{ github.sha }}
-          name: VideoTrayApp v${{ steps.get-version.outputs.displayVersion }}
+          name: Clips Manager v${{ steps.get-version.outputs.displayVersion }}
           draft: false
           prerelease: false
           generate_release_notes: true
           body: |
-            Official release **VideoTrayApp v${{ steps.get-version.outputs.displayVersion }}**
+            Official release **Clips Manager v${{ steps.get-version.outputs.displayVersion }}**
 
-            Download `VideoTrayApp-${{ steps.get-version.outputs.version }}.exe` below and run it on Windows 10/11 (x64). No .NET runtime install required.
+            Download `ClipsManager-${{ steps.get-version.outputs.version }}.exe` below and run it on Windows 10/11 (x64). No .NET runtime install required.
           files: |
-            artifacts/VideoTrayApp-${{ steps.get-version.outputs.version }}.exe
+            artifacts/ClipsManager-${{ steps.get-version.outputs.version }}.exe
