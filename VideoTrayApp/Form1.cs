@@ -994,6 +994,8 @@ namespace VideoTrayApp
             });
         }
 
+        private static readonly TimeSpan MaxArchiveDuration = TimeSpan.FromSeconds(90);
+
         private string ArchiveVideos(string sourceFolder, ProgressForm progress, CancellationToken cancellationToken)
         {
             var sourceDir = new DirectoryInfo(sourceFolder);
@@ -1028,6 +1030,7 @@ namespace VideoTrayApp
 
             int copied = 0;
             int skippedDuplicates = 0;
+            int skippedTooLong = 0;
             int errors = 0;
             string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
             string logPath = Path.Combine(archiveFolder, $"archive_log_{timestamp}.csv");
@@ -1056,6 +1059,13 @@ namespace VideoTrayApp
                     continue;
                 }
 
+                if (fingerprint.Duration > MaxArchiveDuration)
+                {
+                    skippedTooLong++;
+                    log.AppendLine($"{EscapeCsv(sourcePath)},skipped_too_long,{fingerprint.Size},{fingerprint.Duration.TotalSeconds:0.###},{fingerprint.Sha256},,");
+                    continue;
+                }
+
                 try
                 {
                     string destinationPath = EnsureUniquePath(Path.Combine(archiveFolder, fileName));
@@ -1074,10 +1084,10 @@ namespace VideoTrayApp
 
             File.WriteAllText(logPath, log.ToString(), Encoding.UTF8);
 
-            string summary = $"Archive completed.\n\nCopied: {copied}\nSkipped duplicates: {skippedDuplicates}\nErrors: {errors}\n\nLog: {logPath}";
+            string summary = $"Archive completed.\n\nCopied: {copied}\nSkipped duplicates: {skippedDuplicates}\nSkipped (over 1m30s): {skippedTooLong}\nErrors: {errors}\n\nLog: {logPath}";
             lblTotalTime.Invoke((MethodInvoker)delegate
             {
-                lblTotalTime.Text = $"Archived: {copied} copied, {skippedDuplicates} skipped";
+                lblTotalTime.Text = $"Archived: {copied} copied, {skippedDuplicates} dup, {skippedTooLong} too long";
             });
 
             return summary;
