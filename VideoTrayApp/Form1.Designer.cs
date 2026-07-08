@@ -180,25 +180,25 @@
             btnArchive.Cursor = Cursors.Hand;
             btnArchive.Click += btnArchive_Click;
 
-            pnlActions.Controls.Add(btnShuffleAndName);
-            pnlActions.Controls.Add(btnNameTenSteps);
-            pnlActions.Controls.Add(btnShuffleRandom);
-            pnlActions.Controls.Add(lblArchiveHint);
-            pnlActions.Controls.Add(btnArchive);
-
             btnPrepare.Text = "⚙️ Prepare Batch";
-            btnPrepare.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnPrepare.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnPrepare.BackColor = Color.FromArgb(156, 39, 176);
             btnPrepare.ForeColor = Color.White;
-            btnPrepare.Size = new Size(150, 40);
-            btnPrepare.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnPrepare.Location = new Point(20, 328);
+            btnPrepare.Size = new Size(150, 34);
+            btnPrepare.Location = new Point(20, 64);
             btnPrepare.TabIndex = 0;
             btnPrepare.FlatStyle = FlatStyle.Flat;
             btnPrepare.FlatAppearance.BorderSize = 0;
             btnPrepare.Cursor = Cursors.Hand;
             btnPrepare.Click += btnPrepare_Click;
             toolTips.SetToolTip(btnPrepare, "Prepare Batch");
+
+            pnlActions.Controls.Add(btnShuffleAndName);
+            pnlActions.Controls.Add(btnNameTenSteps);
+            pnlActions.Controls.Add(btnShuffleRandom);
+            pnlActions.Controls.Add(btnPrepare);
+            pnlActions.Controls.Add(lblArchiveHint);
+            pnlActions.Controls.Add(btnArchive);
 
             // Main Content Panel
             pnlContent.BackColor = Color.FromArgb(45, 45, 48);
@@ -214,7 +214,6 @@
             MinimumSize = new Size(520, 400);
             Controls.Add(pnlContent);
             Controls.Add(pnlFolder);
-            Controls.Add(btnPrepare);
             Name = "Form1";
             Text = "Video Tray";
             StartPosition = FormStartPosition.CenterScreen;
