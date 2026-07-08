@@ -124,6 +124,7 @@ namespace VideoTrayApp
             menu.Items.Add("Archive", null, async (s, e) => await RunArchiveAsync());
             menu.Items.Add("Set Folder", null, SetFolderPath);
             menu.Items.Add("Show Window", null, ShowWindow);
+            menu.Items.Add("Check for Updates", null, async (s, e) => await RunCheckForUpdateAsync());
             menu.Items.Add("Exit", null, (s, e) => Application.Exit());
             trayIcon.ContextMenuStrip = menu;
         }
@@ -451,6 +452,99 @@ namespace VideoTrayApp
                     return Task.FromResult<string?>(null);
                 },
                 refreshDurationOnComplete: false);
+        }
+
+        private async Task RunCheckForUpdateAsync()
+        {
+            SetButtonsEnabled(false);
+
+            try
+            {
+                using var checkForm = new ProgressForm();
+                checkForm.BeginOperation("Check for Updates");
+                checkForm.Show(this);
+                checkForm.SetIndeterminate("Checking for updates...");
+
+                UpdateCheckResult result;
+                try
+                {
+                    result = await AppUpdater.CheckForUpdateAsync(checkForm.CancellationToken);
+                }
+                finally
+                {
+                    if (checkForm.Visible)
+                        checkForm.Close();
+                }
+
+                if (!result.UpdateAvailable)
+                {
+                    MessageBox.Show(
+                        $"You already have the latest version (v{FormatVersion(result.CurrentVersion)}).",
+                        "No Updates",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                    return;
+                }
+
+                var answer = MessageBox.Show(
+                    $"A new version is available: v{FormatVersion(result.LatestVersion!)}\n\n" +
+                    $"You are running v{FormatVersion(result.CurrentVersion)}.\n\n" +
+                    "Would you like to download and install it now?",
+                    "Update Available",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (answer != DialogResult.Yes)
+                    return;
+
+                await RunWithProgressAsync(
+                    "Downloading Update",
+                    async (progress, ct) =>
+                    {
+                        string downloadedPath = await AppUpdater.DownloadUpdateAsync(
+                            result.DownloadUrl!,
+                            result.LatestVersion!,
+                            (downloaded, total) =>
+                            {
+                                if (total is > 0)
+                                {
+                                    int percent = (int)(downloaded * 100 / total.Value);
+                                    progress.Report((int)downloaded, (int)total.Value, $"Downloading... {percent}%");
+                                }
+                                else
+                                {
+                                    progress.SetIndeterminate($"Downloading... {downloaded / 1024 / 1024} MB");
+                                }
+                            },
+                            ct);
+
+                        progress.SetIndeterminate("Applying update...");
+                        AppUpdater.ApplyUpdate(downloadedPath);
+                        return "The app will now restart to finish updating.";
+                    },
+                    refreshDurationOnComplete: false,
+                    showSuccessMessage: true);
+
+                Application.Exit();
+            }
+            catch (OperationCanceledException)
+            {
+                MessageBox.Show("Update cancelled.", "Cancelled", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Update failed:\n{ex.Message}", "Update Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                SetButtonsEnabled(true);
+            }
+        }
+
+        private static string FormatVersion(Version version)
+        {
+            int build = version.Build < 0 ? 0 : version.Build;
+            return $"{version.Major}.{version.Minor}.{build}";
         }
 
         private void SetStartup()
