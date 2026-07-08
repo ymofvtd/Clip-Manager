@@ -1,0 +1,14 @@
+---
+pid: 18520
+cwd: "C:\Users\myasg\source\repos\glpzghoo\VideoTrayApp"
+command: "Get-ChildItem -Path \"C:\\Program Files\",\"C:\\Program Files (x86)\",\"C:\\Users\\myasg\\AppData\\Local\" -Filter git.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 5 FullName"
+started_at: 2026-07-08T05:21:14.678Z
+running_for_ms: 129988   
+---
+
+FullName                                                                                                               
+--------                                                                                                               
+C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Exp...
+C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Exp...
+
+
