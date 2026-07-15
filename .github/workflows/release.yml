@@ -176,7 +176,11 @@ jobs:
           path: artifacts/ClipsManager-*.exe
           retention-days: 30
 
-      - name: Create GitHub Release + attach EXE
+      # Create as draft first, upload the .exe, THEN publish. That avoids a race where
+      # /releases/latest exists with zero assets and the in-app updater reports
+      # "No downloadable .exe was found in the latest release".
+      - name: Create draft GitHub Release + attach EXE
+        id: make-release
         if: |
           startsWith(github.ref, 'refs/tags/') ||
           github.event_name == 'workflow_dispatch' ||
@@ -187,7 +191,7 @@ jobs:
           tag_name: v${{ steps.get-version.outputs.displayVersion }}
           target_commitish: ${{ github.sha }}
           name: Clips Manager v${{ steps.get-version.outputs.displayVersion }}
-          draft: false
+          draft: true
           prerelease: ${{ contains(steps.get-version.outputs.version, '-') }}
           generate_release_notes: true
           body: |
@@ -196,3 +200,23 @@ jobs:
             Download `ClipsManager-${{ steps.get-version.outputs.version }}.exe` below and run it on Windows 10/11 (x64). No .NET runtime install required.
           files: |
             artifacts/ClipsManager-${{ steps.get-version.outputs.version }}.exe
+
+      - name: Publish release (assets already attached)
+        if: |
+          (startsWith(github.ref, 'refs/tags/') ||
+           github.event_name == 'workflow_dispatch' ||
+           steps.version-bump.outputs.changed == 'true')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = 'v${{ steps.get-version.outputs.displayVersion }}'
+          # Confirm the exe is on the draft before making it latest.
+          $assets = gh release view $tag --json assets --jq '.assets[].name'
+          Write-Host "Release $tag assets:`n$assets"
+          if ($assets -notmatch '\.exe') {
+            Write-Error "Refusing to publish $tag: no .exe asset attached."
+            exit 1
+          }
+          gh release edit $tag --draft=false
+          Write-Host "Published $tag"

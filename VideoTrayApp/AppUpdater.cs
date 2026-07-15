@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Reflection;
 using System.Text.Json;
 
@@ -17,15 +18,32 @@ namespace VideoTrayApp
     {
         private const string RepoOwner = "ymofvtd";
         private const string RepoName = "Clip-Manager";
+        private const int AssetRetryCount = 5;
+        private const int AssetRetryDelayMs = 2000;
 
-        private static readonly HttpClient Http = new()
+        // API client: GitHub JSON only.
+        private static readonly HttpClient ApiHttp = CreateApiClient();
+
+        // Download client: no GitHub JSON Accept header (avoids odd CDN/API negotiation).
+        private static readonly HttpClient DownloadHttp = CreateDownloadClient();
+
+        private static HttpClient CreateApiClient()
         {
-            DefaultRequestHeaders =
-            {
-                { "User-Agent", "ClipsManager-Updater" },
-                { "Accept", "application/vnd.github+json" }
-            }
-        };
+            var client = new HttpClient();
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("ClipsManager-Updater");
+            client.DefaultRequestHeaders.Accept.Add(
+                new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            return client;
+        }
+
+        private static HttpClient CreateDownloadClient()
+        {
+            var client = new HttpClient();
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("ClipsManager-Updater");
+            client.DefaultRequestHeaders.Accept.Add(
+                new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+            return client;
+        }
 
         public static Version CurrentVersion =>
             Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
@@ -33,36 +51,70 @@ namespace VideoTrayApp
         public static async Task<UpdateCheckResult> CheckForUpdateAsync(CancellationToken cancellationToken = default)
         {
             var current = CurrentVersion;
-            string url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
 
-            using var response = await Http.GetAsync(url, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-            var root = doc.RootElement;
-
-            string tagName = root.GetProperty("tag_name").GetString()
-                ?? throw new InvalidOperationException("Release is missing a version tag.");
-
-            var latest = ParseVersion(tagName);
+            // Prefer /releases/latest, but if it has no usable .exe yet (CI race: release
+            // published before asset finished uploading), retry and then scan recent releases.
+            JsonElement? release = null;
             string? downloadUrl = null;
+            string? lastAssetSummary = null;
 
-            foreach (var asset in root.GetProperty("assets").EnumerateArray())
+            for (int attempt = 1; attempt <= AssetRetryCount; attempt++)
             {
-                string? name = asset.GetProperty("name").GetString();
-                if (name is not null
-                    && (name.StartsWith("ClipsManager-", StringComparison.OrdinalIgnoreCase)
-                        || name.StartsWith("VideoTrayApp-", StringComparison.OrdinalIgnoreCase))
-                    && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                cancellationToken.ThrowIfCancellationRequested();
+
+                using var latestDoc = await GetJsonAsync(
+                    $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest",
+                    cancellationToken);
+
+                var latestRoot = latestDoc.RootElement.Clone();
+                downloadUrl = FindExeDownloadUrl(latestRoot, out lastAssetSummary);
+                if (downloadUrl is not null)
                 {
-                    downloadUrl = asset.GetProperty("browser_download_url").GetString();
+                    release = latestRoot;
                     break;
                 }
+
+                // Latest exists but no .exe yet — wait for CI asset upload.
+                if (attempt < AssetRetryCount)
+                    await Task.Delay(AssetRetryDelayMs, cancellationToken);
             }
 
             if (downloadUrl is null)
-                throw new InvalidOperationException("No downloadable .exe was found in the latest release.");
+            {
+                // Fall back: walk recent releases for the newest one that has an .exe.
+                using var listDoc = await GetJsonAsync(
+                    $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases?per_page=10",
+                    cancellationToken);
+
+                foreach (var item in listDoc.RootElement.EnumerateArray())
+                {
+                    if (item.TryGetProperty("draft", out var draft) && draft.GetBoolean())
+                        continue;
+                    if (item.TryGetProperty("prerelease", out var pre) && pre.GetBoolean())
+                        continue;
+
+                    downloadUrl = FindExeDownloadUrl(item, out lastAssetSummary);
+                    if (downloadUrl is not null)
+                    {
+                        release = item.Clone();
+                        break;
+                    }
+                }
+            }
+
+            if (release is null || downloadUrl is null)
+            {
+                throw new InvalidOperationException(
+                    "No downloadable .exe was found in the latest release." +
+                    (string.IsNullOrWhiteSpace(lastAssetSummary)
+                        ? " (no assets listed — the release may still be publishing; try again in a minute)"
+                        : $" Assets seen: {lastAssetSummary}"));
+            }
+
+            string tagName = release.Value.GetProperty("tag_name").GetString()
+                ?? throw new InvalidOperationException("Release is missing a version tag.");
+
+            var latest = ParseVersion(tagName);
 
             return new UpdateCheckResult
             {
@@ -90,7 +142,10 @@ namespace VideoTrayApp
             if (File.Exists(destinationPath))
                 File.Delete(destinationPath);
 
-            using var response = await Http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            using var response = await DownloadHttp.GetAsync(
+                downloadUrl,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
             response.EnsureSuccessStatusCode();
 
             long? totalBytes = response.Content.Headers.ContentLength;
@@ -122,6 +177,7 @@ namespace VideoTrayApp
 
             Directory.CreateDirectory(Path.GetDirectoryName(scriptPath)!);
 
+            // Use copy+delete instead of move so cross-volume updates work.
             string script = $"""
                 @echo off
                 :wait
@@ -130,7 +186,12 @@ namespace VideoTrayApp
                     timeout /t 1 /nobreak >nul
                     goto wait
                 )
-                move /Y "{downloadedPath}" "{targetPath}"
+                copy /Y "{downloadedPath}" "{targetPath}" >nul
+                if errorlevel 1 (
+                    ping -n 3 127.0.0.1 >nul
+                    copy /Y "{downloadedPath}" "{targetPath}" >nul
+                )
+                del /F /Q "{downloadedPath}" >nul 2>&1
                 start "" "{targetPath}"
                 del /F /Q "%~f0"
                 """;
@@ -144,6 +205,70 @@ namespace VideoTrayApp
                 UseShellExecute = false,
                 WindowStyle = ProcessWindowStyle.Hidden
             });
+        }
+
+        private static async Task<JsonDocument> GetJsonAsync(string url, CancellationToken cancellationToken)
+        {
+            using var response = await ApiHttp.GetAsync(url, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        }
+
+        /// <summary>
+        /// Prefer ClipsManager-*.exe / VideoTrayApp-*.exe, then any other .exe asset.
+        /// </summary>
+        private static string? FindExeDownloadUrl(JsonElement release, out string assetSummary)
+        {
+            if (!release.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
+            {
+                assetSummary = "(missing assets array)";
+                return null;
+            }
+
+            string? preferred = null;
+            string? anyExe = null;
+            var names = new List<string>();
+
+            foreach (var asset in assets.EnumerateArray())
+            {
+                string? name = asset.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
+                if (string.IsNullOrWhiteSpace(name))
+                    continue;
+
+                names.Add(name);
+
+                if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Skip symbols / installers we never ship as the app binary.
+                if (name.EndsWith(".pdb.exe", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string? url = asset.TryGetProperty("browser_download_url", out var urlEl)
+                    ? urlEl.GetString()
+                    : null;
+                if (string.IsNullOrWhiteSpace(url))
+                    continue;
+
+                bool isPreferred =
+                    name.StartsWith("ClipsManager-", StringComparison.OrdinalIgnoreCase)
+                    || name.StartsWith("ClipsManager.", StringComparison.OrdinalIgnoreCase)
+                    || name.StartsWith("VideoTrayApp-", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("ClipsManager.exe", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("VideoTrayApp.exe", StringComparison.OrdinalIgnoreCase);
+
+                if (isPreferred)
+                {
+                    preferred = url;
+                    break;
+                }
+
+                anyExe ??= url;
+            }
+
+            assetSummary = names.Count == 0 ? "(none)" : string.Join(", ", names);
+            return preferred ?? anyExe;
         }
 
         private static Version ParseVersion(string tagName)
