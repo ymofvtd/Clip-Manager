@@ -13,10 +13,14 @@ namespace VideoTrayApp
     public partial class Form1 : Form
     {
         private NotifyIcon trayIcon;
-        private FileSystemWatcher watcher;
-        private string folderPath;
-        private System.Timers.Timer debounceTimer;
+        private FileSystemWatcher? watcher;
+        /// <summary>Folder watched for video changes; duration .txt markers are written here (and immediate children).</summary>
+        private string watchFolderPath = string.Empty;
+        /// <summary>Folder used by rename/shuffle/archive actions in the main window.</summary>
+        private string workingFolderPath = string.Empty;
+        private System.Timers.Timer? debounceTimer;
         private bool isDirty = false;
+        private readonly object durationUpdateLock = new();
         private CancellationTokenSource? operationCts;
 
         // Common video extensions used by original Python scripts
@@ -29,32 +33,43 @@ namespace VideoTrayApp
         public Form1()
         {
             InitializeComponent();
-            folderPath = LoadFolderPathFromConfig();
+            watchFolderPath = LoadWatchFolderFromConfig();
+            workingFolderPath = LoadWorkingFolderFromConfig();
 
-            // If no folder is configured, prompt the user to set one
-            if (string.IsNullOrEmpty(folderPath))
+            // Watch folder is required for duration tracking
+            if (string.IsNullOrEmpty(watchFolderPath) || !Directory.Exists(watchFolderPath))
             {
-                using var dlg = new FolderBrowserDialog 
-                { 
-                    Description = "Select the folder to monitor for video files" 
+                using var dlg = new FolderBrowserDialog
+                {
+                    Description = "Select the folder to watch for video duration tracking"
                 };
 
                 if (dlg.ShowDialog() == DialogResult.OK)
                 {
-                    folderPath = dlg.SelectedPath;
-                    SaveFolderPathToConfig(folderPath);
+                    watchFolderPath = dlg.SelectedPath;
+                    SaveWatchFolderToConfig(watchFolderPath);
                 }
                 else
                 {
-                    // If user cancels, use a temporary folder or show a warning
                     MessageBox.Show(
-                        "No folder configured. Please set one using the tray menu.",
+                        "No watch folder configured. Use tray menu → Set Folder to enable duration tracking.",
                         "Configuration Required",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning
                     );
-                    folderPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                    watchFolderPath = string.Empty;
                 }
+            }
+
+            // First-run migration: previously a single path was used for both roles.
+            // Seed working folder from watch only when no working folder has been saved yet.
+            if (string.IsNullOrEmpty(workingFolderPath)
+                && !string.IsNullOrEmpty(watchFolderPath)
+                && Directory.Exists(watchFolderPath)
+                && !System.IO.File.Exists(GetWorkingConfigPath()))
+            {
+                workingFolderPath = watchFolderPath;
+                SaveWorkingFolderToConfig(workingFolderPath);
             }
 
             SetupTrayIcon();
@@ -73,45 +88,60 @@ namespace VideoTrayApp
         private static string LegacyAppDataFolder =>
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VideoTrayApp");
 
-        private string GetConfigPath() => Path.Combine(AppDataFolder, "config.txt");
+        // config.txt = watch folder (historical); working_folder.txt = naming/ops folder
+        private string GetWatchConfigPath() => Path.Combine(AppDataFolder, "config.txt");
+        private string GetWorkingConfigPath() => Path.Combine(AppDataFolder, "working_folder.txt");
 
-        private string? GetLegacyConfigPath()
+        private string? GetLegacyWatchConfigPath()
         {
             string legacyPath = Path.Combine(LegacyAppDataFolder, "config.txt");
             return System.IO.File.Exists(legacyPath) ? legacyPath : null;
         }
 
-        private string LoadFolderPathFromConfig()
+        private static void EnsureAppDataFolder()
         {
-            string configPath = GetConfigPath();
+            if (!Directory.Exists(AppDataFolder))
+                Directory.CreateDirectory(AppDataFolder);
+        }
+
+        private string LoadWatchFolderFromConfig()
+        {
+            string configPath = GetWatchConfigPath();
 
             if (System.IO.File.Exists(configPath))
                 return System.IO.File.ReadAllText(configPath).Trim();
 
-            string? legacyConfigPath = GetLegacyConfigPath();
+            string? legacyConfigPath = GetLegacyWatchConfigPath();
             if (legacyConfigPath is not null)
             {
-                string folderPath = System.IO.File.ReadAllText(legacyConfigPath).Trim();
-                if (!string.IsNullOrEmpty(folderPath))
-                    SaveFolderPathToConfig(folderPath);
-                return folderPath;
+                string path = System.IO.File.ReadAllText(legacyConfigPath).Trim();
+                if (!string.IsNullOrEmpty(path))
+                    SaveWatchFolderToConfig(path);
+                return path;
             }
 
             return string.Empty;
         }
 
-        private void SaveFolderPathToConfig(string path)
+        private string LoadWorkingFolderFromConfig()
         {
-            string configPath = GetConfigPath();
-            string configDir = Path.GetDirectoryName(configPath);
+            string configPath = GetWorkingConfigPath();
+            if (System.IO.File.Exists(configPath))
+                return System.IO.File.ReadAllText(configPath).Trim();
 
-            // Ensure the config directory exists
-            if (!Directory.Exists(configDir))
-            {
-                Directory.CreateDirectory(configDir);
-            }
+            return string.Empty;
+        }
 
-            System.IO.File.WriteAllText(configPath, path);
+        private void SaveWatchFolderToConfig(string path)
+        {
+            EnsureAppDataFolder();
+            System.IO.File.WriteAllText(GetWatchConfigPath(), path);
+        }
+
+        private void SaveWorkingFolderToConfig(string path)
+        {
+            EnsureAppDataFolder();
+            System.IO.File.WriteAllText(GetWorkingConfigPath(), path);
         }
 
         private void SetupTrayIcon()
@@ -120,7 +150,7 @@ namespace VideoTrayApp
             {
                 Icon = LoadApplicationIcon(),
                 Visible = true,
-                Text = "Clips Manager"
+                Text = BuildTrayTooltip()
             };
 
             // Left-click to toggle window visibility
@@ -135,7 +165,7 @@ namespace VideoTrayApp
             // Right-click menu for the icon
             var menu = new ContextMenuStrip();
             menu.Items.Add("Archive", null, async (s, e) => await RunArchiveAsync());
-            menu.Items.Add("Set Folder", null, SetFolderPath);
+            menu.Items.Add("Set Watch Folder", null, SetFolderPath);
             menu.Items.Add("Show Window", null, ShowWindow);
             menu.Items.Add("Check for Updates", null, async (s, e) => await RunCheckForUpdateAsync());
             menu.Items.Add("Exit", null, (s, e) => Application.Exit());
@@ -169,9 +199,23 @@ namespace VideoTrayApp
             }
         }
 
+        private string BuildTrayTooltip()
+        {
+            string watch = string.IsNullOrEmpty(watchFolderPath) ? "(not set)" : watchFolderPath;
+            // NotifyIcon.Text max length is 63 chars
+            string tip = $"Clips Manager\nWatch: {watch}";
+            return tip.Length <= 63 ? tip : tip[..60] + "...";
+        }
+
         private void SetupWatcher()
         {
-            watcher = new FileSystemWatcher(folderPath);
+            watcher?.Dispose();
+            watcher = null;
+
+            if (string.IsNullOrEmpty(watchFolderPath) || !Directory.Exists(watchFolderPath))
+                return;
+
+            watcher = new FileSystemWatcher(watchFolderPath);
             // Filter to only watch for video files
             watcher.Filters.Add("*.mp4");
             watcher.Filters.Add("*.mov");
@@ -194,30 +238,135 @@ namespace VideoTrayApp
             watcher.IncludeSubdirectories = true;
             watcher.EnableRaisingEvents = true;
 
-            debounceTimer = new System.Timers.Timer(500);
-            debounceTimer.Elapsed += (s, e) =>
+            if (debounceTimer is null)
             {
-                if (isDirty)
+                debounceTimer = new System.Timers.Timer(500);
+                debounceTimer.Elapsed += (s, e) =>
                 {
-                    isDirty = false;
-                    UpdateVideoCount();
-                }
-            };
-            debounceTimer.AutoReset = false;
+                    if (isDirty)
+                    {
+                        isDirty = false;
+                        UpdateDuration();
+                    }
+                };
+                debounceTimer.AutoReset = false;
+            }
         }
 
         private void ScheduleUpdate()
         {
             isDirty = true;
+            if (debounceTimer is null)
+                return;
             debounceTimer.Stop();
             debounceTimer.Start();
+        }
+
+        /// <summary>
+        /// Recalculates total video duration for the watch folder and each immediate subfolder,
+        /// writing marker files named like "90M30S.txt".
+        /// </summary>
+        private void UpdateDuration()
+        {
+            try
+            {
+                lock (durationUpdateLock)
+                {
+                    UpdateDurationCore(watchFolderPath);
+                }
+            }
+            catch
+            {
+                // Ignore duration errors (file in use, permissions, etc.)
+            }
+        }
+
+        private void UpdateDurationCore(string rootFolder)
+        {
+            if (string.IsNullOrEmpty(rootFolder) || !Directory.Exists(rootFolder))
+                return;
+
+            var parentDir = new DirectoryInfo(rootFolder);
+            TimeSpan parentFolderTotal = SumVideoDurations(parentDir.GetFiles()
+                .Where(f => DefaultVideoExts.Contains(f.Extension)));
+
+            WriteDurationMarker(parentDir, parentFolderTotal);
+
+            foreach (var subfolder in parentDir.GetDirectories())
+            {
+                try
+                {
+                    TimeSpan subfolderTotal = SumVideoDurations(subfolder.GetFiles()
+                        .Where(f => DefaultVideoExts.Contains(f.Extension)));
+
+                    WriteDurationMarker(subfolder, subfolderTotal);
+                }
+                catch
+                {
+                    // Skip subfolders we can't read
+                }
+            }
+        }
+
+        private static TimeSpan SumVideoDurations(IEnumerable<FileInfo> files)
+        {
+            TimeSpan total = TimeSpan.Zero;
+            foreach (var file in files)
+            {
+                try
+                {
+                    using var video = TagLib.File.Create(file.FullName);
+                    total += video.Properties.Duration;
+                }
+                catch (IOException)
+                {
+                    // File is being written — skip for now
+                }
+                catch
+                {
+                    // Skip unreadable files
+                }
+            }
+            return total;
+        }
+
+        /// <summary>
+        /// Replaces any *.txt markers in the folder with a duration filename, or clears them when empty.
+        /// </summary>
+        private static void WriteDurationMarker(DirectoryInfo dir, TimeSpan total)
+        {
+            foreach (var txtFile in dir.GetFiles("*.txt"))
+            {
+                try
+                {
+                    txtFile.Delete();
+                }
+                catch
+                {
+                    // Ignore if file is in use
+                }
+            }
+
+            if (total <= TimeSpan.Zero)
+                return;
+
+            string fileNameOnly = $"{(int)total.TotalMinutes}M{total.Seconds}S";
+            string fullPath = Path.Combine(dir.FullName, fileNameOnly + ".txt");
+            try
+            {
+                System.IO.File.WriteAllText(fullPath, "Total Duration Updated");
+            }
+            catch
+            {
+                // Ignore write failures
+            }
         }
 
         private void UpdateVideoCount()
         {
             try
             {
-                int count = CountVideosInFolder(folderPath);
+                int count = CountVideosInFolder(workingFolderPath);
                 if (InvokeRequired)
                 {
                     Invoke(UpdateVideoCountDisplay, count);
@@ -493,6 +642,7 @@ namespace VideoTrayApp
         {
             base.OnLoad(e);
             this.Hide(); // Ensure it stays hidden
+            UpdateDuration();
             UpdateVideoCount();
         }
 
@@ -546,7 +696,7 @@ namespace VideoTrayApp
 
         private void SetFolderPath(object? sender, EventArgs e)
         {
-            BrowseForWorkingFolder();
+            BrowseForWatchFolder();
         }
 
         private void btnBrowseFolder_Click(object? sender, EventArgs e)
@@ -554,12 +704,28 @@ namespace VideoTrayApp
             BrowseForWorkingFolder();
         }
 
+        /// <summary>Tray "Set Folder" — watch folder for duration .txt updates only.</summary>
+        private void BrowseForWatchFolder()
+        {
+            using var dlg = new FolderBrowserDialog
+            {
+                Description = "Select the folder to watch for video duration tracking",
+                SelectedPath = Directory.Exists(watchFolderPath) ? watchFolderPath : string.Empty
+            };
+
+            if (dlg.ShowDialog() != DialogResult.OK)
+                return;
+
+            ApplyWatchFolder(dlg.SelectedPath);
+        }
+
+        /// <summary>Main window Browse — working folder for rename/shuffle/archive ops.</summary>
         private void BrowseForWorkingFolder()
         {
             using var dlg = new FolderBrowserDialog
             {
-                Description = "Select the working folder to manage",
-                SelectedPath = Directory.Exists(folderPath) ? folderPath : string.Empty
+                Description = "Select the working folder for naming and archive operations",
+                SelectedPath = Directory.Exists(workingFolderPath) ? workingFolderPath : string.Empty
             };
 
             if (dlg.ShowDialog() != DialogResult.OK)
@@ -568,15 +734,23 @@ namespace VideoTrayApp
             ApplyWorkingFolder(dlg.SelectedPath);
         }
 
+        private void ApplyWatchFolder(string path)
+        {
+            watchFolderPath = path;
+            SaveWatchFolderToConfig(watchFolderPath);
+
+            if (trayIcon is not null)
+                trayIcon.Text = BuildTrayTooltip();
+
+            SetupWatcher();
+            UpdateDuration();
+        }
+
         private void ApplyWorkingFolder(string path)
         {
-            folderPath = path;
-            SaveFolderPathToConfig(folderPath);
+            workingFolderPath = path;
+            SaveWorkingFolderToConfig(workingFolderPath);
             UpdateFolderDisplay();
-
-            watcher?.Dispose();
-            SetupWatcher();
-            UpdateVideoCount();
         }
 
         private void UpdateFolderDisplay()
@@ -587,15 +761,15 @@ namespace VideoTrayApp
                 return;
             }
 
-            txtSelectedFolder.Text = string.IsNullOrEmpty(folderPath)
+            txtSelectedFolder.Text = string.IsNullOrEmpty(workingFolderPath)
                 ? "(not set)"
-                : folderPath;
+                : workingFolderPath;
             UpdateVideoCount();
         }
 
         private bool TryGetWorkingFolder(out string folder, string actionName)
         {
-            folder = folderPath;
+            folder = workingFolderPath;
             if (!string.IsNullOrEmpty(folder) && Directory.Exists(folder))
                 return true;
 
@@ -654,8 +828,8 @@ namespace VideoTrayApp
             {
                 Description = "Select folder containing numbered clips (e.g., 349.mp4)"
             };
-            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath))
-                sourceDialog.SelectedPath = folderPath;
+            if (!string.IsNullOrEmpty(workingFolderPath) && Directory.Exists(workingFolderPath))
+                sourceDialog.SelectedPath = workingFolderPath;
             if (sourceDialog.ShowDialog() != DialogResult.OK)
                 return;
 

@@ -55,11 +55,14 @@
             pnlFolder.Height = 150;
             pnlFolder.Padding = new Padding(20);
 
-            lblFolderLabel.Text = "Working Folder";
+            lblFolderLabel.Text = "Working Folder (naming / archive)";
             lblFolderLabel.Font = new Font("Segoe UI", 10F);
             lblFolderLabel.ForeColor = Color.FromArgb(150, 150, 150);
             lblFolderLabel.Location = new Point(20, 12);
             lblFolderLabel.AutoSize = true;
+            toolTips.SetToolTip(lblFolderLabel, "Used by rename, shuffle, and archive actions. Watch folder for duration .txt files is set separately via tray menu → Set Folder.");
+            toolTips.SetToolTip(txtSelectedFolder, "Working folder for naming operations. Duration tracking uses tray menu → Set Folder.");
+            toolTips.SetToolTip(btnBrowseFolder, "Choose working folder for naming/archive. Duration watch folder is tray → Set Folder.");
 
             txtSelectedFolder.Font = new Font("Segoe UI", 10F);
             txtSelectedFolder.BackColor = Color.FromArgb(30, 30, 30);
