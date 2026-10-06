@@ -4,7 +4,13 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-1.0.2
+2.1.0
+
+## Identify clip
+
+Click **Identify clip** in the main window or tray menu, select a single reference video, and choose the folder to search. Subfolders are included; junctions and symbolic links are skipped. Clips match only when their full SHA-256 content hash and duration match the reference, regardless of filename.
+
+Review the matching paths and choose **Delete matches** (sends them to the Recycle Bin), **Move to folder...**, or **Cancel**. The selected reference clip is excluded. Moving preserves filenames and adds a numeric suffix when a name already exists; existing files are never overwritten. Matches are verified again before applying actions. Progress supports cancellation, and the result reports completed actions and errors.
 
 ## Manual Build (Release .exe)
 
@@ -90,4 +96,10 @@ See `.github/workflows/release.yml`
 dotnet build
 # or run the project
 dotnet run --project VideoTrayApp
+```
+
+Run the Identify clip integration checks (uses disposable generated clips):
+
+```powershell
+dotnet run --project VideoTrayApp.Tests -c Release
 ```

@@ -165,6 +165,7 @@ namespace VideoTrayApp
             // Right-click menu for the icon
             var menu = new ContextMenuStrip();
             menu.Items.Add("Archive", null, async (s, e) => await RunArchiveAsync());
+            menu.Items.Add("Identify clip", null, async (s, e) => await RunIdentifyClipAsync());
             menu.Items.Add("Set Watch Folder", null, SetFolderPath);
             menu.Items.Add("Show Window", null, ShowWindow);
             menu.Items.Add("Check for Updates", null, async (s, e) => await RunCheckForUpdateAsync());
@@ -484,6 +485,7 @@ namespace VideoTrayApp
             btnPrepare.Enabled = enabled;
             btnShuffleRandom.Enabled = enabled;
             btnArchive.Enabled = enabled;
+            btnIdentifyClip.Enabled = enabled;
             btnBrowseFolder.Enabled = enabled;
             if (!enabled)
                 btnCancelOperation.Enabled = enabled;
@@ -496,6 +498,8 @@ namespace VideoTrayApp
             bool showSuccessMessage = false,
             string? successMessage = null)
         {
+            if (operationCts is not null)
+                return;
             SetButtonsEnabled(false);
             BeginEmbeddedOperation(title);
 
@@ -545,6 +549,8 @@ namespace VideoTrayApp
 
         private async Task RunCheckForUpdateAsync()
         {
+            if (operationCts is not null)
+                return;
             SetButtonsEnabled(false);
             BeginEmbeddedOperation("Check for Updates");
 

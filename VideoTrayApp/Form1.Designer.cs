@@ -38,6 +38,7 @@
             btnNameTenSteps = new Button();
             btnShuffleRandom = new Button();
             btnArchive = new Button();
+            btnIdentifyClip = new Button();
             btnBrowseFolder = new Button();
             txtSelectedFolder = new TextBox();
             lblVideoCount = new Label();
@@ -196,10 +197,24 @@
             btnPrepare.Click += btnPrepare_Click;
             toolTips.SetToolTip(btnPrepare, "Prepare Batch");
 
+            btnIdentifyClip.Text = "Identify clip";
+            btnIdentifyClip.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnIdentifyClip.BackColor = Color.FromArgb(0, 121, 107);
+            btnIdentifyClip.ForeColor = Color.White;
+            btnIdentifyClip.Size = new Size(150, 34);
+            btnIdentifyClip.Location = new Point(180, 64);
+            btnIdentifyClip.TabIndex = 7;
+            btnIdentifyClip.FlatStyle = FlatStyle.Flat;
+            btnIdentifyClip.FlatAppearance.BorderSize = 0;
+            btnIdentifyClip.Cursor = Cursors.Hand;
+            btnIdentifyClip.Click += async (s, e) => await RunIdentifyClipAsync();
+            toolTips.SetToolTip(btnIdentifyClip, "Find identical clips by SHA-256 hash and duration, then delete or move the matches.");
+
             pnlActions.Controls.Add(btnShuffleAndName);
             pnlActions.Controls.Add(btnNameTenSteps);
             pnlActions.Controls.Add(btnShuffleRandom);
             pnlActions.Controls.Add(btnPrepare);
+            pnlActions.Controls.Add(btnIdentifyClip);
             pnlActions.Controls.Add(lblArchiveHint);
             pnlActions.Controls.Add(btnArchive);
 
@@ -231,6 +246,7 @@
         private Button btnNameTenSteps;
         private Button btnShuffleRandom;
         private Button btnArchive;
+        private Button btnIdentifyClip;
         private Button btnBrowseFolder;
         private TextBox txtSelectedFolder;
         private Label lblVideoCount;
