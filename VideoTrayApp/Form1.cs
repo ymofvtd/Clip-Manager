@@ -166,6 +166,7 @@ namespace VideoTrayApp
             var menu = new ContextMenuStrip();
             menu.Items.Add("Archive", null, async (s, e) => await RunArchiveAsync());
             menu.Items.Add("Identify clip", null, async (s, e) => await RunIdentifyClipAsync());
+            menu.Items.Add("Remove duplicates", null, async (s, e) => await RunRemoveDuplicatesAsync());
             menu.Items.Add("Set Watch Folder", null, SetFolderPath);
             menu.Items.Add("Show Window", null, ShowWindow);
             menu.Items.Add("Check for Updates", null, async (s, e) => await RunCheckForUpdateAsync());
@@ -486,6 +487,7 @@ namespace VideoTrayApp
             btnShuffleRandom.Enabled = enabled;
             btnArchive.Enabled = enabled;
             btnIdentifyClip.Enabled = enabled;
+            btnRemoveDuplicates.Enabled = enabled;
             btnBrowseFolder.Enabled = enabled;
             if (!enabled)
                 btnCancelOperation.Enabled = enabled;

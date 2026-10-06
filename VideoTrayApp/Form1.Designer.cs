@@ -39,6 +39,7 @@
             btnShuffleRandom = new Button();
             btnArchive = new Button();
             btnIdentifyClip = new Button();
+            btnRemoveDuplicates = new Button();
             btnBrowseFolder = new Button();
             txtSelectedFolder = new TextBox();
             lblVideoCount = new Label();
@@ -210,11 +211,25 @@
             btnIdentifyClip.Click += async (s, e) => await RunIdentifyClipAsync();
             toolTips.SetToolTip(btnIdentifyClip, "Find identical clips by SHA-256 hash and duration, then delete or move the matches.");
 
+            btnRemoveDuplicates.Text = "Remove duplicates";
+            btnRemoveDuplicates.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnRemoveDuplicates.BackColor = Color.FromArgb(183, 71, 55);
+            btnRemoveDuplicates.ForeColor = Color.White;
+            btnRemoveDuplicates.Size = new Size(150, 34);
+            btnRemoveDuplicates.Location = new Point(340, 64);
+            btnRemoveDuplicates.TabIndex = 8;
+            btnRemoveDuplicates.FlatStyle = FlatStyle.Flat;
+            btnRemoveDuplicates.FlatAppearance.BorderSize = 0;
+            btnRemoveDuplicates.Cursor = Cursors.Hand;
+            btnRemoveDuplicates.Click += async (s, e) => await RunRemoveDuplicatesAsync();
+            toolTips.SetToolTip(btnRemoveDuplicates, "Scan a folder for identical clips by size, duration and SHA-256 hash. Keep one copy per group and recycle the extras after review.");
+
             pnlActions.Controls.Add(btnShuffleAndName);
             pnlActions.Controls.Add(btnNameTenSteps);
             pnlActions.Controls.Add(btnShuffleRandom);
             pnlActions.Controls.Add(btnPrepare);
             pnlActions.Controls.Add(btnIdentifyClip);
+            pnlActions.Controls.Add(btnRemoveDuplicates);
             pnlActions.Controls.Add(lblArchiveHint);
             pnlActions.Controls.Add(btnArchive);
 
@@ -247,6 +262,7 @@
         private Button btnShuffleRandom;
         private Button btnArchive;
         private Button btnIdentifyClip;
+        private Button btnRemoveDuplicates;
         private Button btnBrowseFolder;
         private TextBox txtSelectedFolder;
         private Label lblVideoCount;

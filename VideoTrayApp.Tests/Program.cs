@@ -67,7 +67,78 @@ try
     string partial = ClipIdentifier.Apply(twoMatches, reference, destination, partialProgress, partialCts.Token);
     Check(!File.Exists(first) && File.Exists(second) && partial.Contains("Moved: 1") && partial.Contains("Unprocessed: 1"),
         "Cancellation after a move reports partial completion and preserves remaining matches");
-    Console.WriteLine("All Identify clip integration checks passed.");
+    string cleanupFolder = Directory.CreateDirectory(Path.Combine(root, "cleanup")).FullName;
+    string cleanupNested = Directory.CreateDirectory(Path.Combine(cleanupFolder, "nested")).FullName;
+    string keeper = Path.Combine(cleanupFolder, "a.avi");
+    string extra = Path.Combine(cleanupFolder, "z.AVI");
+    string extraNested = Path.Combine(cleanupNested, "shuffled.avi");
+    WriteAvi(keeper, 2, 41);
+    File.Copy(keeper, extra);
+    File.Copy(keeper, extraNested);
+    string otherKeeper = Path.Combine(cleanupFolder, "b.avi");
+    string otherExtra = Path.Combine(cleanupFolder, "y.avi");
+    WriteAvi(otherKeeper, 2, 42);
+    File.Copy(otherKeeper, otherExtra);
+    string durationOnly = Path.Combine(cleanupFolder, "different-duration.avi");
+    WriteAvi(durationOnly, 3, 41);
+    File.WriteAllBytes(Path.Combine(cleanupFolder, "invalid.avi"), new byte[new FileInfo(keeper).Length]);
+    File.Copy(keeper, Path.Combine(cleanupFolder, "ignored.txt"));
+    string uniqueSize = Path.Combine(cleanupFolder, "unique.avi");
+    WriteAvi(uniqueSize, 2, 41);
+    using (var append = new FileStream(uniqueSize, FileMode.Append)) append.WriteByte(0);
+
+    var duplicates = ClipDuplicateCleaner.Find(cleanupFolder, extensions, progress, CancellationToken.None);
+    Check(duplicates.Groups.Count == 2 && duplicates.DuplicateCount == 3,
+        "Folder scan finds multiple independent duplicate groups and all extra copies");
+    var firstGroup = duplicates.Groups.Single(group => group.Keep == keeper);
+    Check(firstGroup.Duplicates.SequenceEqual([extraNested, extra]),
+        "Folder scan keeps the first path alphabetically and includes nested, renamed, mixed-case clips");
+    Check(duplicates.Errors.Count == 1 && duplicates.Groups.All(group => !group.Duplicates.Contains(durationOnly)),
+        "Invalid metadata is reported and different durations, unique sizes and non-video files are excluded");
+    bool cleanupCancelled = false;
+    try { ClipDuplicateCleaner.Find(cleanupFolder, extensions, progress, cts.Token); }
+    catch (OperationCanceledException) { cleanupCancelled = true; }
+    Check(cleanupCancelled, "Folder scan supports cancellation");
+    string cancelledCleanup = ClipDuplicateCleaner.Apply(duplicates, progress, cts.Token);
+    Check(File.Exists(extra) && File.Exists(extraNested) && cancelledCleanup.Contains("Sent to Recycle Bin: 0"),
+        "Cancelled cleanup does not remove any copies");
+
+    var oneGroup = new DuplicateClipResult([firstGroup], []);
+    WriteAvi(keeper, 2, 77);
+    string keeperChanged = ClipDuplicateCleaner.Apply(oneGroup, progress, CancellationToken.None);
+    Check(File.Exists(extra) && File.Exists(extraNested) && keeperChanged.Contains("Left untouched: 2"),
+        "A changed kept copy protects every duplicate in its group");
+    File.Delete(keeper);
+    string keeperMissing = ClipDuplicateCleaner.Apply(oneGroup, progress, CancellationToken.None);
+    Check(File.Exists(extra) && File.Exists(extraNested) && keeperMissing.Contains("Sent to Recycle Bin: 0"),
+        "A missing kept copy protects every duplicate in its group");
+    File.Copy(extra, keeper);
+    WriteAvi(extraNested, 2, 88);
+    string duplicateChanged = ClipDuplicateCleaner.Apply(oneGroup, progress, CancellationToken.None);
+    Check(File.Exists(keeper) && File.Exists(extraNested) && !File.Exists(extra)
+        && duplicateChanged.Contains("Sent to Recycle Bin: 1") && duplicateChanged.Contains("Left untouched: 1"),
+        "Cleanup rechecks duplicates, recycles unchanged extras and preserves changed clips and the kept copy");
+
+    File.Copy(keeper, extraNested, overwrite: true);
+    File.Copy(keeper, extra);
+    using var cleanupPartialCts = new CancellationTokenSource();
+    var cleanupPartialProgress = new TestProgress
+    {
+        OnReport = current => { if (current == 1) cleanupPartialCts.Cancel(); }
+    };
+    string cleanupPartial = ClipDuplicateCleaner.Apply(oneGroup, cleanupPartialProgress, cleanupPartialCts.Token);
+    Check(File.Exists(keeper) && !File.Exists(extraNested) && File.Exists(extra)
+        && cleanupPartial.Contains("Sent to Recycle Bin: 1") && cleanupPartial.Contains("Unprocessed: 1"),
+        "Partial cleanup cancellation preserves the kept copy and reports remaining duplicates");
+
+    var remaining = ClipDuplicateCleaner.Find(cleanupFolder, extensions, progress, CancellationToken.None);
+    string allCleaned = ClipDuplicateCleaner.Apply(remaining, progress, CancellationToken.None);
+    Check(File.Exists(keeper) && File.Exists(otherKeeper) && !File.Exists(extra) && !File.Exists(otherExtra)
+        && File.Exists(durationOnly) && File.Exists(uniqueSize) && allCleaned.Contains("Sent to Recycle Bin: 2"),
+        "Whole-folder cleanup leaves one copy per group and preserves distinct clips");
+    Check(ClipDuplicateCleaner.Find(cleanupFolder, extensions, progress, CancellationToken.None).DuplicateCount == 0,
+        "A second scan finds no extra copies after cleanup");
+    Console.WriteLine("All clip identification and duplicate cleanup integration checks passed.");
 }
 finally
 {

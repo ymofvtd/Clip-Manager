@@ -12,6 +12,12 @@ Click **Identify clip** in the main window or tray menu, select a single referen
 
 Review the matching paths and choose **Delete matches** (sends them to the Recycle Bin), **Move to folder...**, or **Cancel**. The selected reference clip is excluded. Moving preserves filenames and adds a numeric suffix when a name already exists; existing files are never overwritten. Matches are verified again before applying actions. Progress supports cancellation, and the result reports completed actions and errors.
 
+## Remove duplicates
+
+Click **Remove duplicates** in the main window or tray menu and choose a folder. The scan includes subfolders and skips junctions and symbolic links. Clips are grouped only when file size, duration, and full SHA-256 content hash all match, even if shuffle/rename changed their filenames. Unique file sizes are skipped to avoid unnecessary hashing. Re-encoded or edited versions are not treated as exact copies.
+
+Review the **KEEP** and **RECYCLE** paths, then click **Delete duplicates** to send extra copies to the Recycle Bin. The first full path alphabetically in each group is kept. Both the kept clip and duplicates are verified again before deletion; if the kept clip is missing or changed, the entire group is left untouched. Cancellation stops further deletions, and the result reports completed actions, untouched clips, and errors.
+
 ## Manual Build (Release .exe)
 
 You need the .NET 10 SDK installed.
