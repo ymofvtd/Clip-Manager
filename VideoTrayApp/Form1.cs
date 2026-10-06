@@ -884,8 +884,7 @@ namespace VideoTrayApp
                 "Prepare Batch",
                 (progress, ct) =>
                 {
-                    BatchNumberedVideos(sourceFolder, destinationFolder, batchDurationLimit, progress, ct);
-                    return Task.FromResult<string?>(null);
+                    return Task.FromResult<string?>(BatchNumberedVideos(sourceFolder, destinationFolder, batchDurationLimit, progress, ct));
                 },
                 showSuccessMessage: true,
                 successMessage: "Batch preparation completed.");
@@ -1084,17 +1083,20 @@ namespace VideoTrayApp
         }
 
         //
-        // Implementation of BatchNumberedVideos - moves numbered .mp4 files from source to destination,
+        // Implementation of BatchNumberedVideos - backs up and moves numbered .mp4 files from source to destination,
         // keeping total duration under the specified limit. If moving a file exceeds the limit,
         // it stops and leaves that file in the source folder.
         //
-        private void BatchNumberedVideos(string sourceFolder, string destinationFolder, TimeSpan durationLimit, IOperationProgress? progress = null, CancellationToken cancellationToken = default)
+        private string BatchNumberedVideos(string sourceFolder, string destinationFolder, TimeSpan durationLimit, IOperationProgress? progress = null, CancellationToken cancellationToken = default)
         {
             var srcDir = new DirectoryInfo(sourceFolder);
             if (!srcDir.Exists) throw new DirectoryNotFoundException($"Source folder not found: {sourceFolder}");
 
             var destDir = new DirectoryInfo(destinationFolder);
             if (!destDir.Exists) throw new DirectoryNotFoundException($"Destination folder not found: {destinationFolder}");
+
+            string backupFolder = Path.Combine(sourceFolder, "Backup");
+            Directory.CreateDirectory(backupFolder);
 
             var files = srcDir.EnumerateFiles("*.mp4", SearchOption.TopDirectoryOnly)
                 .Where(fi => IsStrictlyNumeric(Path.GetFileNameWithoutExtension(fi.Name)))
@@ -1107,7 +1109,7 @@ namespace VideoTrayApp
                 .ToList();
 
             if (files.Count == 0)
-                return;
+                return "No numbered clips found to prepare.";
 
             TimeSpan existingDuration = TimeSpan.Zero;
             var destFiles = destDir.EnumerateFiles()
@@ -1141,6 +1143,7 @@ namespace VideoTrayApp
 
             TimeSpan totalDuration = existingDuration;
             int movedCount = 0;
+            int failedCount = 0;
             progress?.Report(processed, totalSteps, "Moving numbered videos...");
 
             foreach (var file in files)
@@ -1173,17 +1176,26 @@ namespace VideoTrayApp
 
                     TimeSpan projectedTotal = totalDuration + videoDuration;
                     string targetPath = Path.Combine(destinationFolder, file.Name);
+                    string backupPath = EnsureUniquePath(Path.Combine(backupFolder, file.Name));
+                    progress?.Report(processed, totalSteps, $"Backing up {file.Name}...");
+                    // Keep the source intact if its backup cannot be written.
+                    File.Copy(file.FullName, backupPath, overwrite: false);
+                    progress?.Report(processed, totalSteps, $"Moving {file.Name}...");
                     file.MoveTo(targetPath);
                     totalDuration = projectedTotal;
                     movedCount++;
                 }
                 catch (Exception ex)
                 {
+                    failedCount++;
                     System.Diagnostics.Debug.WriteLine($"Error processing {file.Name}: {ex.Message}");
                     continue;
                 }
             }
 
+            return $"Batch preparation completed.\nMoved and backed up: {movedCount}\n" +
+                $"Backup folder: {backupFolder}" +
+                (failedCount > 0 ? $"\nFailed to back up or move: {failedCount}. These clips remain in the source folder." : "");
         }
 
         private static readonly TimeSpan MaxArchiveDuration = TimeSpan.FromSeconds(90);
