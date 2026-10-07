@@ -33,6 +33,7 @@ namespace VideoTrayApp
         public Form1()
         {
             InitializeComponent();
+            Text = $"Clips Manager v{FormatVersion(AppUpdater.CurrentVersion)}";
             watchFolderPath = LoadWatchFolderFromConfig();
             workingFolderPath = LoadWorkingFolderFromConfig();
 
@@ -659,9 +660,7 @@ namespace VideoTrayApp
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
-                this.Hide();
-                this.WindowState = FormWindowState.Minimized;
-                this.ShowInTaskbar = false;
+                HideToTray();
             }
             else
             {
@@ -675,30 +674,29 @@ namespace VideoTrayApp
 
         private void ShowWindow(object? sender, EventArgs e)
         {
-            this.Show();
-            this.WindowState = FormWindowState.Normal;
-            this.ShowInTaskbar = true;
+            ShowInTaskbar = true;
+            WindowState = FormWindowState.Normal;
+            Show();
             UpdateFolderDisplay();
             this.BringToFront();
         }
 
+        private void HideToTray()
+        {
+            // Changing taskbar visibility can recreate the handle. Hide last so it stays hidden.
+            ShowInTaskbar = false;
+            Hide();
+        }
+
         private void ToggleWindowVisibility()
         {
-            if (this.Visible && this.WindowState == FormWindowState.Normal)
+            if (Visible && WindowState != FormWindowState.Minimized)
             {
-                // Window is visible, so hide it
-                this.Hide();
-                this.WindowState = FormWindowState.Minimized;
-                this.ShowInTaskbar = false;
+                HideToTray();
             }
             else
             {
-                // Window is hidden, so show it
-                this.Show();
-                this.WindowState = FormWindowState.Normal;
-                this.ShowInTaskbar = true;
-                UpdateFolderDisplay();
-                this.BringToFront();
+                ShowWindow(this, EventArgs.Empty);
             }
         }
 

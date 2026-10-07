@@ -4,7 +4,9 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-2.1.2
+2.1.3
+
+The window title displays the installed version. Clicking **X** hides the window to the tray on the first click; use the tray menu's **Exit** to quit.
 
 ## Identify clip
 
@@ -20,9 +22,9 @@ Review the **KEEP** and **RECYCLE** paths, then click **Delete duplicates** to s
 
 ## Prepare Batch
 
-Select the source, destination and desired duration. Prepare Batch selects numbered MP4 clips in numeric order, checks them together with videos already in the destination, and automatically sends exact duplicates to the Recycle Bin using the same size, duration and SHA-256 checks as Remove duplicates. Destination copies are kept first; otherwise the earliest numbered source clip is kept. Files are verified again before recycling.
+Select the source, destination and desired duration. Prepare Batch shuffles the numbered MP4 clips in the source folder once before selecting the batch, preserving their filenames. It checks the selected clips together with videos already in the destination, and automatically sends exact duplicates to the Recycle Bin using the same size, duration and SHA-256 checks as Remove duplicates. Destination copies are kept first; otherwise the first source clip in the shuffled order is kept. Files are verified again before recycling.
 
-After removing duplicates, the batch is refilled and checked again until no duplicates remain. Only then are the final clips backed up to the source's `Backup` folder and moved to the destination. Backups, source subfolders and unselected source clips are excluded from cleanup. The last clip may take the batch past the requested duration, as before. Scan or cleanup errors stop preparation before backup and moving; cancellation stops further work. The source and its Backup folder cannot be used as the destination.
+After removing duplicates, the batch is refilled from the same shuffled order and checked again until no duplicates remain. Only then are the final clips backed up to the source's `Backup` folder and moved to the destination. Backups, source subfolders and unselected source clips are excluded from cleanup. The last clip may take the batch past the requested duration, as before. Scan or cleanup errors stop preparation before backup and moving; cancellation stops further work. The source and its Backup folder cannot be used as the destination.
 
 ## Manual Build (Release .exe)
 

@@ -165,7 +165,7 @@ try
         }
     };
     string batchResult = ClipBatchPreparer.Prepare(batchSource, batchDestination, TimeSpan.FromSeconds(6),
-        extensions, batchProgress, CancellationToken.None, ".avi");
+        extensions, batchProgress, CancellationToken.None, ".avi", new PreserveOrderRandom());
     Check(batchResult.Contains("Moved and backed up: 3") && batchResult.Contains("Duplicates sent to Recycle Bin: 2")
         && Directory.GetFiles(batchDestination).Select(Path.GetFileName).Order().SequenceEqual(["10.avi", "40.avi", "50.avi"]),
         "Batch refills duration freed by duplicates and moves only unique numbered clips");
@@ -188,7 +188,7 @@ try
         OnMessage = message => { if (message == "Checking prepared batch for duplicates...") refillScans++; }
     };
     string refilled = ClipBatchPreparer.Prepare(refillSource, refillDestination, TimeSpan.FromSeconds(6),
-        extensions, refillProgress, CancellationToken.None, ".avi");
+        extensions, refillProgress, CancellationToken.None, ".avi", new PreserveOrderRandom());
     Check(refillScans == 3 && refilled.Contains("Duplicates sent to Recycle Bin: 3")
         && File.Exists(Path.Combine(refillDestination, "a.avi")) && !File.Exists(Path.Combine(refillDestination, "z.avi"))
         && File.Exists(Path.Combine(refillDestination, "20.avi")) && File.Exists(Path.Combine(refillDestination, "40.avi")),
@@ -199,7 +199,7 @@ try
     WriteAvi(Path.Combine(exhaustedSource, "10.avi"), 2, 71);
     File.Copy(Path.Combine(exhaustedSource, "10.avi"), Path.Combine(exhaustedSource, "20.avi"));
     string exhausted = ClipBatchPreparer.Prepare(exhaustedSource, exhaustedDestination, TimeSpan.FromSeconds(10),
-        extensions, progress, CancellationToken.None, ".avi");
+        extensions, progress, CancellationToken.None, ".avi", new PreserveOrderRandom());
     Check(exhausted.Contains("Moved and backed up: 1") && Directory.GetFiles(exhaustedDestination).Length == 1,
         "Exhausted source completes with a smaller duplicate-free batch");
 
@@ -223,7 +223,7 @@ try
     try
     {
         ClipBatchPreparer.Prepare(failedSource, failedDestination, TimeSpan.FromSeconds(6),
-            extensions, changedBatchProgress, CancellationToken.None, ".avi");
+            extensions, changedBatchProgress, CancellationToken.None, ".avi", new PreserveOrderRandom());
     }
     catch (IOException) { cleanupFailed = true; }
     Check(cleanupFailed && !Directory.Exists(Path.Combine(failedSource, "Backup"))
@@ -240,7 +240,7 @@ try
     try
     {
         ClipBatchPreparer.Prepare(failedSource, failedDestination, TimeSpan.FromSeconds(6),
-            extensions, cancelBatchProgress, batchCts.Token, ".avi");
+            extensions, cancelBatchProgress, batchCts.Token, ".avi", new PreserveOrderRandom());
     }
     catch (OperationCanceledException) { batchCancelled = true; }
     Check(batchCancelled && File.Exists(Path.Combine(failedSource, "10.avi"))
@@ -250,7 +250,7 @@ try
     try
     {
         ClipBatchPreparer.Prepare(batchSource, batchBackup, TimeSpan.FromSeconds(6),
-            extensions, progress, CancellationToken.None, ".avi");
+            extensions, progress, CancellationToken.None, ".avi", new PreserveOrderRandom());
     }
     catch (IOException) { invalidDestination = true; }
     Check(invalidDestination, "Batch preparation rejects using the Backup folder as destination");
@@ -261,7 +261,7 @@ try
     try
     {
         ClipBatchPreparer.Prepare(invalidSource, invalidDest, TimeSpan.FromSeconds(6),
-            extensions, progress, CancellationToken.None, ".avi");
+            extensions, progress, CancellationToken.None, ".avi", new PreserveOrderRandom());
     }
     catch (Exception ex) when (ex is not OperationCanceledException) { unreadableBatch = true; }
     Check(unreadableBatch && !Directory.Exists(Path.Combine(invalidSource, "Backup"))
@@ -274,10 +274,61 @@ try
     WriteAvi(Path.Combine(collisionDest, "10.avi"), 2, 92);
     var collisionIdentity = ClipIdentifier.ReadIdentity(Path.Combine(collisionDest, "10.avi"), CancellationToken.None);
     string collision = ClipBatchPreparer.Prepare(collisionSource, collisionDest, TimeSpan.FromSeconds(6),
-        extensions, progress, CancellationToken.None, ".avi");
+        extensions, progress, CancellationToken.None, ".avi", new PreserveOrderRandom());
     Check(collision.Contains("Failed to back up or move: 1") && File.Exists(Path.Combine(collisionSource, "10.avi"))
         && ClipIdentifier.ReadIdentity(Path.Combine(collisionDest, "10.avi"), CancellationToken.None) == collisionIdentity,
         "A distinct destination filename collision preserves both clips and reports the failed move");
+    string shuffleSource = Directory.CreateDirectory(Path.Combine(root, "shuffle-source")).FullName;
+    string shuffleDest = Directory.CreateDirectory(Path.Combine(root, "shuffle-destination")).FullName;
+    string shuffleNested = Directory.CreateDirectory(Path.Combine(shuffleSource, "nested")).FullName;
+    WriteAvi(Path.Combine(shuffleSource, "10.avi"), 2, 101);
+    WriteAvi(Path.Combine(shuffleSource, "20.avi"), 2, 102);
+    WriteAvi(Path.Combine(shuffleSource, "30.avi"), 2, 103);
+    WriteAvi(Path.Combine(shuffleSource, "40.avi"), 2, 104);
+    File.Copy(Path.Combine(shuffleSource, "20.avi"), Path.Combine(shuffleDest, "existing.avi"));
+    File.Copy(Path.Combine(shuffleSource, "10.avi"), Path.Combine(shuffleSource, "unnumbered.avi"));
+    File.Copy(Path.Combine(shuffleSource, "10.avi"), Path.Combine(shuffleNested, "50.avi"));
+    var remainingIdentity = ClipIdentifier.ReadIdentity(Path.Combine(shuffleSource, "10.avi"), CancellationToken.None);
+    var shuffleRandom = new RotateOrderRandom();
+    int shuffles = 0, shuffleScans = 0;
+    var shuffleProgress = new TestProgress
+    {
+        OnMessage = message =>
+        {
+            if (message == "Shuffling source clips before preparing batch...") shuffles++;
+            if (message == "Checking prepared batch for duplicates...")
+            {
+                Check(shuffles == 1 && shuffleRandom.Calls == 3, "All source clips are shuffled once before any batch duplicate scan");
+                shuffleScans++;
+            }
+        }
+    };
+    string shuffled = ClipBatchPreparer.Prepare(shuffleSource, shuffleDest, TimeSpan.FromSeconds(6),
+        extensions, shuffleProgress, CancellationToken.None, ".avi", shuffleRandom);
+    Check(shuffleScans == 2 && shuffles == 1 && shuffleRandom.Calls == 3
+        && shuffled.Contains("Moved and backed up: 2") && shuffled.Contains("Duplicates sent to Recycle Bin: 1")
+        && Directory.GetFiles(shuffleDest).Select(Path.GetFileName).Order().SequenceEqual(["30.avi", "40.avi", "existing.avi"]),
+        "Batch selection and duplicate refill follow the same shuffled source order, preserving filenames");
+    Check(ClipIdentifier.ReadIdentity(Path.Combine(shuffleSource, "10.avi"), CancellationToken.None) == remainingIdentity
+        && File.Exists(Path.Combine(shuffleSource, "unnumbered.avi")) && File.Exists(Path.Combine(shuffleNested, "50.avi"))
+        && Directory.GetFiles(Path.Combine(shuffleSource, "Backup")).Select(Path.GetFileName).Order().SequenceEqual(["30.avi", "40.avi"]),
+        "Shuffle preserves unselected source content, excludes unnumbered and nested clips, and backs up selected filenames");
+
+    using var shuffleCts = new CancellationTokenSource();
+    var cancelShuffleProgress = new TestProgress
+    {
+        OnMessage = message => { if (message.StartsWith("Shuffling source clips")) shuffleCts.Cancel(); }
+    };
+    bool shuffleCancelled = false;
+    try
+    {
+        ClipBatchPreparer.Prepare(shuffleSource, shuffleDest, TimeSpan.FromSeconds(10),
+            extensions, cancelShuffleProgress, shuffleCts.Token, ".avi");
+    }
+    catch (OperationCanceledException) { shuffleCancelled = true; }
+    Check(shuffleCancelled && File.Exists(Path.Combine(shuffleSource, "10.avi"))
+        && Directory.GetFiles(shuffleDest).Length == 3,
+        "Cancellation during shuffle stops before cleanup, backup or moving");
     Console.WriteLine("All clip identification, duplicate cleanup and batch preparation integration checks passed.");
 }
 finally
@@ -333,4 +384,21 @@ sealed class TestProgress : IOperationProgress
         OnMessage?.Invoke(message);
     }
     public void SetIndeterminate(string message) => OnMessage?.Invoke(message);
+}
+
+// Control the shuffle so existing cleanup checks retain their deliberate file order.
+sealed class PreserveOrderRandom : Random
+{
+    public override int Next(int maxValue) => maxValue - 1;
+}
+
+// Fisher-Yates with zero indices rotates [10, 20, 30, 40] to [20, 30, 40, 10].
+sealed class RotateOrderRandom : Random
+{
+    public int Calls { get; private set; }
+    public override int Next(int maxValue)
+    {
+        Calls++;
+        return 0;
+    }
 }

@@ -4,7 +4,7 @@ internal static class ClipBatchPreparer
 {
     internal static string Prepare(string sourceFolder, string destinationFolder, TimeSpan durationLimit,
         ISet<string> videoExtensions, IOperationProgress progress, CancellationToken ct,
-        string numberedExtension = ".mp4")
+        string numberedExtension = ".mp4", Random? shuffleRandom = null)
     {
         sourceFolder = Path.GetFullPath(sourceFolder);
         destinationFolder = Path.GetFullPath(destinationFolder);
@@ -25,6 +25,15 @@ internal static class ClipBatchPreparer
                 && Path.GetFileNameWithoutExtension(path).Length > 0)
             .OrderBy(path => System.Numerics.BigInteger.Parse(Path.GetFileNameWithoutExtension(path)))
             .ThenBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
+        ct.ThrowIfCancellationRequested();
+        progress.SetIndeterminate("Shuffling source clips before preparing batch...");
+        var random = shuffleRandom ?? Random.Shared;
+        for (int i = files.Count - 1; i > 0; i--)
+        {
+            ct.ThrowIfCancellationRequested();
+            int j = random.Next(i + 1);
+            (files[i], files[j]) = (files[j], files[i]);
+        }
         var selected = new List<string>();
         int next = 0, recycled = 0;
 
@@ -50,7 +59,7 @@ internal static class ClipBatchPreparer
             }
 
             progress.SetIndeterminate("Checking prepared batch for duplicates...");
-            // Keep destination copies first, then the earliest numbered source clip.
+            // Keep destination copies first, then the earliest source clip in the shuffled order.
             var duplicates = ClipDuplicateCleaner.Find(existing.Concat(selected), progress, ct);
             if (duplicates.Errors.Count > 0)
                 throw new IOException("Could not verify the batch for duplicates. Backup and moving have not started." +
