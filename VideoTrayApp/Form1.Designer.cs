@@ -196,7 +196,7 @@
             btnPrepare.FlatAppearance.BorderSize = 0;
             btnPrepare.Cursor = Cursors.Hand;
             btnPrepare.Click += btnPrepare_Click;
-            toolTips.SetToolTip(btnPrepare, "Prepare Batch");
+            toolTips.SetToolTip(btnPrepare, "Prepare numbered clips, recycle exact duplicates and refill until clean, then back up and move the batch.");
 
             btnIdentifyClip.Text = "Identify clip";
             btnIdentifyClip.Font = new Font("Segoe UI", 9F, FontStyle.Bold);

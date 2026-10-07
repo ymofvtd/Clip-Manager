@@ -4,7 +4,7 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-2.1.0
+2.1.2
 
 ## Identify clip
 
@@ -17,6 +17,12 @@ Review the matching paths and choose **Delete matches** (sends them to the Recyc
 Click **Remove duplicates** in the main window or tray menu and choose a folder. The scan includes subfolders and skips junctions and symbolic links. Clips are grouped only when file size, duration, and full SHA-256 content hash all match, even if shuffle/rename changed their filenames. Unique file sizes are skipped to avoid unnecessary hashing. Re-encoded or edited versions are not treated as exact copies.
 
 Review the **KEEP** and **RECYCLE** paths, then click **Delete duplicates** to send extra copies to the Recycle Bin. The first full path alphabetically in each group is kept. Both the kept clip and duplicates are verified again before deletion; if the kept clip is missing or changed, the entire group is left untouched. Cancellation stops further deletions, and the result reports completed actions, untouched clips, and errors.
+
+## Prepare Batch
+
+Select the source, destination and desired duration. Prepare Batch selects numbered MP4 clips in numeric order, checks them together with videos already in the destination, and automatically sends exact duplicates to the Recycle Bin using the same size, duration and SHA-256 checks as Remove duplicates. Destination copies are kept first; otherwise the earliest numbered source clip is kept. Files are verified again before recycling.
+
+After removing duplicates, the batch is refilled and checked again until no duplicates remain. Only then are the final clips backed up to the source's `Backup` folder and moved to the destination. Backups, source subfolders and unselected source clips are excluded from cleanup. The last clip may take the batch past the requested duration, as before. Scan or cleanup errors stop preparation before backup and moving; cancellation stops further work. The source and its Backup folder cannot be used as the destination.
 
 ## Manual Build (Release .exe)
 

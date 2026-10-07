@@ -9,6 +9,7 @@
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
     <Compile Include="../VideoTrayApp/ClipIdentifier.cs" Link="ClipIdentifier.cs" />
     <Compile Include="../VideoTrayApp/ClipDuplicateCleaner.cs" Link="ClipDuplicateCleaner.cs" />
+    <Compile Include="../VideoTrayApp/ClipBatchPreparer.cs" Link="ClipBatchPreparer.cs" />
     <Compile Include="../VideoTrayApp/IOperationProgress.cs" Link="IOperationProgress.cs" />
   </ItemGroup>
 </Project>

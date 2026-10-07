@@ -62,9 +62,35 @@ internal static class ClipDuplicateCleaner
             }
         }
 
+        return Find(bySize.Values.SelectMany(paths => paths)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase), progress, ct, errors);
+    }
+
+    // Explicit batch paths exclude backups and preserve the caller's keeper preference.
+    internal static DuplicateClipResult Find(IEnumerable<string> files, IOperationProgress progress,
+        CancellationToken ct, List<string>? errors = null)
+    {
+        errors ??= [];
+        var paths = files.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var sizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in paths)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0)
+                    sizes[path] = new FileInfo(path).Length;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                errors.Add($"{path}: {ex.Message}");
+            }
+        }
         // Unique sizes cannot be exact copies. Read full hashes only for possible duplicates.
-        var candidates = bySize.Values.Where(paths => paths.Count > 1)
-            .SelectMany(paths => paths).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
+        var repeatedSizes = sizes.Values.GroupBy(size => size).Where(group => group.Count() > 1)
+            .Select(group => group.Key).ToHashSet();
+        var candidates = paths.Where(path => sizes.TryGetValue(path, out long size)
+            && repeatedSizes.Contains(size)).ToList();
         var byIdentity = new Dictionary<ClipIdentity, List<string>>();
         for (int i = 0; i < candidates.Count; i++)
         {
@@ -76,9 +102,9 @@ internal static class ClipDuplicateCleaner
                 if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                     continue;
                 var identity = ClipIdentifier.ReadIdentity(path, ct);
-                if (!byIdentity.TryGetValue(identity, out var paths))
-                    byIdentity[identity] = paths = [];
-                paths.Add(path);
+                if (!byIdentity.TryGetValue(identity, out var matchingPaths))
+                    byIdentity[identity] = matchingPaths = [];
+                matchingPaths.Add(path);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -93,7 +119,8 @@ internal static class ClipDuplicateCleaner
         return new DuplicateClipResult(groups, errors);
     }
 
-    internal static string Apply(DuplicateClipResult result, IOperationProgress progress, CancellationToken ct)
+    internal static string Apply(DuplicateClipResult result, IOperationProgress progress, CancellationToken ct,
+        bool stopBatchOnError = false)
     {
         int completed = 0, processed = 0;
         bool cancelled = false;
@@ -145,6 +172,13 @@ internal static class ClipDuplicateCleaner
                 errors.Add($"{group.Keep}: {ex.Message}");
                 processed += group.Duplicates.Count;
             }
+        }
+        if (stopBatchOnError)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (errors.Count > 0)
+                throw new IOException("Duplicate cleanup failed. Batch backup and moving have not started." +
+                    ClipIdentifier.FormatErrors(errors));
         }
         return $"{(cancelled ? "Operation cancelled." : "Operation completed.")}\n\n" +
             $"Sent to Recycle Bin: {completed}\nLeft untouched: {processed - completed}\n" +

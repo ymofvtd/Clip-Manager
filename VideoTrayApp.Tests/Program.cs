@@ -138,7 +138,147 @@ try
         "Whole-folder cleanup leaves one copy per group and preserves distinct clips");
     Check(ClipDuplicateCleaner.Find(cleanupFolder, extensions, progress, CancellationToken.None).DuplicateCount == 0,
         "A second scan finds no extra copies after cleanup");
-    Console.WriteLine("All clip identification and duplicate cleanup integration checks passed.");
+    string batchSource = Directory.CreateDirectory(Path.Combine(root, "batch-source")).FullName;
+    string batchDestination = Directory.CreateDirectory(Path.Combine(batchSource, "batch")).FullName;
+    string batchBackup = Directory.CreateDirectory(Path.Combine(batchSource, "Backup")).FullName;
+    WriteAvi(Path.Combine(batchSource, "10.avi"), 2, 51);
+    File.Copy(Path.Combine(batchSource, "10.avi"), Path.Combine(batchSource, "20.avi"));
+    File.Copy(Path.Combine(batchSource, "10.avi"), Path.Combine(batchSource, "30.avi"));
+    WriteAvi(Path.Combine(batchSource, "40.avi"), 2, 52);
+    WriteAvi(Path.Combine(batchSource, "50.avi"), 2, 53);
+    File.Copy(Path.Combine(batchSource, "50.avi"), Path.Combine(batchSource, "60.avi"));
+    File.Copy(Path.Combine(batchSource, "10.avi"), Path.Combine(batchBackup, "10.avi"));
+    string unnumbered = Path.Combine(batchSource, "shuffled.avi");
+    File.Copy(Path.Combine(batchSource, "10.avi"), unnumbered);
+    int batchScans = 0;
+    var batchProgress = new TestProgress
+    {
+        OnMessage = message =>
+        {
+            if (message == "Checking prepared batch for duplicates...") batchScans++;
+            if (message.StartsWith("Backing up "))
+            {
+                Check(batchScans >= 2 && !File.Exists(Path.Combine(batchSource, "20.avi"))
+                    && !File.Exists(Path.Combine(batchSource, "30.avi")),
+                    "Backup starts only after cleanup, refill and a duplicate-free scan");
+            }
+        }
+    };
+    string batchResult = ClipBatchPreparer.Prepare(batchSource, batchDestination, TimeSpan.FromSeconds(6),
+        extensions, batchProgress, CancellationToken.None, ".avi");
+    Check(batchResult.Contains("Moved and backed up: 3") && batchResult.Contains("Duplicates sent to Recycle Bin: 2")
+        && Directory.GetFiles(batchDestination).Select(Path.GetFileName).Order().SequenceEqual(["10.avi", "40.avi", "50.avi"]),
+        "Batch refills duration freed by duplicates and moves only unique numbered clips");
+    Check(File.Exists(Path.Combine(batchSource, "60.avi")) && File.Exists(unnumbered)
+        && File.Exists(Path.Combine(batchBackup, "10.avi")) && File.Exists(Path.Combine(batchBackup, "10__1.avi"))
+        && !File.Exists(Path.Combine(batchBackup, "20.avi")),
+        "Unselected clips and existing backups are preserved; only final unique clips get new backups");
+
+    string refillSource = Directory.CreateDirectory(Path.Combine(root, "refill-source")).FullName;
+    string refillDestination = Directory.CreateDirectory(Path.Combine(root, "refill-destination")).FullName;
+    WriteAvi(Path.Combine(refillSource, "10.avi"), 2, 61);
+    File.Copy(Path.Combine(refillSource, "10.avi"), Path.Combine(refillDestination, "a.avi"));
+    File.Copy(Path.Combine(refillSource, "10.avi"), Path.Combine(refillDestination, "z.avi"));
+    WriteAvi(Path.Combine(refillSource, "20.avi"), 2, 62);
+    File.Copy(Path.Combine(refillSource, "20.avi"), Path.Combine(refillSource, "30.avi"));
+    WriteAvi(Path.Combine(refillSource, "40.avi"), 2, 63);
+    int refillScans = 0;
+    var refillProgress = new TestProgress
+    {
+        OnMessage = message => { if (message == "Checking prepared batch for duplicates...") refillScans++; }
+    };
+    string refilled = ClipBatchPreparer.Prepare(refillSource, refillDestination, TimeSpan.FromSeconds(6),
+        extensions, refillProgress, CancellationToken.None, ".avi");
+    Check(refillScans == 3 && refilled.Contains("Duplicates sent to Recycle Bin: 3")
+        && File.Exists(Path.Combine(refillDestination, "a.avi")) && !File.Exists(Path.Combine(refillDestination, "z.avi"))
+        && File.Exists(Path.Combine(refillDestination, "20.avi")) && File.Exists(Path.Combine(refillDestination, "40.avi")),
+        "Destination copies take priority and duplicates introduced during refill trigger another cleanup cycle");
+
+    string exhaustedSource = Directory.CreateDirectory(Path.Combine(root, "exhausted-source")).FullName;
+    string exhaustedDestination = Directory.CreateDirectory(Path.Combine(root, "exhausted-destination")).FullName;
+    WriteAvi(Path.Combine(exhaustedSource, "10.avi"), 2, 71);
+    File.Copy(Path.Combine(exhaustedSource, "10.avi"), Path.Combine(exhaustedSource, "20.avi"));
+    string exhausted = ClipBatchPreparer.Prepare(exhaustedSource, exhaustedDestination, TimeSpan.FromSeconds(10),
+        extensions, progress, CancellationToken.None, ".avi");
+    Check(exhausted.Contains("Moved and backed up: 1") && Directory.GetFiles(exhaustedDestination).Length == 1,
+        "Exhausted source completes with a smaller duplicate-free batch");
+
+    string failedSource = Directory.CreateDirectory(Path.Combine(root, "failed-source")).FullName;
+    string failedDestination = Directory.CreateDirectory(Path.Combine(root, "failed-destination")).FullName;
+    WriteAvi(Path.Combine(failedSource, "10.avi"), 2, 81);
+    File.Copy(Path.Combine(failedSource, "10.avi"), Path.Combine(failedSource, "20.avi"));
+    bool changedBatch = false;
+    var changedBatchProgress = new TestProgress
+    {
+        OnMessage = message =>
+        {
+            if (!changedBatch && message == "Verifying duplicate: 20.avi")
+            {
+                changedBatch = true;
+                WriteAvi(Path.Combine(failedSource, "20.avi"), 2, 82);
+            }
+        }
+    };
+    bool cleanupFailed = false;
+    try
+    {
+        ClipBatchPreparer.Prepare(failedSource, failedDestination, TimeSpan.FromSeconds(6),
+            extensions, changedBatchProgress, CancellationToken.None, ".avi");
+    }
+    catch (IOException) { cleanupFailed = true; }
+    Check(cleanupFailed && !Directory.Exists(Path.Combine(failedSource, "Backup"))
+        && Directory.GetFiles(failedDestination).Length == 0 && Directory.GetFiles(failedSource).Length == 2,
+        "Cleanup verification failure stops before backup or moving without retrying indefinitely");
+
+    File.Copy(Path.Combine(failedSource, "10.avi"), Path.Combine(failedSource, "20.avi"), overwrite: true);
+    using var batchCts = new CancellationTokenSource();
+    var cancelBatchProgress = new TestProgress
+    {
+        OnMessage = message => { if (message.StartsWith("Sent to Recycle Bin: 1")) batchCts.Cancel(); }
+    };
+    bool batchCancelled = false;
+    try
+    {
+        ClipBatchPreparer.Prepare(failedSource, failedDestination, TimeSpan.FromSeconds(6),
+            extensions, cancelBatchProgress, batchCts.Token, ".avi");
+    }
+    catch (OperationCanceledException) { batchCancelled = true; }
+    Check(batchCancelled && File.Exists(Path.Combine(failedSource, "10.avi"))
+        && !Directory.Exists(Path.Combine(failedSource, "Backup")) && Directory.GetFiles(failedDestination).Length == 0,
+        "Cancellation after recycling stops batch preparation before backup and moving");
+    bool invalidDestination = false;
+    try
+    {
+        ClipBatchPreparer.Prepare(batchSource, batchBackup, TimeSpan.FromSeconds(6),
+            extensions, progress, CancellationToken.None, ".avi");
+    }
+    catch (IOException) { invalidDestination = true; }
+    Check(invalidDestination, "Batch preparation rejects using the Backup folder as destination");
+    string invalidSource = Directory.CreateDirectory(Path.Combine(root, "invalid-batch-source")).FullName;
+    string invalidDest = Directory.CreateDirectory(Path.Combine(root, "invalid-batch-dest")).FullName;
+    File.WriteAllBytes(Path.Combine(invalidSource, "10.avi"), [0, 1, 2]);
+    bool unreadableBatch = false;
+    try
+    {
+        ClipBatchPreparer.Prepare(invalidSource, invalidDest, TimeSpan.FromSeconds(6),
+            extensions, progress, CancellationToken.None, ".avi");
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException) { unreadableBatch = true; }
+    Check(unreadableBatch && !Directory.Exists(Path.Combine(invalidSource, "Backup"))
+        && Directory.GetFiles(invalidDest).Length == 0 && File.Exists(Path.Combine(invalidSource, "10.avi")),
+        "Unreadable clips stop preparation before backup and moving");
+
+    string collisionSource = Directory.CreateDirectory(Path.Combine(root, "collision-source")).FullName;
+    string collisionDest = Directory.CreateDirectory(Path.Combine(root, "collision-dest")).FullName;
+    WriteAvi(Path.Combine(collisionSource, "10.avi"), 2, 91);
+    WriteAvi(Path.Combine(collisionDest, "10.avi"), 2, 92);
+    var collisionIdentity = ClipIdentifier.ReadIdentity(Path.Combine(collisionDest, "10.avi"), CancellationToken.None);
+    string collision = ClipBatchPreparer.Prepare(collisionSource, collisionDest, TimeSpan.FromSeconds(6),
+        extensions, progress, CancellationToken.None, ".avi");
+    Check(collision.Contains("Failed to back up or move: 1") && File.Exists(Path.Combine(collisionSource, "10.avi"))
+        && ClipIdentifier.ReadIdentity(Path.Combine(collisionDest, "10.avi"), CancellationToken.None) == collisionIdentity,
+        "A distinct destination filename collision preserves both clips and reports the failed move");
+    Console.WriteLine("All clip identification, duplicate cleanup and batch preparation integration checks passed.");
 }
 finally
 {
@@ -185,7 +325,12 @@ static void WriteAvi(string path, uint frames, byte content)
 sealed class TestProgress : IOperationProgress
 {
     public Action<int>? OnReport { get; init; }
+    public Action<string>? OnMessage { get; init; }
     public CancellationToken CancellationToken => CancellationToken.None;
-    public void Report(int current, int total, string message) => OnReport?.Invoke(current);
-    public void SetIndeterminate(string message) { }
+    public void Report(int current, int total, string message)
+    {
+        OnReport?.Invoke(current);
+        OnMessage?.Invoke(message);
+    }
+    public void SetIndeterminate(string message) => OnMessage?.Invoke(message);
 }
