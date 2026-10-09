@@ -38,6 +38,7 @@ namespace VideoTrayApp
             btnNameTenSteps = new Button();
             btnShuffleRandom = new Button();
             btnArchive = new Button();
+            btnPresets = new Button();
             btnIdentifyClip = new Button();
             btnRemoveDuplicates = new Button();
             btnBrowseFolder = new Button();
@@ -223,6 +224,18 @@ namespace VideoTrayApp
             pnlActions.Controls.Add(btnIdentifyClip);
             pnlActions.Controls.Add(btnRemoveDuplicates);
             pnlActions.Controls.Add(btnArchive);
+            btnPresets.Text = "Presets";
+            btnPresets.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnPresets.BackColor = Color.FromArgb(80, 80, 85);
+            btnPresets.ForeColor = Color.White;
+            btnPresets.FlatStyle = FlatStyle.Flat;
+            btnPresets.FlatAppearance.BorderSize = 0;
+            btnPresets.Cursor = Cursors.Hand;
+            btnPresets.TabIndex = 9;
+            btnPresets.Size = new Size(130, 34);
+            btnPresets.Location = new Point(180, 108);
+            btnPresets.Click += btnPresets_Click;
+            pnlActions.Controls.Add(btnPresets);
 
             // Main Content Panel
             pnlContent.BackColor = Color.FromArgb(45, 45, 48);
@@ -252,6 +265,7 @@ namespace VideoTrayApp
         private Button btnNameTenSteps;
         private Button btnShuffleRandom;
         private Button btnArchive;
+        private Button btnPresets;
         private Button btnIdentifyClip;
         private Button btnRemoveDuplicates;
         private Button btnBrowseFolder;

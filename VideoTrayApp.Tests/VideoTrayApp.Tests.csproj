@@ -4,6 +4,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
@@ -11,6 +12,9 @@
     <Compile Include="../VideoTrayApp/ClipDuplicateCleaner.cs" Link="ClipDuplicateCleaner.cs" />
     <Compile Include="../VideoTrayApp/ClipArchiver.cs" Link="ClipArchiver.cs" />
     <Compile Include="../VideoTrayApp/ClipBatchPreparer.cs" Link="ClipBatchPreparer.cs" />
+    <Compile Include="../VideoTrayApp/OperationTransaction.cs" Link="OperationTransaction.cs" />
+    <Compile Include="../VideoTrayApp/ActionPresets.cs" Link="ActionPresets.cs" />
+    <Compile Include="../VideoTrayApp/PresetsForm.cs" Link="PresetsForm.cs" />
     <Compile Include="../VideoTrayApp/IOperationProgress.cs" Link="IOperationProgress.cs" />
   </ItemGroup>
 </Project>

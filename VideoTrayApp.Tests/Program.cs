@@ -422,6 +422,7 @@ try
     Check(partialShuffle.Cancelled && partialShuffle.Moved == 1 && partialShuffle.Shuffled == 1
         && Directory.GetFiles(partialDest, "*.avi").Length == 2,
         "Cancellation during final Archive shuffle reports renamed clips without losing content");
+    PresetChecks.Run(root, WriteAvi);
     Console.WriteLine("All clip identification, duplicate cleanup, batch preparation and archive integration checks passed.");
 }
 finally

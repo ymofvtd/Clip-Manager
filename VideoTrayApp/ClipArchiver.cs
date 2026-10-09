@@ -44,7 +44,7 @@ internal static class ClipArchiver
                 if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                     throw new IOException($"Clip became a symbolic link: {path}");
                 string target = UniqueDestination(destination, Path.GetFileName(path));
-                File.Move(path, target);
+                OperationTransaction.Move(path, target);
                 incoming.Add(target);
                 moved++;
             }
@@ -71,7 +71,7 @@ internal static class ClipArchiver
                 ct.ThrowIfCancellationRequested();
                 string target = UniqueDestination(destination,
                     Guid.NewGuid().ToString("N")[..12] + Path.GetExtension(path));
-                File.Move(path, target);
+                OperationTransaction.Move(path, target);
                 shuffled++;
             }
             return new(moved, recycled, shuffled, false, errors);

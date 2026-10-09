@@ -119,12 +119,11 @@ internal static class ClipIdentifier
                 ct.ThrowIfCancellationRequested();
                 if (destination is null)
                 {
-                    FileSystem.DeleteFile(path, UIOption.OnlyErrorDialogs,
-                        RecycleOption.SendToRecycleBin, UICancelOption.ThrowException);
+                    OperationTransaction.Recycle(path);
                 }
                 else
                 {
-                    File.Move(path, UniqueDestination(destination, Path.GetFileName(path)));
+                    OperationTransaction.Move(path, UniqueDestination(destination, Path.GetFileName(path)));
                 }
                 completed++;
                 progress.Report(i + 1, result.Matches.Count, $"Processed {Path.GetFileName(path)}");
@@ -138,6 +137,11 @@ internal static class ClipIdentifier
             {
                 errors.Add($"{path}: {ex.Message}");
             }
+        }
+        if (OperationTransaction.IsActive)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (errors.Count > 0) throw new IOException("Identify clip failed." + FormatErrors(errors));
         }
         string verb = destination is null ? "Sent to Recycle Bin" : "Moved";
         string summary = $"{(cancelled ? "Operation cancelled." : "Operation completed.")}\n\n" +

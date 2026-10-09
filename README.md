@@ -4,7 +4,7 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-2.1.4
+2.1.5
 
 The window title displays the installed version. Clicking **X** hides the window to the tray on the first click; use the tray menu's **Exit** to quit.
 
@@ -31,6 +31,16 @@ Review the **KEEP** and **RECYCLE** paths, then click **Delete duplicates** to s
 Select the source, destination and desired duration. Prepare Batch shuffles the numbered MP4 clips in the source folder once before selecting the batch, preserving their filenames. It checks the selected clips together with videos already in the destination, and automatically sends exact duplicates to the Recycle Bin using the same size, duration and SHA-256 checks as Remove duplicates. Destination copies are kept first; otherwise the first source clip in the shuffled order is kept. Files are verified again before recycling.
 
 After removing duplicates, the batch is refilled from the same shuffled order and checked again until no duplicates remain. Only then are the final clips backed up to the source's `Backup` folder and moved to the destination. Backups, source subfolders and unselected source clips are excluded from cleanup. The last clip may take the batch past the requested duration, as before. Scan or cleanup errors stop preparation before backup and moving; cancellation stops further work. The source and its Backup folder cannot be used as the destination.
+
+## Presets
+
+Click **Presets** to manage saved settings in a tab for each clip action. **Always ask (Current)** is the initial default and keeps the existing prompts. Use **Add preset**, **Edit**, **Delete**, and **Set as default**; choosing Always ask restores manual prompts. Deleting a default preset also restores Always ask. Settings are saved in `%APPDATA%/ClipsManager/presets.json`.
+
+Saved presets can use the current working folder or a fixed target. Clicking an action with a saved default shows its settings and asks **Review the default preset settings, proceed?** Once confirmed, it runs without further configuration dialogs, including the saved move/recycle choice for Identify clip and duplicate cleanup for Remove duplicates. Declining makes no changes.
+
+Prepare Batch presets include destination, optional new batch subfolder, duration, selection, and naming. **Add random 30m archives** starts a preset with 30 minutes, recursive archive selection, and numbering by tens; choose your folders before saving it. Numbered MP4 selection preserves the existing behavior. AllVideos includes all top-level supported videos; Archives also includes subfolders, excluding Backup, destination folders, and links. All selections are randomized. Preserve, NumberByTens (start/padding/prefix), and Random naming apply only to newly prepared clips. Backups retain the original filenames.
+
+Preset runs validate paths before execution and reverse their moves, renames, staged removals, newly created backups, and batch folders on errors or cancellation. Duplicate removals are staged until the operation completes, then sent to the Recycle Bin with temporary recovery copies retained until all recycling succeeds. Duration tracking is paused during these operations. If another process locks or changes affected paths and prevents rollback, the error reports incomplete recovery and retains recovery files; forced application termination or power loss is outside this in-process rollback guarantee. Manual Always ask operations keep their existing partial-progress behavior.
 
 ## Manual Build (Release .exe)
 

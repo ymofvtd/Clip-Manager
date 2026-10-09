@@ -4,6 +4,7 @@ public partial class Form1
 {
     private async Task RunRemoveDuplicatesAsync()
     {
+        if (await TryRunDefaultPresetAsync(PresetAction.RemoveDuplicates)) return;
         if (operationCts is not null)
             return;
         ShowWindow(this, EventArgs.Empty);

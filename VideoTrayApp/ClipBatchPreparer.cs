@@ -4,7 +4,9 @@ internal static class ClipBatchPreparer
 {
     internal static string Prepare(string sourceFolder, string destinationFolder, TimeSpan durationLimit,
         ISet<string> videoExtensions, IOperationProgress progress, CancellationToken ct,
-        string numberedExtension = ".mp4", Random? shuffleRandom = null)
+        string numberedExtension = ".mp4", Random? shuffleRandom = null,
+        IReadOnlyList<string>? candidates = null, Action<IReadOnlyList<string>>? nameBatch = null,
+        bool uniqueDestinationNames = false)
     {
         sourceFolder = Path.GetFullPath(sourceFolder);
         destinationFolder = Path.GetFullPath(destinationFolder);
@@ -18,8 +20,10 @@ internal static class ClipBatchPreparer
         if ((File.GetAttributes(sourceFolder) & FileAttributes.ReparsePoint) != 0
             || (File.GetAttributes(destinationFolder) & FileAttributes.ReparsePoint) != 0)
             throw new IOException("Batch folders must not be symbolic links or junctions.");
+        if (OperationTransaction.IsActive && Directory.Exists(backupFolder))
+            ActionPreset.ValidateFolder(backupFolder);
 
-        var files = Directory.EnumerateFiles(sourceFolder)
+        var files = candidates?.ToList() ?? Directory.EnumerateFiles(sourceFolder)
             .Where(path => string.Equals(Path.GetExtension(path), numberedExtension, StringComparison.OrdinalIgnoreCase)
                 && Path.GetFileNameWithoutExtension(path).All(char.IsDigit)
                 && Path.GetFileNameWithoutExtension(path).Length > 0)
@@ -75,9 +79,10 @@ internal static class ClipBatchPreparer
 
         ct.ThrowIfCancellationRequested();
         if (selected.Count == 0)
-            return $"No numbered clips remain to prepare.\nDuplicates sent to Recycle Bin: {recycled}";
-        Directory.CreateDirectory(backupFolder);
+            return $"No {(candidates is null ? "numbered " : "")}clips remain to prepare.\nDuplicates sent to Recycle Bin: {recycled}";
+        OperationTransaction.CreateDirectory(backupFolder);
         int moved = 0;
+        var movedPaths = new List<string>();
         var errors = new List<string>();
         foreach (var path in selected)
         {
@@ -86,6 +91,9 @@ internal static class ClipBatchPreparer
             {
                 string name = Path.GetFileName(path);
                 string target = Path.Combine(destinationFolder, name);
+                if (candidates is not null || uniqueDestinationNames)
+                    for (int suffix = 1; File.Exists(target) || Directory.Exists(target); suffix++)
+                        target = Path.Combine(destinationFolder, $"{Path.GetFileNameWithoutExtension(name)}__{suffix}{Path.GetExtension(name)}");
                 if (File.Exists(target) || Directory.Exists(target))
                     throw new IOException($"Destination already contains {name}.");
                 string backup = Path.Combine(backupFolder, name);
@@ -93,18 +101,21 @@ internal static class ClipBatchPreparer
                     backup = Path.Combine(backupFolder, $"{Path.GetFileNameWithoutExtension(name)}__{suffix}{Path.GetExtension(name)}");
                 progress.Report(moved, selected.Count, $"Backing up {name}...");
                 ct.ThrowIfCancellationRequested();
-                File.Copy(path, backup, overwrite: false);
+                OperationTransaction.Copy(path, backup, overwrite: false);
                 progress.Report(moved, selected.Count, $"Moving {name}...");
                 ct.ThrowIfCancellationRequested();
-                File.Move(path, target);
+                OperationTransaction.Move(path, target);
+                movedPaths.Add(target);
                 progress.Report(++moved, selected.Count, $"Moved and backed up: {moved}");
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
+                if (OperationTransaction.IsActive) throw;
                 errors.Add($"{path}: {ex.Message}");
             }
         }
+        nameBatch?.Invoke(movedPaths);
         return $"Batch preparation completed.\nMoved and backed up: {moved}\n" +
             $"Duplicates sent to Recycle Bin: {recycled}\nBackup folder: {backupFolder}" +
             (errors.Count > 0 ? $"\nFailed to back up or move: {errors.Count}. These clips remain in the source folder." +
@@ -117,6 +128,8 @@ internal static class ClipBatchPreparer
             if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                 throw new IOException($"Linked clip cannot be prepared: {path}");
             using var video = TagLib.File.Create(path);
+            if (OperationTransaction.IsActive && video.Properties.Duration <= TimeSpan.Zero)
+                throw new InvalidDataException($"Cannot read a valid video duration: {path}");
             return video.Properties.Duration;
         }
     }

@@ -149,8 +149,7 @@ internal static class ClipDuplicateCleaner
                             || ClipIdentifier.ReadIdentity(path, ct) != group.Identity)
                             throw new IOException("Duplicate changed since the scan; left untouched.");
                         ct.ThrowIfCancellationRequested();
-                        FileSystem.DeleteFile(path, UIOption.OnlyErrorDialogs,
-                            RecycleOption.SendToRecycleBin, UICancelOption.ThrowException);
+                        OperationTransaction.Recycle(path);
                         completed++;
                     }
                     catch (OperationCanceledException) { throw; }
@@ -173,7 +172,7 @@ internal static class ClipDuplicateCleaner
                 processed += group.Duplicates.Count;
             }
         }
-        if (stopBatchOnError)
+        if (stopBatchOnError || OperationTransaction.IsActive)
         {
             ct.ThrowIfCancellationRequested();
             if (errors.Count > 0)

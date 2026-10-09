@@ -4,6 +4,7 @@ public partial class Form1
 {
     private async Task RunIdentifyClipAsync()
     {
+        if (await TryRunDefaultPresetAsync(PresetAction.IdentifyClip)) return;
         if (operationCts is not null)
             return;
         ShowWindow(this, EventArgs.Empty);

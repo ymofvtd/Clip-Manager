@@ -53,7 +53,7 @@ namespace VideoTrayApp
                 else
                 {
                     MessageBox.Show(
-                        "No watch folder configured. Use tray menu → Set Folder to enable duration tracking.",
+                        "No watch folder configured. Use tray menu â†’ Set Folder to enable duration tracking.",
                         "Configuration Required",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning
@@ -323,7 +323,7 @@ namespace VideoTrayApp
                 }
                 catch (IOException)
                 {
-                    // File is being written — skip for now
+                    // File is being written â€” skip for now
                 }
                 catch
                 {
@@ -490,6 +490,7 @@ namespace VideoTrayApp
             btnIdentifyClip.Enabled = enabled;
             btnRemoveDuplicates.Enabled = enabled;
             btnBrowseFolder.Enabled = enabled;
+            btnPresets.Enabled = enabled;
             if (!enabled)
                 btnCancelOperation.Enabled = enabled;
         }
@@ -710,7 +711,7 @@ namespace VideoTrayApp
             BrowseForWorkingFolder();
         }
 
-        /// <summary>Tray "Set Folder" — watch folder for duration .txt updates only.</summary>
+        /// <summary>Tray "Set Folder" â€” watch folder for duration .txt updates only.</summary>
         private void BrowseForWatchFolder()
         {
             using var dlg = new FolderBrowserDialog
@@ -725,7 +726,7 @@ namespace VideoTrayApp
             ApplyWatchFolder(dlg.SelectedPath);
         }
 
-        /// <summary>Main window Browse — working folder for rename/shuffle/archive ops.</summary>
+        /// <summary>Main window Browse â€” working folder for rename/shuffle/archive ops.</summary>
         private void BrowseForWorkingFolder()
         {
             using var dlg = new FolderBrowserDialog
@@ -790,6 +791,7 @@ namespace VideoTrayApp
         // Button handlers now call the internal C# implementations
         private async void btnShuffleAndName_Click(object? sender, EventArgs e)
         {
+            if (await TryRunDefaultPresetAsync(PresetAction.ShuffleAndName)) return;
             if (!TryGetWorkingFolder(out string targetFolder, "Shuffle & Name"))
                 return;
             string startInput = Interaction.InputBox("Starting number (leave blank for 0):", "Start Number", "0");
@@ -812,6 +814,7 @@ namespace VideoTrayApp
 
         private async void btnNameTenSteps_Click(object? sender, EventArgs e)
         {
+            if (await TryRunDefaultPresetAsync(PresetAction.NameByTens)) return;
             if (!TryGetWorkingFolder(out string targetFolder, "Name by 10s"))
                 return;
             string startInput = Interaction.InputBox("Starting number (leave blank for 0):", "Start Number", "0");
@@ -830,6 +833,7 @@ namespace VideoTrayApp
 
         private async void btnPrepare_Click(object? sender, EventArgs e)
         {
+            if (await TryRunDefaultPresetAsync(PresetAction.PrepareBatch)) return;
             using var sourceDialog = new FolderBrowserDialog
             {
                 Description = "Select folder containing numbered clips (e.g., 349.mp4)"
@@ -898,6 +902,7 @@ namespace VideoTrayApp
 
         private async void btnShuffleRandom_Click(object? sender, EventArgs e)
         {
+            if (await TryRunDefaultPresetAsync(PresetAction.ShuffleRandom)) return;
             if (!TryGetWorkingFolder(out string targetFolder, "Shuffle Random"))
                 return;
 
@@ -923,6 +928,7 @@ namespace VideoTrayApp
 
         private async Task RunArchiveAsync()
         {
+            if (await TryRunDefaultPresetAsync(PresetAction.Archive)) return;
             if (operationCts is not null)
                 return;
             ShowWindow(this, EventArgs.Empty);
@@ -996,11 +1002,11 @@ namespace VideoTrayApp
                 var tempName = $"TEMP_{GenId(rng, 12)}{fi.Extension}";
                 var tempPath = Path.Combine(folder, tempName);
                 tempPath = EnsureUniquePath(tempPath);
-                File.Move(fi.FullName, tempPath);
+                OperationTransaction.Move(fi.FullName, tempPath);
                 tempMap.Add((fi.Name, new FileInfo(tempPath)));
             }
 
-            int seq = start;
+            long seq = start;
             progress?.Report(processed, total, "Renaming videos (pass 2)...");
             foreach (var (originalName, currentFile) in tempMap)
             {
@@ -1011,7 +1017,7 @@ namespace VideoTrayApp
                 var finalName = $"{seq}{currentFile.Extension}";
                 var finalPath = Path.Combine(folder, finalName);
                 finalPath = EnsureUniquePath(finalPath);
-                File.Move(currentFile.FullName, finalPath);
+                OperationTransaction.Move(currentFile.FullName, finalPath);
                 seq += 10;
             }
         }
@@ -1053,7 +1059,7 @@ namespace VideoTrayApp
                 var newName = rid + fi.Extension;
                 var newPath = Path.Combine(folder, newName);
                 newPath = EnsureUniquePath(newPath);
-                File.Move(fi.FullName, newPath);
+                OperationTransaction.Move(fi.FullName, newPath);
                 stage1Map.Add((fi.Name, Path.GetFileName(newPath)));
             }
 
@@ -1063,7 +1069,7 @@ namespace VideoTrayApp
                 .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            int seq = start;
+            long seq = start;
             progress?.Report(processed, total, "Naming videos (stage 2)...");
             foreach (var current in randomizedFiles)
             {
@@ -1075,7 +1081,7 @@ namespace VideoTrayApp
                 var finalName = $"{prefix}{numStr}{current.Extension}";
                 var finalPath = Path.Combine(folder, finalName);
                 finalPath = EnsureUniquePath(finalPath);
-                File.Move(current.FullName, finalPath);
+                OperationTransaction.Move(current.FullName, finalPath);
                 seq += 10;
             }
         }
@@ -1117,7 +1123,7 @@ namespace VideoTrayApp
                 } while (usedIds.Contains(rid) || File.Exists(candidatePath) || Directory.Exists(candidatePath));
 
                 usedIds.Add(rid);
-                File.Move(fi.FullName, candidatePath);
+                OperationTransaction.Move(fi.FullName, candidatePath);
             }
         }
 
