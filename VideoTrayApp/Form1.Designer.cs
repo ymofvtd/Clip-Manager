@@ -1,4 +1,4 @@
-﻿namespace VideoTrayApp
+namespace VideoTrayApp
 {
     partial class Form1
     {
@@ -46,7 +46,6 @@
             lblProgressStatus = new Label();
             progressBarMain = new ProgressBar();
             btnCancelOperation = new Button();
-            lblArchiveHint = new Label();
             toolTips = new ToolTip(components);
 
             SuspendLayout();
@@ -57,14 +56,14 @@
             pnlFolder.Height = 150;
             pnlFolder.Padding = new Padding(20);
 
-            lblFolderLabel.Text = "Working Folder (naming / archive)";
+            lblFolderLabel.Text = "Working Folder (naming / shuffle)";
             lblFolderLabel.Font = new Font("Segoe UI", 10F);
             lblFolderLabel.ForeColor = Color.FromArgb(150, 150, 150);
             lblFolderLabel.Location = new Point(20, 12);
             lblFolderLabel.AutoSize = true;
-            toolTips.SetToolTip(lblFolderLabel, "Used by rename, shuffle, and archive actions. Watch folder for duration .txt files is set separately via tray menu → Set Folder.");
+            toolTips.SetToolTip(lblFolderLabel, "Used by rename and shuffle actions. Archive prompts for its own source and destination. Watch folder for duration .txt files is set separately via tray menu → Set Folder.");
             toolTips.SetToolTip(txtSelectedFolder, "Working folder for naming operations. Duration tracking uses tray menu → Set Folder.");
-            toolTips.SetToolTip(btnBrowseFolder, "Choose working folder for naming/archive. Duration watch folder is tray → Set Folder.");
+            toolTips.SetToolTip(btnBrowseFolder, "Choose working folder for naming/shuffle. Duration watch folder is tray → Set Folder.");
 
             txtSelectedFolder.Font = new Font("Segoe UI", 10F);
             txtSelectedFolder.BackColor = Color.FromArgb(30, 30, 30);
@@ -165,25 +164,18 @@
             btnShuffleRandom.Cursor = Cursors.Hand;
             btnShuffleRandom.Click += btnShuffleRandom_Click;
 
-            lblArchiveHint.Text = "Click here to archive";
-            lblArchiveHint.Font = new Font("Segoe UI", 8F);
-            lblArchiveHint.ForeColor = Color.FromArgb(150, 150, 150);
-            lblArchiveHint.AutoSize = true;
-            lblArchiveHint.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            lblArchiveHint.Location = new Point(330, 218);
-
             btnArchive.Text = "📦 Archive";
             btnArchive.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnArchive.BackColor = Color.FromArgb(63, 81, 181);
             btnArchive.ForeColor = Color.White;
-            btnArchive.Size = new Size(120, 34);
-            btnArchive.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnArchive.Location = new Point(360, 238);
+            btnArchive.Size = new Size(150, 34);
+            btnArchive.Location = new Point(20, 108);
             btnArchive.TabIndex = 6;
             btnArchive.FlatStyle = FlatStyle.Flat;
             btnArchive.FlatAppearance.BorderSize = 0;
             btnArchive.Cursor = Cursors.Hand;
             btnArchive.Click += btnArchive_Click;
+            toolTips.SetToolTip(btnArchive, "Choose source and destination folders, move all top-level clips, identify and recycle exact duplicates, then shuffle destination clips to random filenames.");
 
             btnPrepare.Text = "⚙️ Prepare Batch";
             btnPrepare.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
@@ -230,7 +222,6 @@
             pnlActions.Controls.Add(btnPrepare);
             pnlActions.Controls.Add(btnIdentifyClip);
             pnlActions.Controls.Add(btnRemoveDuplicates);
-            pnlActions.Controls.Add(lblArchiveHint);
             pnlActions.Controls.Add(btnArchive);
 
             // Main Content Panel
@@ -269,7 +260,6 @@
         private Label lblProgressStatus;
         private ProgressBar progressBarMain;
         private Button btnCancelOperation;
-        private Label lblArchiveHint;
         private ToolTip toolTips;
     }
 }

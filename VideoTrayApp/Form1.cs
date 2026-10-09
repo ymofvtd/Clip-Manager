@@ -16,7 +16,7 @@ namespace VideoTrayApp
         private FileSystemWatcher? watcher;
         /// <summary>Folder watched for video changes; duration .txt markers are written here (and immediate children).</summary>
         private string watchFolderPath = string.Empty;
-        /// <summary>Folder used by rename/shuffle/archive actions in the main window.</summary>
+        /// <summary>Folder used by rename/shuffle actions in the main window.</summary>
         private string workingFolderPath = string.Empty;
         private System.Timers.Timer? debounceTimer;
         private bool isDirty = false;
@@ -923,13 +923,46 @@ namespace VideoTrayApp
 
         private async Task RunArchiveAsync()
         {
-            if (!TryGetWorkingFolder(out string sourceFolder, "Archive"))
+            if (operationCts is not null)
+                return;
+            ShowWindow(this, EventArgs.Empty);
+            using var sourcePicker = new FolderBrowserDialog
+            {
+                Description = "Archive - select the source folder. All clips directly in this folder will be moved.",
+                UseDescriptionForTitle = true,
+                SelectedPath = Directory.Exists(workingFolderPath) ? workingFolderPath : string.Empty
+            };
+            if (sourcePicker.ShowDialog(this) != DialogResult.OK)
+                return;
+            using var destinationPicker = new FolderBrowserDialog
+            {
+                Description = "Archive - select the destination. Move clips here, recycle exact duplicates, then shuffle random filenames.",
+                UseDescriptionForTitle = true
+            };
+            if (destinationPicker.ShowDialog(this) != DialogResult.OK)
                 return;
 
-            await RunWithProgressAsync(
-                "Archive Videos",
-                (progress, ct) => Task.FromResult<string?>(ArchiveVideos(sourceFolder, progress, ct)),
-                showSuccessMessage: true);
+            SetButtonsEnabled(false);
+            BeginEmbeddedOperation("Archive");
+            var progress = new EmbeddedOperationProgress(this);
+            try
+            {
+                var result = await Task.Run(() => ClipArchiver.Run(sourcePicker.SelectedPath,
+                    destinationPicker.SelectedPath, DefaultVideoExts, progress, progress.CancellationToken));
+                CompleteEmbeddedOperation(result.Cancelled ? "Cancelled" : result.Errors.Count > 0 ? "Stopped" : "Done");
+                MessageBox.Show(this, result.Summary, "Archive", MessageBoxButtons.OK,
+                    result.Errors.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                CompleteEmbeddedOperation("Failed");
+                MessageBox.Show(this, ex.Message, "Archive", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                SetButtonsEnabled(true);
+                UpdateVideoCount();
+            }
         }
 
         //
@@ -1096,99 +1129,6 @@ namespace VideoTrayApp
         {
             return ClipBatchPreparer.Prepare(sourceFolder, destinationFolder, durationLimit,
                 DefaultVideoExts, progress, cancellationToken);
-        }
-
-        private static readonly TimeSpan MaxArchiveDuration = TimeSpan.FromSeconds(90);
-
-        private string ArchiveVideos(string sourceFolder, IOperationProgress progress, CancellationToken cancellationToken)
-        {
-            var sourceDir = new DirectoryInfo(sourceFolder);
-            if (!sourceDir.Exists)
-                throw new DirectoryNotFoundException($"Source folder not found: {sourceFolder}");
-
-            string archiveFolder = Path.Combine(sourceFolder, "Archive");
-            Directory.CreateDirectory(archiveFolder);
-
-            var knownFingerprints = new HashSet<VideoFingerprint>(VideoFingerprintComparer.Instance);
-            var archiveFiles = Directory.EnumerateFiles(archiveFolder, "*.mp4", SearchOption.AllDirectories).ToList();
-
-            progress.Report(0, 0, "Indexing existing archive...");
-            int archiveIndexed = 0;
-            foreach (var archivePath in archiveFiles)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                archiveIndexed++;
-                progress.Report(archiveIndexed, archiveFiles.Count, $"Indexing archive: {Path.GetFileName(archivePath)}");
-
-                if (VideoFingerprintFactory.TryCreate(archivePath, out var fingerprint, out _))
-                {
-                    knownFingerprints.Add(fingerprint!);
-                }
-            }
-
-            progress.SetIndeterminate("Scanning for .mp4 files...");
-            var sourceFiles = Directory
-                .EnumerateFiles(sourceFolder, "*.mp4", SearchOption.AllDirectories)
-                .Where(path => !IsUnderDirectory(path, archiveFolder))
-                .ToList();
-
-            int copied = 0;
-            int skippedDuplicates = 0;
-            int skippedTooLong = 0;
-            int errors = 0;
-
-            for (int i = 0; i < sourceFiles.Count; i++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                string sourcePath = sourceFiles[i];
-                string fileName = Path.GetFileName(sourcePath);
-                progress.Report(i + 1, sourceFiles.Count, $"Checking {fileName}...");
-
-                if (!VideoFingerprintFactory.TryCreate(sourcePath, out var fingerprint, out _)
-                    || fingerprint is null)
-                {
-                    errors++;
-                    continue;
-                }
-
-                if (!knownFingerprints.Add(fingerprint))
-                {
-                    skippedDuplicates++;
-                    continue;
-                }
-
-                if (fingerprint.Duration > MaxArchiveDuration)
-                {
-                    skippedTooLong++;
-                    continue;
-                }
-
-                try
-                {
-                    string destinationPath = EnsureUniquePath(Path.Combine(archiveFolder, fileName));
-                    progress.Report(i + 1, sourceFiles.Count, $"Copying {fileName}...");
-                    File.Copy(sourcePath, destinationPath, overwrite: false);
-                    copied++;
-                }
-                catch
-                {
-                    knownFingerprints.Remove(fingerprint);
-                    errors++;
-                }
-            }
-
-            return $"Archive completed.\n\nCopied: {copied}\nSkipped duplicates: {skippedDuplicates}\nSkipped (over 1m30s): {skippedTooLong}\nErrors: {errors}";
-        }
-
-        private static bool IsUnderDirectory(string filePath, string directoryPath)
-        {
-            string normalizedFile = Path.GetFullPath(filePath)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            string normalizedDirectory = Path.GetFullPath(directoryPath)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-            return normalizedFile.StartsWith(normalizedDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(normalizedFile, normalizedDirectory, StringComparison.OrdinalIgnoreCase);
         }
 
         //

@@ -4,9 +4,15 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-2.1.3
+2.1.4
 
 The window title displays the installed version. Clicking **X** hides the window to the tray on the first click; use the tray menu's **Exit** to quit.
+
+## Archive
+
+Click **Archive** in the main action buttons or tray menu, choose the source folder, then choose the destination. All supported video files directly in the source folder are moved; subfolders and non-video files stay in place. There is no duration limit. Filename collisions receive a suffix; existing files are never overwritten.
+
+Archive identifies exact duplicates using file size, duration and SHA-256, then automatically sends extra copies to the Recycle Bin, preferring clips already in the destination. Finally, all remaining destination clips receive random filenames for a fresh shuffle. The destination scan and shuffle also include only top-level clips. Cancellation or errors stop further work and report progress; clips already moved remain in the destination. Same-folder transfers and junction/symlink roots are rejected.
 
 ## Identify clip
 

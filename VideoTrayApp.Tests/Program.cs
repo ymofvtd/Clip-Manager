@@ -329,7 +329,100 @@ try
     Check(shuffleCancelled && File.Exists(Path.Combine(shuffleSource, "10.avi"))
         && Directory.GetFiles(shuffleDest).Length == 3,
         "Cancellation during shuffle stops before cleanup, backup or moving");
-    Console.WriteLine("All clip identification, duplicate cleanup and batch preparation integration checks passed.");
+    string archiveSource = Directory.CreateDirectory(Path.Combine(root, "archive-source")).FullName;
+    string archiveDest = Directory.CreateDirectory(Path.Combine(root, "archive-dest")).FullName;
+    string archiveNested = Directory.CreateDirectory(Path.Combine(archiveSource, "nested")).FullName;
+    WriteAvi(Path.Combine(archiveSource, "long.avi"), 120, 31);
+    WriteAvi(Path.Combine(archiveSource, "collision.avi"), 2, 32);
+    WriteAvi(Path.Combine(archiveDest, "collision.avi"), 2, 33);
+    File.Copy(Path.Combine(archiveDest, "collision.avi"), Path.Combine(archiveSource, "copy.avi"));
+    WriteAvi(Path.Combine(archiveNested, "untouched.avi"), 2, 34);
+    File.WriteAllText(Path.Combine(archiveSource, "notes.txt"), "keep source notes");
+    File.WriteAllText(Path.Combine(archiveDest, "notes.txt"), "keep destination notes");
+    var expectedArchiveHashes = Directory.GetFiles(archiveSource, "*.avi")
+        .Concat(Directory.GetFiles(archiveDest, "*.avi"))
+        .Select(path => ClipIdentifier.ReadIdentity(path, CancellationToken.None).Hash).ToHashSet();
+    bool archiveKeeperChecked = false;
+    var archiveProgress = new TestProgress
+    {
+        OnMessage = message =>
+        {
+            if (archiveKeeperChecked || !message.StartsWith("Shuffling ")) return;
+            archiveKeeperChecked = true;
+            Check(File.Exists(Path.Combine(archiveDest, "collision.avi"))
+                && File.Exists(Path.Combine(archiveDest, "collision__1.avi"))
+                && !File.Exists(Path.Combine(archiveDest, "copy.avi")),
+                "Archive preserves destination keepers and distinct filename collisions before shuffle");
+        }
+    };
+    var archived = ClipArchiver.Run(archiveSource, archiveDest, extensions, archiveProgress, CancellationToken.None);
+    var archivedPaths = Directory.GetFiles(archiveDest, "*.avi");
+    Check(archived.Moved == 3 && archived.Recycled == 1 && archived.Shuffled == 3
+        && archived.Errors.Count == 0 && !archived.Cancelled,
+        "Archive moves every top-level clip including long videos, recycles exact duplicates, and shuffles destination");
+    Check(archivedPaths.All(path => Path.GetFileNameWithoutExtension(path).Length == 12)
+        && expectedArchiveHashes.SetEquals(archivedPaths.Select(path => ClipIdentifier.ReadIdentity(path, CancellationToken.None).Hash)),
+        "Archive preserves all distinct content through collisions, keeps same-duration different content, and randomizes filenames");
+    Check(Directory.GetFiles(archiveSource, "*.avi").Length == 0
+        && File.Exists(Path.Combine(archiveNested, "untouched.avi"))
+        && File.ReadAllText(Path.Combine(archiveSource, "notes.txt")) == "keep source notes"
+        && File.ReadAllText(Path.Combine(archiveDest, "notes.txt")) == "keep destination notes",
+        "Archive leaves subfolders and non-video files untouched");
+    var sameFolder = ClipArchiver.Run(archiveDest, archiveDest, extensions, progress, CancellationToken.None);
+    Check(sameFolder.Errors.Count == 1 && sameFolder.Moved == 0
+        && archivedPaths.All(File.Exists), "Archive rejects a same-folder transfer before changing files");
+
+    WriteAvi(Path.Combine(archiveSource, "cancel.avi"), 2, 35);
+    using var archiveCts = new CancellationTokenSource();
+    var cancelArchiveProgress = new TestProgress
+    {
+        OnMessage = message => { if (message.StartsWith("Identifying duplicate")) archiveCts.Cancel(); }
+    };
+    var cancelledArchive = ClipArchiver.Run(archiveSource, archiveDest, extensions, cancelArchiveProgress, archiveCts.Token);
+    Check(cancelledArchive.Cancelled && cancelledArchive.Moved == 1 && cancelledArchive.Shuffled == 0
+        && File.Exists(Path.Combine(archiveDest, "cancel.avi")) && archivedPaths.All(File.Exists),
+        "Cancelling Archive after moving preserves clips and stops before cleanup and shuffle");
+
+    WriteAvi(Path.Combine(archiveSource, "invalid-copy.avi"), 2, 36);
+    File.WriteAllBytes(Path.Combine(archiveDest, "invalid.avi"),
+        new byte[new FileInfo(Path.Combine(archiveSource, "invalid-copy.avi")).Length]);
+    var failedArchive = ClipArchiver.Run(archiveSource, archiveDest, extensions, progress, CancellationToken.None);
+    Check(failedArchive.Errors.Count == 1 && failedArchive.Moved == 1 && failedArchive.Recycled == 0
+        && failedArchive.Shuffled == 0 && File.Exists(Path.Combine(archiveDest, "invalid-copy.avi"))
+        && File.Exists(Path.Combine(archiveDest, "invalid.avi")),
+        "Archive scan errors preserve moved clips and stop before deletion or shuffle");
+
+    string partialSource = Directory.CreateDirectory(Path.Combine(root, "archive-partial-source")).FullName;
+    string partialDest = Directory.CreateDirectory(Path.Combine(root, "archive-partial-dest")).FullName;
+    WriteAvi(Path.Combine(partialSource, "first.avi"), 2, 41);
+    WriteAvi(Path.Combine(partialSource, "second.avi"), 2, 42);
+    using var partialArchiveCts = new CancellationTokenSource();
+    var partialArchiveProgress = new TestProgress
+    {
+        OnMessage = message =>
+        {
+            if (message.StartsWith("Moving second.avi")) partialArchiveCts.Cancel();
+        }
+    };
+    var partialArchive = ClipArchiver.Run(partialSource, partialDest, extensions, partialArchiveProgress, partialArchiveCts.Token);
+    Check(partialArchive.Cancelled && partialArchive.Moved == 1 && partialArchive.Shuffled == 0
+        && File.Exists(Path.Combine(partialDest, "first.avi")) && File.Exists(Path.Combine(partialSource, "second.avi")),
+        "Cancellation during Archive moving reports partial progress and preserves unprocessed source clips");
+
+    using var partialShuffleCts = new CancellationTokenSource();
+    int shuffleReports = 0;
+    var partialShuffleProgress = new TestProgress
+    {
+        OnMessage = message =>
+        {
+            if (message.StartsWith("Shuffling ") && ++shuffleReports == 2) partialShuffleCts.Cancel();
+        }
+    };
+    var partialShuffle = ClipArchiver.Run(partialSource, partialDest, extensions, partialShuffleProgress, partialShuffleCts.Token);
+    Check(partialShuffle.Cancelled && partialShuffle.Moved == 1 && partialShuffle.Shuffled == 1
+        && Directory.GetFiles(partialDest, "*.avi").Length == 2,
+        "Cancellation during final Archive shuffle reports renamed clips without losing content");
+    Console.WriteLine("All clip identification, duplicate cleanup, batch preparation and archive integration checks passed.");
 }
 finally
 {
