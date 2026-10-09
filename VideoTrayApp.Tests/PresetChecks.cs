@@ -39,6 +39,7 @@ internal static class PresetChecks
         ExpectFailure(() => missing.Validate(source));
         Check(!Directory.Exists(missing.Destination), "Missing preset destinations are rejected without recreating them");
         RunWindowChecks(preset, config, source);
+        RunBatchDestinationChecks(root, writeVideo);
 
         string first = Path.Combine(source, "first.avi");
         string second = Path.Combine(source, "second.avi");
@@ -146,6 +147,106 @@ internal static class PresetChecks
         Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories).Select(path => "DIR:" + path)
         .Concat(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Select(path => path + ":" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))))))
         .Order(StringComparer.OrdinalIgnoreCase).ToList();
+
+    private static void RunBatchDestinationChecks(string root, Action<string, uint, byte> writeVideo)
+    {
+        string parent = Directory.CreateDirectory(Path.Combine(root, "automatic-batches")).FullName;
+        var preset = new ActionPreset { Action = PresetAction.PrepareBatch, UseWorkingFolder = false,
+            Target = parent, Destination = parent };
+        preset.Validate(parent);
+        var fresh = BatchDestinationResolver.Resolve(preset, parent);
+        Check(fresh.Create && fresh.Path == Path.Combine(parent, "batch_1") && !Directory.Exists(fresh.Path),
+            "Same target/destination is allowed; resolving a missing batch plans batch_1 without creating it");
+        File.WriteAllText(fresh.Path, "occupied filename");
+        Directory.CreateDirectory(Path.Combine(parent, "batch_2"));
+        var fallback = BatchDestinationResolver.Resolve(preset, parent);
+        Check(fallback.Create && fallback.Path == Path.Combine(parent, "batch_3"),
+            "Automatic batch numbering skips both existing folders and files");
+        using (var tx = new OperationTransaction())
+        {
+            OperationTransaction.CreateDirectory(fallback.Path);
+            tx.Rollback();
+        }
+        Check(!Directory.Exists(fallback.Path), "A failed preset removes its automatically created fallback folder");
+
+        preset.BatchFolderName = "My compilation";
+        var custom = BatchDestinationResolver.Resolve(preset, parent);
+        Check(custom.Create && Path.GetFileName(custom.Path) == "My compilation", "A preset can name its new batch folder");
+        Directory.CreateDirectory(custom.Path);
+        Check(Path.GetFileName(BatchDestinationResolver.Resolve(preset, parent).Path) == "My compilation_1",
+            "A custom batch name collision plans a fresh folder without reusing existing content");
+        var store = new PresetStore { Presets = [preset] };
+        string config = Path.Combine(root, "named-batch-presets.json");
+        store.Save(config);
+        Check(PresetStore.Load(config).Presets.Single().BatchFolderName == "My compilation", "Custom batch folder names survive restart");
+        foreach (string invalid in new[] { "..", "../outside", "nested\\batch", "CON", "NUL.txt", "bad." })
+        {
+            bool rejected = false;
+            try { BatchDestinationResolver.ValidateName(invalid); }
+            catch (ArgumentException) { rejected = true; }
+            Check(rejected, $"Unsafe batch folder name is rejected: {invalid}");
+        }
+
+        // The starter folder can appear after the preset has already been saved.
+        Directory.CreateDirectory(Path.Combine(parent, "c_9"));
+        Directory.CreateDirectory(Path.Combine(parent, "c_58"));
+        string current = Directory.CreateDirectory(Path.Combine(parent, "c_59")).FullName;
+        File.WriteAllText(Path.Combine(parent, "c_999"), "not a folder");
+        var reused = BatchDestinationResolver.Resolve(PresetStore.Load(config).Presets.Single(), parent);
+        Check(!reused.Create && reused.Path == current,
+            "Every preset automatically finds the highest numbered c_ folder created after saving");
+        Directory.CreateDirectory(Path.Combine(parent, "c_100"));
+        Check(Path.GetFileName(BatchDestinationResolver.Resolve(preset, parent).Path) == "c_100",
+            "c_ folders are ranked numerically rather than alphabetically");
+        Directory.Delete(Path.Combine(parent, "c_100"));
+
+        writeVideo(Path.Combine(current, "starter.avi"), 2, 71);
+        writeVideo(Path.Combine(parent, "10.avi"), 2, 72);
+        writeVideo(Path.Combine(parent, "20.avi"), 2, 73);
+        string starterHash = ClipIdentifier.ReadIdentity(Path.Combine(current, "starter.avi"), CancellationToken.None).Hash;
+        var before = Snapshot(parent);
+        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".avi" };
+        using (var tx = new OperationTransaction())
+        {
+            ExpectFailure(() => ClipBatchPreparer.Prepare(parent, reused.Path, TimeSpan.FromSeconds(6), extensions,
+                new TestProgress { OnMessage = message => { if (message == "Moving 20.avi...") throw new IOException("Injected refill failure"); } },
+                CancellationToken.None, ".avi", new PreserveOrderRandom()));
+            tx.Rollback();
+        }
+        Check(before.SequenceEqual(Snapshot(parent)), "Failed refill of an existing c_ folder restores starter clips, source files and backups");
+        using (var tx = new OperationTransaction())
+        {
+            reused.Validate(parent, preset.Destination);
+            ClipBatchPreparer.Prepare(parent, reused.Path, TimeSpan.FromSeconds(6), extensions,
+                new TestProgress(), CancellationToken.None, ".avi", new PreserveOrderRandom());
+            tx.Commit(CancellationToken.None);
+        }
+        Check(Directory.GetFiles(current, "*.avi").Length == 3
+            && ClipIdentifier.ReadIdentity(Path.Combine(current, "starter.avi"), CancellationToken.None).Hash == starterHash
+            && !Directory.Exists(fallback.Path),
+            "Prepare Batch refills the chosen c_ folder to the requested total duration while preserving starter clips");
+
+        Directory.Delete(Path.Combine(parent, "c_9"));
+        Directory.Delete(Path.Combine(parent, "c_58"));
+        Directory.Move(current, Path.Combine(parent, "finished_59"));
+        ExpectFailure(() => reused.Validate(parent, preset.Destination));
+        preset.BatchFolderName = "";
+        Check(BatchDestinationResolver.Resolve(preset, parent).Create, "When c_ folders disappear, the next run automatically plans a new batch");
+        Directory.CreateDirectory(fallback.Path);
+        ExpectFailure(() => fallback.Validate(parent, preset.Destination));
+        Check(Directory.Exists(fallback.Path), "A folder created after confirmation is rejected rather than silently reused");
+
+        // The removed checkbox is ignored in older files; automatic destination selection applies.
+        File.WriteAllText(config, System.Text.Json.JsonSerializer.Serialize(new
+        {
+            Presets = new[] { new { Id = "legacy", Name = "Legacy batch", Action = PresetAction.PrepareBatch,
+                Target = parent, UseWorkingFolder = false, Destination = parent, CreateBatchFolder = false } },
+            Defaults = new Dictionary<PresetAction, string>()
+        }));
+        var legacy = PresetStore.Load(config).Presets.Single();
+        legacy.Validate(parent);
+        Check(BatchDestinationResolver.Resolve(legacy, parent).Create, "Existing presets adopt automatic subfolder creation without the old checkbox");
+    }
 
     private static void RunWindowChecks(ActionPreset preset, string config, string workingFolder)
     {

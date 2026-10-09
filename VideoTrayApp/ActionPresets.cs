@@ -15,7 +15,7 @@ internal sealed class ActionPreset
     public string Target { get; set; } = "";
     public bool UseWorkingFolder { get; set; } = true;
     public string Destination { get; set; } = "";
-    public bool CreateBatchFolder { get; set; }
+    public string BatchFolderName { get; set; } = "";
     public int DurationMinutes { get; set; } = 20;
     public BatchSelection Selection { get; set; }
     public BatchNaming Naming { get; set; }
@@ -39,9 +39,13 @@ internal sealed class ActionPreset
     {
         var lines = new List<string> { Name, $"Action: {Label(Action)}", $"Target: {ResolveTarget(workingFolder)}" };
         if (Action is PresetAction.PrepareBatch or PresetAction.Archive || Action == PresetAction.IdentifyClip && IdentifyBehavior == IdentifyBehavior.Move)
-            lines.Add($"Destination: {Destination}" + (CreateBatchFolder && Action == PresetAction.PrepareBatch ? " (new batch subfolder)" : ""));
+            lines.Add($"Destination: {Destination}" + (Action == PresetAction.PrepareBatch ? " (batch parent folder)" : ""));
         if (Action == PresetAction.PrepareBatch)
+        {
+            lines.Add("Use the highest numbered c_ folder, or create a new batch if none exists.");
+            lines.Add($"New folder name: {(string.IsNullOrWhiteSpace(BatchFolderName) ? "batch_1, batch_2, ... (next available)" : BatchFolderName)}");
             lines.Add($"Duration: {DurationMinutes} minutes\nSelection: {Selection}\nNaming: {Naming}\nBackup: target's Backup folder");
+        }
         if (Action is PresetAction.ShuffleAndName or PresetAction.NameByTens || Action == PresetAction.PrepareBatch && Naming == BatchNaming.NumberByTens)
             lines.Add($"Start: {Start}; padding: {Padding}; prefix: {Prefix}");
         if (Action == PresetAction.ShuffleRandom || Action == PresetAction.PrepareBatch && Naming == BatchNaming.Random)
@@ -61,9 +65,10 @@ internal sealed class ActionPreset
         if (Action is PresetAction.PrepareBatch or PresetAction.Archive || Action == PresetAction.IdentifyClip && IdentifyBehavior == IdentifyBehavior.Move)
         {
             ValidateFolder(Destination);
-            if (ClipIdentifier.SamePath(ResolveTarget(workingFolder), Destination) && !(Action == PresetAction.PrepareBatch && CreateBatchFolder))
+            if (ClipIdentifier.SamePath(ResolveTarget(workingFolder), Destination) && Action != PresetAction.PrepareBatch)
                 throw new IOException("Source and destination must be different folders.");
         }
+        if (Action == PresetAction.PrepareBatch) BatchDestinationResolver.ValidateName(BatchFolderName);
         if (DurationMinutes is < 1 or > 10080 || Padding is < 0 or > 64 || RandomLength is < 4 or > 64 || Start < 0)
             throw new ArgumentException("Preset numeric settings are out of range.");
         if (Prefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)

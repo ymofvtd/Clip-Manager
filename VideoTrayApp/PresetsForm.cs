@@ -207,12 +207,11 @@ internal sealed class PresetEditorForm : Form
         targetPanel.Enabled = !useWorking.Checked;
         useWorking.CheckedChanged += (_, _) => targetPanel.Enabled = !useWorking.Checked;
         if (preset.Action is PresetAction.PrepareBatch or PresetAction.Archive or PresetAction.IdentifyClip)
-            PathField("Destination folder", preset.Destination, v => preset.Destination = v);
+            PathField(preset.Action == PresetAction.PrepareBatch ? "Destination parent folder" : "Destination folder", preset.Destination, v => preset.Destination = v);
         if (preset.Action == PresetAction.PrepareBatch)
         {
-            var create = new CheckBox { Text = "Create a new batch subfolder in destination", Checked = preset.CreateBatchFolder, AutoSize = true };
-            Add("Batch destination", create);
-            saveValues.Add(() => preset.CreateBatchFolder = create.Checked);
+            TextField("New batch folder name", preset.BatchFolderName, v => preset.BatchFolderName = v);
+            Add("Batch destination", new Label { AutoSize = true, Text = "Automatically use the highest numbered c_ folder\nin the destination. If none exists, create a new folder.\nLeave the name blank for batch_1, batch_2, etc.\nThe c_ folder does not need to exist when you save." });
             Number("Duration (minutes)", preset.DurationMinutes, 1, 10080, v => preset.DurationMinutes = v);
             Choice("Select clips", preset.Selection, v => preset.Selection = v);
             Add("Selection help", new Label { AutoSize = true, Text = "NumberedMp4: existing batch behavior.\nAllVideos: all top-level videos.\nArchives: videos in target and subfolders, excluding Backup.\nEach mode uses a random order." });

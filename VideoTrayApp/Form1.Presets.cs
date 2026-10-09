@@ -32,14 +32,22 @@ public partial class Form1
         if (preset is null) return false;
         ShowWindow(this, EventArgs.Empty);
         string target = preset.ResolveTarget(workingFolderPath);
-        if (MessageBox.Show(this, "Review the default preset settings, proceed?\n\n" + preset.Summary(workingFolderPath),
-            ActionPreset.Label(action), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return true;
-        try { preset.Validate(workingFolderPath); }
+        BatchDestination? batchDestination = null;
+        try
+        {
+            preset.Validate(workingFolderPath);
+            if (action == PresetAction.PrepareBatch) batchDestination = BatchDestinationResolver.Resolve(preset, target);
+        }
         catch (Exception ex)
         {
             MessageBox.Show(this, $"Preset cannot run. No files changed.\n\n{ex.Message}", "Check preset settings", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return true;
         }
+        string review = preset.Summary(workingFolderPath);
+        if (batchDestination is not null)
+            review += $"\n\nBatch folder: {batchDestination.Path}\n{(batchDestination.Create ? "Create new folder" : "Use existing folder and its starter clips")}";
+        if (MessageBox.Show(this, "Review the default preset settings, proceed?\n\n" + review,
+            ActionPreset.Label(action), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return true;
 
         bool watching = watcher?.EnableRaisingEvents == true;
         if (watcher is not null) watcher.EnableRaisingEvents = false;
@@ -55,7 +63,7 @@ public partial class Form1
                     try
                     {
                         preset.Validate(target); // Recheck immediately before execution.
-                        string summary = ExecutePreset(preset, target, progress, ct);
+                        string summary = ExecutePreset(preset, target, progress, ct, batchDestination);
                         transaction.Commit(ct);
                         return Task.FromResult<string?>(summary);
                     }
@@ -81,7 +89,8 @@ public partial class Form1
         return true;
     }
 
-    private string ExecutePreset(ActionPreset preset, string target, IOperationProgress progress, CancellationToken ct)
+    private string ExecutePreset(ActionPreset preset, string target, IOperationProgress progress, CancellationToken ct,
+        BatchDestination? batchDestination = null)
     {
         switch (preset.Action)
         {
@@ -109,13 +118,12 @@ public partial class Form1
                 return ClipIdentifier.Apply(matches, preset.ReferenceClip,
                     preset.IdentifyBehavior == IdentifyBehavior.Move ? preset.Destination : null, progress, ct);
             case PresetAction.PrepareBatch:
-                string destination = preset.Destination;
-                if (preset.CreateBatchFolder)
-                {
-                    destination = Path.Combine(destination, $"batch_{DateTime.Now:yyyyMMdd-HHmmss}_{Guid.NewGuid():N}");
-                    OperationTransaction.CreateDirectory(destination);
-                }
-                var candidates = preset.Selection == BatchSelection.NumberedMp4 ? null : ListPresetBatchCandidates(target, preset.Destination, preset.Selection, ct);
+                var batch = batchDestination ?? BatchDestinationResolver.Resolve(preset, target);
+                batch.Validate(target, preset.Destination);
+                string destination = batch.Path;
+                if (batch.Create) OperationTransaction.CreateDirectory(destination);
+                var candidates = preset.Selection == BatchSelection.NumberedMp4 ? null
+                    : ListPresetBatchCandidates(target, destination, preset.Destination, preset.Selection, ct);
                 return ClipBatchPreparer.Prepare(target, destination, TimeSpan.FromMinutes(preset.DurationMinutes),
                     DefaultVideoExts, progress, ct, candidates: candidates,
                     nameBatch: paths => NamePresetBatch(paths, preset, progress, ct),
@@ -129,7 +137,8 @@ public partial class Form1
         if (errors.Count > 0) throw new IOException("The operation could not verify all clips." + ClipIdentifier.FormatErrors(errors));
     }
 
-    private static List<string> ListPresetBatchCandidates(string target, string destination, BatchSelection selection, CancellationToken ct)
+    private static List<string> ListPresetBatchCandidates(string target, string destination, string destinationParent,
+        BatchSelection selection, CancellationToken ct)
     {
         var files = new List<string>();
         var folders = new Stack<string>();
@@ -151,6 +160,7 @@ public partial class Form1
             {
                 if (Path.GetFileName(child).Equals("Backup", StringComparison.OrdinalIgnoreCase)
                     || ClipIdentifier.SamePath(child, destination)
+                    || ClipIdentifier.SamePath(child, destinationParent)
                     || (File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0) continue;
                 folders.Push(child);
             }

@@ -4,7 +4,7 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-2.1.5
+2.1.6
 
 The window title displays the installed version. Clicking **X** hides the window to the tray on the first click; use the tray menu's **Exit** to quit.
 
@@ -38,7 +38,7 @@ Click **Presets** to manage saved settings in a tab for each clip action. **Alwa
 
 Saved presets can use the current working folder or a fixed target. Clicking an action with a saved default shows its settings and asks **Review the default preset settings, proceed?** Once confirmed, it runs without further configuration dialogs, including the saved move/recycle choice for Identify clip and duplicate cleanup for Remove duplicates. Declining makes no changes.
 
-Prepare Batch presets include destination, optional new batch subfolder, duration, selection, and naming. **Add random 30m archives** starts a preset with 30 minutes, recursive archive selection, and numbering by tens; choose your folders before saving it. Numbered MP4 selection preserves the existing behavior. AllVideos includes all top-level supported videos; Archives also includes subfolders, excluding Backup, destination folders, and links. All selections are randomized. Preserve, NumberByTens (start/padding/prefix), and Random naming apply only to newly prepared clips. Backups retain the original filenames.
+Prepare Batch presets include a destination parent folder, a custom new batch folder name, duration, selection, and naming. Every preset automatically uses the highest numbered immediate `c_` subfolder (for example, `c_59` over `c_58`), preserving your starter clips and including their duration when refilling. The folder is discovered when you run the preset, so it does not need to exist when saving. No Main or create-folder checkbox is needed; target and destination parent may be the same folder. If no `c_` folder exists, a new folder is created automatically: leave the name blank for the next available `batch_1`, `batch_2`, etc., or enter your own name. Occupied custom names receive a numeric suffix. The confirmation shows the exact folder to use or create; if it disappears or becomes occupied after review, the run stops safely instead of switching destinations. Older presets automatically adopt this behavior. **Add random 30m archives** starts a preset with 30 minutes, recursive archive selection, and numbering by tens; choose your folders before saving it. Numbered MP4 selection preserves the existing behavior. AllVideos includes all top-level supported videos; Archives also includes subfolders, excluding Backup, destination folders, and links. All selections are randomized. Preserve, NumberByTens (start/padding/prefix), and Random naming apply only to newly prepared clips. Backups retain the original filenames.
 
 Preset runs validate paths before execution and reverse their moves, renames, staged removals, newly created backups, and batch folders on errors or cancellation. Duplicate removals are staged until the operation completes, then sent to the Recycle Bin with temporary recovery copies retained until all recycling succeeds. Duration tracking is paused during these operations. If another process locks or changes affected paths and prevents rollback, the error reports incomplete recovery and retains recovery files; forced application termination or power loss is outside this in-process rollback guarantee. Manual Always ask operations keep their existing partial-progress behavior.
 

@@ -14,6 +14,7 @@
     <Compile Include="../VideoTrayApp/ClipBatchPreparer.cs" Link="ClipBatchPreparer.cs" />
     <Compile Include="../VideoTrayApp/OperationTransaction.cs" Link="OperationTransaction.cs" />
     <Compile Include="../VideoTrayApp/ActionPresets.cs" Link="ActionPresets.cs" />
+    <Compile Include="../VideoTrayApp/BatchDestinationResolver.cs" Link="BatchDestinationResolver.cs" />
     <Compile Include="../VideoTrayApp/PresetsForm.cs" Link="PresetsForm.cs" />
     <Compile Include="../VideoTrayApp/IOperationProgress.cs" Link="IOperationProgress.cs" />
   </ItemGroup>
