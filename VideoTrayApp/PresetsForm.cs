@@ -75,7 +75,7 @@ internal sealed class PresetsForm : Form
             using var editor = new PresetEditorForm(new ActionPreset
             {
                 Action = action, Target = workingFolder, Name = "Random 30m compilation by archives",
-                DurationMinutes = 30, Selection = BatchSelection.Archives, Naming = BatchNaming.NumberByTens
+                DurationMinutes = 30, Selection = BatchSelection.Archives
             }, workingFolder);
             if (editor.ShowDialog(this) == DialogResult.OK && SaveChange(() => store.Presets.Add(editor.Preset)))
                 RefreshList(editor.Preset.Id);
@@ -215,16 +215,16 @@ internal sealed class PresetEditorForm : Form
             Number("Duration (minutes)", preset.DurationMinutes, 1, 10080, v => preset.DurationMinutes = v);
             Choice("Select clips", preset.Selection, v => preset.Selection = v);
             Add("Selection help", new Label { AutoSize = true, Text = "NumberedMp4: existing batch behavior.\nAllVideos: all top-level videos.\nArchives: videos in target and subfolders, excluding Backup.\nEach mode uses a random order." });
-            Choice("Batch naming", preset.Naming, v => preset.Naming = v);
+            Add("Batch naming", new Label { AutoSize = true, Text = "New clips: 1, 2, 3, ... from shortest to longest.\nExisting filenames stay unchanged; occupied numbers are skipped." });
         }
-        if (preset.Action is PresetAction.PrepareBatch or PresetAction.ShuffleAndName or PresetAction.NameByTens)
+        if (preset.Action is PresetAction.ShuffleAndName or PresetAction.NameByTens)
             Number("Starting number", preset.Start, 0, int.MaxValue, v => preset.Start = v);
-        if (preset.Action is PresetAction.PrepareBatch or PresetAction.ShuffleAndName)
+        if (preset.Action == PresetAction.ShuffleAndName)
         {
             Number("Padding width", preset.Padding, 0, 64, v => preset.Padding = v);
             TextField("Filename prefix", preset.Prefix, v => preset.Prefix = v);
         }
-        if (preset.Action is PresetAction.PrepareBatch or PresetAction.ShuffleRandom)
+        if (preset.Action == PresetAction.ShuffleRandom)
             Number("Random name length", preset.RandomLength, 4, 64, v => preset.RandomLength = v);
         if (preset.Action == PresetAction.IdentifyClip)
         {

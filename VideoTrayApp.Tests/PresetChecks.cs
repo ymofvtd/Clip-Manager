@@ -131,7 +131,7 @@ internal static class PresetChecks
                 CancellationToken.None, candidates: [Path.Combine(batchSource, "20.avi"), Path.Combine(archiveChild, "20.avi")]);
             tx.Commit(CancellationToken.None);
         }
-        Check(File.Exists(Path.Combine(batchDest, "20.avi")) && File.Exists(Path.Combine(batchDest, "20__1.avi"))
+        Check(File.Exists(Path.Combine(batchDest, "1.avi")) && File.Exists(Path.Combine(batchDest, "2.avi"))
             && Directory.GetFiles(Path.Combine(batchSource, "Backup")).Length == 2,
             "Archive batch candidates with colliding filenames are moved and backed up without overwriting");
 

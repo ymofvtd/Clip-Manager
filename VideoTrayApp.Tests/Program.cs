@@ -167,7 +167,7 @@ try
     string batchResult = ClipBatchPreparer.Prepare(batchSource, batchDestination, TimeSpan.FromSeconds(6),
         extensions, batchProgress, CancellationToken.None, ".avi", new PreserveOrderRandom());
     Check(batchResult.Contains("Moved and backed up: 3") && batchResult.Contains("Duplicates sent to Recycle Bin: 2")
-        && Directory.GetFiles(batchDestination).Select(Path.GetFileName).Order().SequenceEqual(["10.avi", "40.avi", "50.avi"]),
+        && Directory.GetFiles(batchDestination).Select(Path.GetFileName).Order().SequenceEqual(["1.avi", "2.avi", "3.avi"]),
         "Batch refills duration freed by duplicates and moves only unique numbered clips");
     Check(File.Exists(Path.Combine(batchSource, "60.avi")) && File.Exists(unnumbered)
         && File.Exists(Path.Combine(batchBackup, "10.avi")) && File.Exists(Path.Combine(batchBackup, "10__1.avi"))
@@ -191,7 +191,7 @@ try
         extensions, refillProgress, CancellationToken.None, ".avi", new PreserveOrderRandom());
     Check(refillScans == 3 && refilled.Contains("Duplicates sent to Recycle Bin: 3")
         && File.Exists(Path.Combine(refillDestination, "a.avi")) && !File.Exists(Path.Combine(refillDestination, "z.avi"))
-        && File.Exists(Path.Combine(refillDestination, "20.avi")) && File.Exists(Path.Combine(refillDestination, "40.avi")),
+        && File.Exists(Path.Combine(refillDestination, "1.avi")) && File.Exists(Path.Combine(refillDestination, "2.avi")),
         "Destination copies take priority and duplicates introduced during refill trigger another cleanup cycle");
 
     string exhaustedSource = Directory.CreateDirectory(Path.Combine(root, "exhausted-source")).FullName;
@@ -275,9 +275,37 @@ try
     var collisionIdentity = ClipIdentifier.ReadIdentity(Path.Combine(collisionDest, "10.avi"), CancellationToken.None);
     string collision = ClipBatchPreparer.Prepare(collisionSource, collisionDest, TimeSpan.FromSeconds(6),
         extensions, progress, CancellationToken.None, ".avi", new PreserveOrderRandom());
-    Check(collision.Contains("Failed to back up or move: 1") && File.Exists(Path.Combine(collisionSource, "10.avi"))
+    Check(collision.Contains("Moved and backed up: 1") && File.Exists(Path.Combine(collisionDest, "1.avi"))
+        && !File.Exists(Path.Combine(collisionSource, "10.avi"))
         && ClipIdentifier.ReadIdentity(Path.Combine(collisionDest, "10.avi"), CancellationToken.None) == collisionIdentity,
-        "A distinct destination filename collision preserves both clips and reports the failed move");
+        "An original filename collision preserves the existing clip and moves the new clip with a numeric name");
+    string orderedSource = Directory.CreateDirectory(Path.Combine(root, "ordered-source")).FullName;
+    string orderedDest = Directory.CreateDirectory(Path.Combine(root, "ordered-destination")).FullName;
+    WriteAvi(Path.Combine(orderedDest, "01.AVI"), 30, 111);
+    WriteAvi(Path.Combine(orderedDest, "starter.avi"), 1, 112);
+    File.WriteAllText(Path.Combine(orderedDest, "2.txt"), "keep notes");
+    Directory.CreateDirectory(Path.Combine(orderedDest, "3.avi"));
+    var existingOrdered = Directory.GetFiles(orderedDest).ToDictionary(path => Path.GetFileName(path)!, File.ReadAllBytes);
+    var orderedCandidates = new List<string>();
+    for (int i = 0; i < 12; i++)
+    {
+        string path = Path.Combine(orderedSource, $"clip-{i}.AVI");
+        WriteAvi(path, (uint)(12 - i), (byte)(120 + i));
+        orderedCandidates.Add(path);
+    }
+    ClipBatchPreparer.Prepare(orderedSource, orderedDest, TimeSpan.FromSeconds(300), extensions,
+        progress, CancellationToken.None, shuffleRandom: new PreserveOrderRandom(), candidates: orderedCandidates);
+    Check(Enumerable.Range(4, 12).All(number =>
+        ClipIdentifier.ReadIdentity(Path.Combine(orderedDest, $"{number}.AVI"), CancellationToken.None).Duration
+            == TimeSpan.FromSeconds(number - 3)),
+        "New clips are numbered numerically from shortest to longest, including numbers above 9 and preserving extensions");
+    Check(existingOrdered.All(item => File.ReadAllBytes(Path.Combine(orderedDest, item.Key)).SequenceEqual(item.Value))
+        && Directory.Exists(Path.Combine(orderedDest, "3.avi")),
+        "Existing numbered and starter clips, notes and folders are untouched; occupied numbers are skipped across extensions and padding");
+    Check(orderedCandidates.All(path => File.Exists(Path.Combine(orderedSource, "Backup", Path.GetFileName(path))))
+        && Directory.GetFiles(orderedSource).Length == 0,
+        "Duration numbering backs up every selected clip under its original filename");
+
     string shuffleSource = Directory.CreateDirectory(Path.Combine(root, "shuffle-source")).FullName;
     string shuffleDest = Directory.CreateDirectory(Path.Combine(root, "shuffle-destination")).FullName;
     string shuffleNested = Directory.CreateDirectory(Path.Combine(shuffleSource, "nested")).FullName;
@@ -307,8 +335,8 @@ try
         extensions, shuffleProgress, CancellationToken.None, ".avi", shuffleRandom);
     Check(shuffleScans == 2 && shuffles == 1 && shuffleRandom.Calls == 3
         && shuffled.Contains("Moved and backed up: 2") && shuffled.Contains("Duplicates sent to Recycle Bin: 1")
-        && Directory.GetFiles(shuffleDest).Select(Path.GetFileName).Order().SequenceEqual(["30.avi", "40.avi", "existing.avi"]),
-        "Batch selection and duplicate refill follow the same shuffled source order, preserving filenames");
+        && Directory.GetFiles(shuffleDest).Select(Path.GetFileName).Order().SequenceEqual(["1.avi", "2.avi", "existing.avi"]),
+        "Batch selection and duplicate refill follow the same shuffled source order before numbering the final batch");
     Check(ClipIdentifier.ReadIdentity(Path.Combine(shuffleSource, "10.avi"), CancellationToken.None) == remainingIdentity
         && File.Exists(Path.Combine(shuffleSource, "unnumbered.avi")) && File.Exists(Path.Combine(shuffleNested, "50.avi"))
         && Directory.GetFiles(Path.Combine(shuffleSource, "Backup")).Select(Path.GetFileName).Order().SequenceEqual(["30.avi", "40.avi"]),

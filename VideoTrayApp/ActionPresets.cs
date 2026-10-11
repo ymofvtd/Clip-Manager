@@ -4,6 +4,7 @@ namespace VideoTrayApp;
 
 internal enum PresetAction { PrepareBatch, ShuffleAndName, NameByTens, ShuffleRandom, Archive, IdentifyClip, RemoveDuplicates }
 internal enum BatchSelection { NumberedMp4, AllVideos, Archives }
+// Retained for loading saved presets; Prepare Batch always numbers clips by duration.
 internal enum BatchNaming { Preserve, NumberByTens, Random }
 internal enum IdentifyBehavior { Move, Recycle }
 
@@ -44,11 +45,11 @@ internal sealed class ActionPreset
         {
             lines.Add("Use the highest numbered c_ folder, or create a new batch if none exists.");
             lines.Add($"New folder name: {(string.IsNullOrWhiteSpace(BatchFolderName) ? "batch_1, batch_2, ... (next available)" : BatchFolderName)}");
-            lines.Add($"Duration: {DurationMinutes} minutes\nSelection: {Selection}\nNaming: {Naming}\nBackup: target's Backup folder");
+            lines.Add($"Duration: {DurationMinutes} minutes\nSelection: {Selection}\nNaming: 1, 2, 3, ... shortest to longest (new clips only; occupied numbers skipped)\nBackup: target's Backup folder");
         }
-        if (Action is PresetAction.ShuffleAndName or PresetAction.NameByTens || Action == PresetAction.PrepareBatch && Naming == BatchNaming.NumberByTens)
+        if (Action is PresetAction.ShuffleAndName or PresetAction.NameByTens)
             lines.Add($"Start: {Start}; padding: {Padding}; prefix: {Prefix}");
-        if (Action == PresetAction.ShuffleRandom || Action == PresetAction.PrepareBatch && Naming == BatchNaming.Random)
+        if (Action == PresetAction.ShuffleRandom)
             lines.Add($"Random name length: {RandomLength}");
         if (Action == PresetAction.Archive) lines.Add("Move all top-level videos, recycle duplicates, shuffle destination filenames.");
         if (Action == PresetAction.IdentifyClip) lines.Add($"Reference: {ReferenceClip}\nMatches: {IdentifyBehavior}; includes subfolders.");

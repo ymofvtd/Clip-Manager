@@ -125,9 +125,7 @@ public partial class Form1
                 var candidates = preset.Selection == BatchSelection.NumberedMp4 ? null
                     : ListPresetBatchCandidates(target, destination, preset.Destination, preset.Selection, ct);
                 return ClipBatchPreparer.Prepare(target, destination, TimeSpan.FromMinutes(preset.DurationMinutes),
-                    DefaultVideoExts, progress, ct, candidates: candidates,
-                    nameBatch: paths => NamePresetBatch(paths, preset, progress, ct),
-                    uniqueDestinationNames: preset.Naming != BatchNaming.Preserve);
+                    DefaultVideoExts, progress, ct, candidates: candidates);
         }
         return $"{ActionPreset.Label(preset.Action)} completed.";
     }
@@ -169,27 +167,4 @@ public partial class Form1
         return files;
     }
 
-    private static void NamePresetBatch(IReadOnlyList<string> paths, ActionPreset preset, IOperationProgress progress, CancellationToken ct)
-    {
-        if (preset.Naming == BatchNaming.Preserve) return;
-        var staged = new List<(string Temporary, string Extension)>();
-        foreach (string path in paths)
-        {
-            ct.ThrowIfCancellationRequested();
-            string temporary = Path.Combine(Path.GetDirectoryName(path)!, ".preset_" + Guid.NewGuid().ToString("N") + ".pending");
-            OperationTransaction.Move(path, temporary);
-            staged.Add((temporary, Path.GetExtension(path)));
-        }
-        long sequence = preset.Start;
-        foreach (var item in staged)
-        {
-            ct.ThrowIfCancellationRequested();
-            string name = preset.Naming == BatchNaming.Random ? GenId(Random.Shared, preset.RandomLength)
-                : preset.Prefix + sequence.ToString().PadLeft(preset.Padding, '0');
-            string final = EnsureUniquePath(Path.Combine(Path.GetDirectoryName(item.Temporary)!, name + item.Extension));
-            OperationTransaction.Move(item.Temporary, final);
-            sequence += 10;
-            progress.SetIndeterminate($"Naming batch clip: {Path.GetFileName(final)}");
-        }
-    }
 }
