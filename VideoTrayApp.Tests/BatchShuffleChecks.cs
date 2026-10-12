@@ -40,6 +40,23 @@ internal static class BatchShuffleChecks
             "Backup trees stay excluded, nested clips are included, and staging leaves no temporary files");
         AssertLimits(root, TimeSpan.FromSeconds(30));
 
+        string orderedRoot = Directory.CreateDirectory(Path.Combine(parent, "batch-shuffle-duration-order")).FullName;
+        var originalClips = new List<string>();
+        for (int i = 0; i < 14; i++)
+        {
+            string path = Path.Combine(orderedRoot, $"clip-{i:D2}" + (i % 2 == 0 ? ".AVI" : ".avi"));
+            writeVideo(path, i < 12 ? (uint)(12 - i) : 6, (byte)(170 + i));
+            originalClips.Add(path);
+        }
+        int[] expectedOrder = [11, 10, 9, 8, 7, 6, 12, 13, 5, 4, 3, 2, 1, 0];
+        var expectedFiles = expectedOrder.Select(i => (Hash: Hash(originalClips[i]), Extension: Path.GetExtension(originalClips[i]))).ToArray();
+        ClipBatchShuffler.Run(orderedRoot, TimeSpan.FromMinutes(30), Extensions,
+            new TestProgress(), CancellationToken.None, new PreserveOrderRandom());
+        string orderedFolder = Path.Combine(orderedRoot, "batch_0001");
+        Check(expectedFiles.Select((file, i) => (File: file, Path: Path.Combine(orderedFolder, $"{i + 1:D4}" + file.Extension)))
+            .All(item => File.Exists(item.Path) && Hash(item.Path) == item.File.Hash),
+            "Batch filenames number shortest to longest past 9, preserve extensions and retain selected order for equal durations");
+
         writeVideo(Path.Combine(root, "new-loose.avi"), 9, 7);
         var allContent = Contents(root);
         var beforePaths = Snapshot(root);
@@ -119,10 +136,12 @@ internal static class BatchShuffleChecks
     private static void AssertLimits(string root, TimeSpan limit)
     {
         bool valid = true;
+        bool ordered = true;
         foreach (string folder in Directory.GetDirectories(root))
         {
             if (Path.GetFileName(folder) == "Backup") continue;
-            var durations = Directory.GetFiles(folder, "*.avi").Select(path =>
+            var durations = Directory.GetFiles(folder, "*.avi")
+                .OrderBy(path => int.Parse(Path.GetFileNameWithoutExtension(path))).Select(path =>
             {
                 using var video = TagLib.File.Create(path);
                 return video.Properties.Duration;
@@ -130,8 +149,10 @@ internal static class BatchShuffleChecks
             if (durations.Length == 0) continue;
             valid &= durations.Sum(d => d.TotalSeconds) <= limit.TotalSeconds
                 || durations.Length == 1 && durations[0] > limit;
+            ordered &= durations.Zip(durations.Skip(1), (first, second) => first <= second).All(value => value);
         }
         Check(valid, "Every batch meets the duration limit or contains one oversized clip");
+        Check(ordered, "Every batch is numbered from shortest to longest after random selection");
     }
     private static void Check(bool condition, string description)
     {

@@ -4,7 +4,7 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-2.1.9
+2.1.10
 
 The window title displays the installed version. Clicking **X** hides the window to the tray on the first click; use the tray menu's **Exit** to quit.
 
@@ -36,7 +36,7 @@ After removing duplicates, the batch is refilled from the same shuffled order an
 
 Click **Shuffle Batches** in the main window or tray menu, choose your archive root, and set the maximum batch duration (30 minutes by default). Review the settings, then run it. Every run pools all supported videos from the root and its subfolders, including every existing batch and any newly added loose clips. `Backup` folders and symbolic links/junctions are excluded.
 
-All clips are randomized together, then packed into batches within the duration limit. Whole clips are kept intact; a clip longer than the limit gets its own folder, and some batches can be shorter. Existing immediate folders containing archive clips (and empty `batch_` folders) are reused in alphabetical order. New `batch_0001`, `batch_0002`, etc. folders are created when needed, skipping occupied names. Nested clips are placed directly into the batch folders. Unused folders and non-video files are kept. Clips receive padded numeric filenames in shuffled order, preserving their extensions and avoiding existing files and folders.
+All clips are randomized together, then packed into batches within the duration limit. Whole clips are kept intact; a clip longer than the limit gets its own folder, and some batches can be shorter. Existing immediate folders containing archive clips (and empty `batch_` folders) are reused in alphabetical order. New `batch_0001`, `batch_0002`, etc. folders are created when needed, skipping occupied names. Nested clips are placed directly into the batch folders. Unused folders and non-video files are kept. Within each batch, clips receive padded numeric filenames (`0001`, `0002`, ...) from shortest to longest, preserving their extensions and avoiding existing files and folders. Equal-duration clips retain their shuffled order. Sorting uses the durations already read during the scan.
 
 This action moves and renames clips only: it does not remove duplicates, recycle clips, or create backups. It reads each duration once, without hashing or copying video content. Cancellation or errors reverse the moves and newly created folders; if another process prevents recovery, the error reports the problem and retains the affected files. Forced termination or power loss is outside this in-process rollback guarantee. Run it again after finishing the batches to remix the whole archive. **Presets** can save the archive root and duration, including a default or right-click selection.
 

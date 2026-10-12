@@ -221,7 +221,7 @@ internal sealed class PresetEditorForm : Form
         if (preset.Action == PresetAction.ShuffleBatches)
         {
             Number("Batch limit (minutes)", preset.DurationMinutes, 1, 10080, v => preset.DurationMinutes = v);
-            Add("Shuffle Batches", new Label { AutoSize = true, Text = "Mix videos from all target subfolders and loose root clips.\nExclude Backup and links. Reuse folders and add batches as needed.\nClips longer than the limit get their own folders.\nNo backups or duplicate deletion; random numbered filenames." });
+            Add("Shuffle Batches", new Label { AutoSize = true, Text = "Mix videos from all target subfolders and loose root clips.\nExclude Backup and links. Reuse folders and add batches as needed.\nClips longer than the limit get their own folders.\nNumber clips from shortest to longest within each batch.\nNo backups or duplicate deletion." });
         }
         if (preset.Action is PresetAction.ShuffleAndName or PresetAction.NameByTens)
             Number("Starting number", preset.Start, 0, int.MaxValue, v => preset.Start = v);

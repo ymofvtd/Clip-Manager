@@ -102,7 +102,9 @@ internal static class ClipBatchShuffler
             {
                 string folder = destinations[i];
                 int sequence = 1;
-                foreach (var clip in batches[i].Clips)
+                // Sort within the randomly selected batch using the durations already read.
+                // OrderBy is stable, so equal durations retain their shuffled order.
+                foreach (var clip in batches[i].Clips.OrderBy(clip => clip.Duration))
                 {
                     progress.Report(clips.Count + moved, clips.Count * 2, $"Filling batch {i + 1}/{batches.Count}: clip {moved + 1}/{clips.Count}...");
                     ct.ThrowIfCancellationRequested();

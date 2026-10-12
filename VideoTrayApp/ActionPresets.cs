@@ -56,7 +56,7 @@ internal sealed class ActionPreset
         if (Action == PresetAction.IdentifyClip) lines.Add($"Reference: {ReferenceClip}\nMatches: {IdentifyBehavior}; includes subfolders.");
         if (Action == PresetAction.RemoveDuplicates) lines.Add("Includes subfolders. Keep first copy alphabetically; recycle exact duplicates.");
         if (Action == PresetAction.ShuffleBatches)
-            lines.Add($"Mix all archive folders and loose root clips into batches up to {DurationMinutes} minutes.\nIncludes subfolders; excludes Backup and links.\nLonger clips get their own folders. Existing folders reused; new batch folders added as needed.\nRandom numbered filenames. No backups or duplicate deletion; cancellation restores original layout.");
+            lines.Add($"Mix all archive folders and loose root clips into batches up to {DurationMinutes} minutes.\nIncludes subfolders; excludes Backup and links.\nLonger clips get their own folders. Existing folders reused; new batch folders added as needed.\nNumbered filenames from shortest to longest within each batch. No backups or duplicate deletion; cancellation restores original layout.");
         return string.Join(Environment.NewLine, lines);
     }
 
