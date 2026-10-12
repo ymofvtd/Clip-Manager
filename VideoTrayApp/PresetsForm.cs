@@ -66,7 +66,8 @@ internal sealed class PresetsForm : Form
         }
         add.Click += (_, _) =>
         {
-            using var editor = new PresetEditorForm(new ActionPreset { Action = action, Target = workingFolder }, workingFolder);
+            using var editor = new PresetEditorForm(new ActionPreset { Action = action, Target = workingFolder,
+                DurationMinutes = action == PresetAction.ShuffleBatches ? 30 : 20 }, workingFolder);
             if (editor.ShowDialog(this) == DialogResult.OK && SaveChange(() => store.Presets.Add(editor.Preset)))
                 RefreshList(editor.Preset.Id);
         };
@@ -216,6 +217,11 @@ internal sealed class PresetEditorForm : Form
             Choice("Select clips", preset.Selection, v => preset.Selection = v);
             Add("Selection help", new Label { AutoSize = true, Text = "NumberedMp4: existing batch behavior.\nAllVideos: all top-level videos.\nArchives: videos in target and subfolders, excluding Backup.\nEach mode uses a random order." });
             Add("Batch naming", new Label { AutoSize = true, Text = "New clips: 1, 2, 3, ... from shortest to longest.\nExisting filenames stay unchanged; occupied numbers are skipped." });
+        }
+        if (preset.Action == PresetAction.ShuffleBatches)
+        {
+            Number("Batch limit (minutes)", preset.DurationMinutes, 1, 10080, v => preset.DurationMinutes = v);
+            Add("Shuffle Batches", new Label { AutoSize = true, Text = "Mix videos from all target subfolders and loose root clips.\nExclude Backup and links. Reuse folders and add batches as needed.\nClips longer than the limit get their own folders.\nNo backups or duplicate deletion; random numbered filenames." });
         }
         if (preset.Action is PresetAction.ShuffleAndName or PresetAction.NameByTens)
             Number("Starting number", preset.Start, 0, int.MaxValue, v => preset.Start = v);

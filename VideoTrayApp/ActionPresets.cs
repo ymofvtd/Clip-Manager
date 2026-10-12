@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace VideoTrayApp;
 
-internal enum PresetAction { PrepareBatch, ShuffleAndName, NameByTens, ShuffleRandom, Archive, IdentifyClip, RemoveDuplicates }
+internal enum PresetAction { PrepareBatch, ShuffleAndName, NameByTens, ShuffleRandom, Archive, IdentifyClip, RemoveDuplicates, ShuffleBatches }
 internal enum BatchSelection { NumberedMp4, AllVideos, Archives }
 // Retained for loading saved presets; Prepare Batch always numbers clips by duration.
 internal enum BatchNaming { Preserve, NumberByTens, Random }
@@ -33,7 +33,8 @@ internal sealed class ActionPreset
     {
         PresetAction.PrepareBatch => "Prepare Batch", PresetAction.ShuffleAndName => "Shuffle & Name",
         PresetAction.NameByTens => "Name by 10s", PresetAction.ShuffleRandom => "Shuffle Random",
-        PresetAction.IdentifyClip => "Identify clip", PresetAction.RemoveDuplicates => "Remove duplicates", _ => "Archive"
+        PresetAction.IdentifyClip => "Identify clip", PresetAction.RemoveDuplicates => "Remove duplicates",
+        PresetAction.ShuffleBatches => "Shuffle Batches", _ => "Archive"
     };
 
     internal string Summary(string workingFolder)
@@ -54,6 +55,8 @@ internal sealed class ActionPreset
         if (Action == PresetAction.Archive) lines.Add("Move all top-level videos, recycle duplicates, shuffle destination filenames.");
         if (Action == PresetAction.IdentifyClip) lines.Add($"Reference: {ReferenceClip}\nMatches: {IdentifyBehavior}; includes subfolders.");
         if (Action == PresetAction.RemoveDuplicates) lines.Add("Includes subfolders. Keep first copy alphabetically; recycle exact duplicates.");
+        if (Action == PresetAction.ShuffleBatches)
+            lines.Add($"Mix all archive folders and loose root clips into batches up to {DurationMinutes} minutes.\nIncludes subfolders; excludes Backup and links.\nLonger clips get their own folders. Existing folders reused; new batch folders added as needed.\nRandom numbered filenames. No backups or duplicate deletion; cancellation restores original layout.");
         return string.Join(Environment.NewLine, lines);
     }
 

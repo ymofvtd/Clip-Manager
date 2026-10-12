@@ -7,6 +7,7 @@ public partial class Form1
     private void SetupActionPresetMenus()
     {
         AttachPresetMenu(btnPrepare, PresetAction.PrepareBatch);
+        AttachPresetMenu(btnShuffleBatches, PresetAction.ShuffleBatches);
         AttachPresetMenu(btnShuffleAndName, PresetAction.ShuffleAndName);
         AttachPresetMenu(btnNameTenSteps, PresetAction.NameByTens);
         AttachPresetMenu(btnShuffleRandom, PresetAction.ShuffleRandom);
@@ -157,6 +158,8 @@ public partial class Form1
     {
         switch (preset.Action)
         {
+            case PresetAction.ShuffleBatches:
+                return ClipBatchShuffler.Run(target, TimeSpan.FromMinutes(preset.DurationMinutes), DefaultVideoExts, progress, ct);
             case PresetAction.ShuffleAndName:
                 ShuffleAndNameStepTen(target, preset.Start, preset.Padding, preset.Prefix, progress, ct);
                 break;

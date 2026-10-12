@@ -12,6 +12,7 @@
     <Compile Include="../VideoTrayApp/ClipDuplicateCleaner.cs" Link="ClipDuplicateCleaner.cs" />
     <Compile Include="../VideoTrayApp/ClipArchiver.cs" Link="ClipArchiver.cs" />
     <Compile Include="../VideoTrayApp/ClipBatchPreparer.cs" Link="ClipBatchPreparer.cs" />
+    <Compile Include="../VideoTrayApp/ClipBatchShuffler.cs" Link="ClipBatchShuffler.cs" />
     <Compile Include="../VideoTrayApp/OperationTransaction.cs" Link="OperationTransaction.cs" />
     <Compile Include="../VideoTrayApp/ActionPresets.cs" Link="ActionPresets.cs" />
     <Compile Include="../VideoTrayApp/BatchDestinationResolver.cs" Link="BatchDestinationResolver.cs" />

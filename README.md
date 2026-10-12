@@ -4,7 +4,7 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-2.1.8
+2.1.9
 
 The window title displays the installed version. Clicking **X** hides the window to the tray on the first click; use the tray menu's **Exit** to quit.
 
@@ -32,6 +32,16 @@ Select the source, destination and desired duration. Prepare Batch shuffles the 
 
 After removing duplicates, the batch is refilled from the same shuffled order and checked again until no duplicates remain. Only then are the final clips backed up to the source's `Backup` folder and moved to the destination with numeric filenames (`1`, `2`, `3`, ...) from shortest to longest. Existing destination files are not renamed, occupied numbers are skipped (across extensions), and video extensions are preserved. Backups retain the original filenames. Equal-duration clips keep their selected order. Backups, source subfolders and unselected source clips are excluded from cleanup. The last clip may take the batch past the requested duration, as before. Scan or cleanup errors stop preparation before backup and moving; cancellation stops further work. The source and its Backup folder cannot be used as the destination.
 
+## Shuffle Batches
+
+Click **Shuffle Batches** in the main window or tray menu, choose your archive root, and set the maximum batch duration (30 minutes by default). Review the settings, then run it. Every run pools all supported videos from the root and its subfolders, including every existing batch and any newly added loose clips. `Backup` folders and symbolic links/junctions are excluded.
+
+All clips are randomized together, then packed into batches within the duration limit. Whole clips are kept intact; a clip longer than the limit gets its own folder, and some batches can be shorter. Existing immediate folders containing archive clips (and empty `batch_` folders) are reused in alphabetical order. New `batch_0001`, `batch_0002`, etc. folders are created when needed, skipping occupied names. Nested clips are placed directly into the batch folders. Unused folders and non-video files are kept. Clips receive padded numeric filenames in shuffled order, preserving their extensions and avoiding existing files and folders.
+
+This action moves and renames clips only: it does not remove duplicates, recycle clips, or create backups. It reads each duration once, without hashing or copying video content. Cancellation or errors reverse the moves and newly created folders; if another process prevents recovery, the error reports the problem and retains the affected files. Forced termination or power loss is outside this in-process rollback guarantee. Run it again after finishing the batches to remix the whole archive. **Presets** can save the archive root and duration, including a default or right-click selection.
+
+Duration tracking is paused during reshuffling and refreshed afterward. It replaces only duration marker files named like `90M30S.txt`, preserving other `.txt` files.
+
 ## Presets
 
 Click **Presets** to manage saved settings in a tab for each clip action. **Always ask (Current)** is the initial default and keeps the existing prompts. Use **Add preset**, **Edit**, **Delete**, and **Set as default**; choosing Always ask restores manual prompts. Deleting a default preset also restores Always ask. Settings are saved in `%APPDATA%/ClipsManager/presets.json`.
@@ -56,7 +66,7 @@ dotnet publish VideoTrayApp/VideoTrayApp.csproj -c Release
 The portable single-file executable will be here:
 
 ```
-VideoTrayApp/bin/Release/net10.0-windows/win-x64/publish/VideoTrayApp.exe
+VideoTrayApp/bin/Release/net10.0-windows/win-x64/publish/ClipsManager.exe
 ```
 
 This `.exe` is self-contained (includes the .NET runtime). You can copy it anywhere and run it without installing anything else.

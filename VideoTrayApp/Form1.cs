@@ -167,6 +167,7 @@ namespace VideoTrayApp
             // Right-click menu for the icon
             var menu = new ContextMenuStrip();
             menu.Items.Add("Archive", null, async (s, e) => await RunArchiveAsync());
+            menu.Items.Add("Shuffle Batches", null, async (s, e) => await RunShuffleBatchesAsync());
             menu.Items.Add("Identify clip", null, async (s, e) => await RunIdentifyClipAsync());
             menu.Items.Add("Remove duplicates", null, async (s, e) => await RunRemoveDuplicatesAsync());
             menu.Items.Add("Set Watch Folder", null, SetFolderPath);
@@ -335,12 +336,13 @@ namespace VideoTrayApp
         }
 
         /// <summary>
-        /// Replaces any *.txt markers in the folder with a duration filename, or clears them when empty.
+        /// Replaces duration markers in the folder, or clears them when empty.
         /// </summary>
         private static void WriteDurationMarker(DirectoryInfo dir, TimeSpan total)
         {
             foreach (var txtFile in dir.GetFiles("*.txt"))
             {
+                if (!Regex.IsMatch(txtFile.Name, @"^\d+M\d+S\.txt$", RegexOptions.IgnoreCase)) continue;
                 try
                 {
                     txtFile.Delete();
@@ -486,6 +488,7 @@ namespace VideoTrayApp
             btnShuffleAndName.Enabled = enabled;
             btnNameTenSteps.Enabled = enabled;
             btnPrepare.Enabled = enabled;
+            btnShuffleBatches.Enabled = enabled;
             btnShuffleRandom.Enabled = enabled;
             btnArchive.Enabled = enabled;
             btnIdentifyClip.Enabled = enabled;

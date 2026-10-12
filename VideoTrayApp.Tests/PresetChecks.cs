@@ -258,7 +258,7 @@ internal static class PresetChecks
                 var store = new PresetStore { Presets = [preset.Clone()], Defaults = new() { [preset.Action] = preset.Id } };
                 using var manager = new PresetsForm(store, config, workingFolder);
                 var tabs = manager.Controls.OfType<TabControl>().Single();
-                Check(tabs.TabPages.Count == 7, "Preset manager opens a tab for each clip action");
+                Check(tabs.TabPages.Count == Enum.GetValues<PresetAction>().Length, "Preset manager opens a tab for each clip action");
                 var page = tabs.TabPages[0];
                 var list = Descendants(page).OfType<ListBox>().Single();
                 list.SelectedIndex = 1;

@@ -34,6 +34,7 @@ namespace VideoTrayApp
             var pnlActions = new Panel();
             var lblFolderLabel = new Label();
             btnPrepare = new Button();
+            btnShuffleBatches = new Button();
             btnShuffleAndName = new Button();
             btnNameTenSteps = new Button();
             btnShuffleRandom = new Button();
@@ -224,6 +225,19 @@ namespace VideoTrayApp
             pnlActions.Controls.Add(btnIdentifyClip);
             pnlActions.Controls.Add(btnRemoveDuplicates);
             pnlActions.Controls.Add(btnArchive);
+            btnShuffleBatches.Text = "Shuffle Batches";
+            btnShuffleBatches.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnShuffleBatches.BackColor = Color.FromArgb(70, 110, 160);
+            btnShuffleBatches.ForeColor = Color.White;
+            btnShuffleBatches.Size = new Size(150, 34);
+            btnShuffleBatches.Location = new Point(340, 108);
+            btnShuffleBatches.TabIndex = 10;
+            btnShuffleBatches.FlatStyle = FlatStyle.Flat;
+            btnShuffleBatches.FlatAppearance.BorderSize = 0;
+            btnShuffleBatches.Cursor = Cursors.Hand;
+            btnShuffleBatches.Click += async (s, e) => await RunShuffleBatchesAsync();
+            toolTips.SetToolTip(btnShuffleBatches, "Mix all archive clips, including loose root videos, into batches up to 30 minutes. No backups or duplicate deletion. Right-click for presets.");
+            pnlActions.Controls.Add(btnShuffleBatches);
             btnPresets.Text = "Presets";
             btnPresets.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnPresets.BackColor = Color.FromArgb(80, 80, 85);
@@ -261,6 +275,7 @@ namespace VideoTrayApp
         #endregion
 
         private Button btnPrepare;
+        private Button btnShuffleBatches;
         private Button btnShuffleAndName;
         private Button btnNameTenSteps;
         private Button btnShuffleRandom;
