@@ -114,42 +114,35 @@ public partial class Form1
         if (MessageBox.Show(this, prompt + "\n\n" + review,
             ActionPreset.Label(action), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
-        bool watching = watcher?.EnableRaisingEvents == true;
-        if (watcher is not null) watcher.EnableRaisingEvents = false;
-        debounceTimer?.Stop();
+        durationTracker.Pause();
         try
         {
             await RunWithProgressAsync(ActionPreset.Label(action), (progress, ct) =>
             {
-                // Finish any duration update already in flight before moving files.
-                lock (durationUpdateLock)
+                using var transaction = new OperationTransaction();
+                try
                 {
-                    using var transaction = new OperationTransaction();
-                    try
+                    preset.Validate(target); // Recheck immediately before execution.
+                    string summary = ExecutePreset(preset, target, progress, ct, batchDestination);
+                    transaction.Commit(ct);
+                    return Task.FromResult<string?>(summary);
+                }
+                catch (Exception ex)
+                {
+                    try { transaction.Rollback(); }
+                    catch (Exception rollbackError)
                     {
-                        preset.Validate(target); // Recheck immediately before execution.
-                        string summary = ExecutePreset(preset, target, progress, ct, batchDestination);
-                        transaction.Commit(ct);
-                        return Task.FromResult<string?>(summary);
+                        throw new IOException($"{ex.Message}\n\nRollback needs attention:\n{rollbackError.Message}", ex);
                     }
-                    catch (Exception ex)
-                    {
-                        try { transaction.Rollback(); }
-                        catch (Exception rollbackError)
-                        {
-                            throw new IOException($"{ex.Message}\n\nRollback needs attention:\n{rollbackError.Message}", ex);
-                        }
-                        if (ex is OperationCanceledException)
-                            throw new OperationCanceledException("Operation cancelled. All changes from this preset run were reversed.", ex, ct);
-                        throw new IOException($"{ex.Message}\n\nAll changes from this preset run were reversed.", ex);
-                    }
+                    if (ex is OperationCanceledException)
+                        throw new OperationCanceledException("Operation cancelled. All changes from this preset run were reversed.", ex, ct);
+                    throw new IOException($"{ex.Message}\n\nAll changes from this preset run were reversed.", ex);
                 }
             }, showSuccessMessage: true);
         }
         finally
         {
-            if (watcher is not null) watcher.EnableRaisingEvents = watching;
-            if (watching) ScheduleUpdate();
+            durationTracker.Resume();
         }
     }
 

@@ -18,5 +18,9 @@
     <Compile Include="../VideoTrayApp/BatchDestinationResolver.cs" Link="BatchDestinationResolver.cs" />
     <Compile Include="../VideoTrayApp/PresetsForm.cs" Link="PresetsForm.cs" />
     <Compile Include="../VideoTrayApp/IOperationProgress.cs" Link="IOperationProgress.cs" />
+    <Compile Include="../VideoTrayApp/WatchFolderSettings.cs" Link="WatchFolderSettings.cs" />
+    <Compile Include="../VideoTrayApp/FolderDurationTracker.cs" Link="FolderDurationTracker.cs" />
+    <Compile Include="../VideoTrayApp/SettingsForm.cs" Link="SettingsForm.cs" />
+    <Compile Include="../VideoTrayApp/SettingsForm.Designer.cs" Link="SettingsForm.Designer.cs" />
   </ItemGroup>
 </Project>

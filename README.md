@@ -4,9 +4,17 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-2.1.10
+2.1.11
 
 The window title displays the installed version. Clicking **X** hides the window to the tray on the first click; use the tray menu's **Exit** to quit.
+
+## Watch multiple folders
+
+Click **Watch Folders...** in the main window or tray menu. Use **Add folder...** for each folder you want to track, select a folder and click **Remove** to stop tracking it, then **Save**. Removing all folders disables tracking. The working folder for naming/shuffle actions is configured separately.
+
+Each watched folder and its immediate subfolders gets its own total-duration marker, such as `90M30S.txt`, based on the videos directly inside that folder. Totals refresh automatically when clips are added, modified, renamed, moved or deleted. Empty folders have their duration markers cleared; other text files are preserved. Overlapping watched folders are supported. Tracking pauses for preset operations and Shuffle Batches, then refreshes every watched folder afterward.
+
+The list is saved in `%APPDATA%/ClipsManager/watch_folders.json` and restored on restart. Your existing single-folder setting is migrated automatically. Unavailable folders stay in the saved list and are retried when you save the list, restart the app, or finish a preset operation.
 
 ## Archive
 
@@ -140,7 +148,7 @@ dotnet build
 dotnet run --project VideoTrayApp
 ```
 
-Run the Identify clip integration checks (uses disposable generated clips):
+Run the clip operations, folder tracking and settings integration checks (uses disposable generated clips):
 
 ```powershell
 dotnet run --project VideoTrayApp.Tests -c Release

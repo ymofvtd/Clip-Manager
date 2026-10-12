@@ -1,69 +1,47 @@
-namespace VideoTrayApp
+namespace VideoTrayApp;
+
+public partial class SettingsForm : Form
 {
-    public partial class SettingsForm : Form
+    public IReadOnlyList<string> SelectedFolderPaths { get; private set; }
+
+    public SettingsForm(IEnumerable<string> currentFolderPaths)
     {
-        public string SelectedFolderPath { get; private set; }
+        InitializeComponent();
+        SelectedFolderPaths = WatchFolderSettings.Normalize(currentFolderPaths);
+        foreach (string path in SelectedFolderPaths) lstFolders.Items.Add(path);
+        UpdateRemoveButton();
+    }
 
-        public SettingsForm(string currentFolderPath)
+    private void btnAdd_Click(object? sender, EventArgs e)
+    {
+        using var dialog = new FolderBrowserDialog
         {
-            InitializeComponent();
-            SelectedFolderPath = currentFolderPath;
-            txtFolderPath.Text = currentFolderPath;
-        }
+            Description = "Add a folder to watch for clip durations",
+            SelectedPath = lstFolders.SelectedItem as string ?? string.Empty
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        string path = WatchFolderSettings.Normalize([dialog.SelectedPath])[0];
+        int existingIndex = lstFolders.Items.Cast<string>().ToList()
+            .FindIndex(item => item.Equals(path, StringComparison.OrdinalIgnoreCase));
+        lstFolders.SelectedIndex = existingIndex >= 0 ? existingIndex : lstFolders.Items.Add(path);
+    }
 
-        private void btnBrowse_Click(object sender, EventArgs e)
-        {
-            using var dlg = new FolderBrowserDialog
-            {
-                Description = "Select the folder to monitor for video files"
-            };
+    private void btnRemove_Click(object? sender, EventArgs e)
+    {
+        int index = lstFolders.SelectedIndex;
+        if (index < 0) return;
+        lstFolders.Items.RemoveAt(index);
+        if (lstFolders.Items.Count > 0) lstFolders.SelectedIndex = Math.Min(index, lstFolders.Items.Count - 1);
+        UpdateRemoveButton();
+    }
 
-            if (!string.IsNullOrEmpty(txtFolderPath.Text) && Directory.Exists(txtFolderPath.Text))
-            {
-                dlg.SelectedPath = txtFolderPath.Text;
-            }
+    private void UpdateRemoveButton() => btnRemove.Enabled = lstFolders.SelectedIndex >= 0;
 
-            if (dlg.ShowDialog() == DialogResult.OK)
-            {
-                txtFolderPath.Text = dlg.SelectedPath;
-            }
-        }
-
-        private void btnSave_Click(object sender, EventArgs e)
-        {
-            string folderPath = txtFolderPath.Text.Trim();
-
-            if (string.IsNullOrEmpty(folderPath))
-            {
-                MessageBox.Show(
-                    "Please enter a folder path or select one using the Browse button.",
-                    "Invalid Path",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning
-                );
-                return;
-            }
-
-            if (!Directory.Exists(folderPath))
-            {
-                MessageBox.Show(
-                    $"The folder does not exist:\n{folderPath}",
-                    "Folder Not Found",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
-                return;
-            }
-
-            SelectedFolderPath = folderPath;
-            this.DialogResult = DialogResult.OK;
-            this.Close();
-        }
-
-        private void btnCancel_Click(object sender, EventArgs e)
-        {
-            this.DialogResult = DialogResult.Cancel;
-            this.Close();
-        }
+    private void btnSave_Click(object? sender, EventArgs e)
+    {
+        // Keep unavailable saved roots: disconnected drives must not silently lose their settings.
+        SelectedFolderPaths = WatchFolderSettings.Normalize(lstFolders.Items.Cast<string>());
+        DialogResult = DialogResult.OK;
+        Close();
     }
 }

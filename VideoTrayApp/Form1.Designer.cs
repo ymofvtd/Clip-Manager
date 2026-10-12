@@ -13,6 +13,11 @@ namespace VideoTrayApp
         /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
         protected override void Dispose(bool disposing)
         {
+            if (disposing)
+            {
+                durationTracker.Dispose();
+                trayIcon?.Dispose();
+            }
             if (disposing && (components != null))
             {
                 components.Dispose();
@@ -40,6 +45,8 @@ namespace VideoTrayApp
             btnShuffleRandom = new Button();
             btnArchive = new Button();
             btnPresets = new Button();
+            btnWatchFolders = new Button();
+            lblWatchFolders = new Label();
             btnIdentifyClip = new Button();
             btnRemoveDuplicates = new Button();
             btnBrowseFolder = new Button();
@@ -63,9 +70,9 @@ namespace VideoTrayApp
             lblFolderLabel.ForeColor = Color.FromArgb(150, 150, 150);
             lblFolderLabel.Location = new Point(20, 12);
             lblFolderLabel.AutoSize = true;
-            toolTips.SetToolTip(lblFolderLabel, "Used by rename and shuffle actions. Archive prompts for its own source and destination. Watch folder for duration .txt files is set separately via tray menu → Set Folder.");
-            toolTips.SetToolTip(txtSelectedFolder, "Working folder for naming operations. Duration tracking uses tray menu → Set Folder.");
-            toolTips.SetToolTip(btnBrowseFolder, "Choose working folder for naming/shuffle. Duration watch folder is tray → Set Folder.");
+            toolTips.SetToolTip(lblFolderLabel, "Used by rename and shuffle actions. Choose duration tracking folders with Watch Folders.");
+            toolTips.SetToolTip(txtSelectedFolder, "Working folder for naming operations. Duration tracking uses Watch Folders.");
+            toolTips.SetToolTip(btnBrowseFolder, "Choose working folder for naming/shuffle. Choose duration tracking folders with Watch Folders.");
 
             txtSelectedFolder.Font = new Font("Segoe UI", 10F);
             txtSelectedFolder.BackColor = Color.FromArgb(30, 30, 30);
@@ -250,6 +257,23 @@ namespace VideoTrayApp
             btnPresets.Location = new Point(180, 108);
             btnPresets.Click += btnPresets_Click;
             pnlActions.Controls.Add(btnPresets);
+            btnWatchFolders.Text = "Watch Folders...";
+            btnWatchFolders.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnWatchFolders.BackColor = Color.FromArgb(80, 80, 85);
+            btnWatchFolders.ForeColor = Color.White;
+            btnWatchFolders.FlatStyle = FlatStyle.Flat;
+            btnWatchFolders.Cursor = Cursors.Hand;
+            btnWatchFolders.TabIndex = 11;
+            btnWatchFolders.Size = new Size(150, 34);
+            btnWatchFolders.Location = new Point(20, 152);
+            btnWatchFolders.Click += SetFolderPath;
+            toolTips.SetToolTip(btnWatchFolders, "Add or remove folders to track clip durations automatically.");
+            pnlActions.Controls.Add(btnWatchFolders);
+            lblWatchFolders.Text = "Duration tracking: 0 folder(s)";
+            lblWatchFolders.ForeColor = Color.FromArgb(150, 150, 150);
+            lblWatchFolders.Location = new Point(180, 160);
+            lblWatchFolders.AutoSize = true;
+            pnlActions.Controls.Add(lblWatchFolders);
 
             // Main Content Panel
             pnlContent.BackColor = Color.FromArgb(45, 45, 48);
@@ -281,6 +305,8 @@ namespace VideoTrayApp
         private Button btnShuffleRandom;
         private Button btnArchive;
         private Button btnPresets;
+        private Button btnWatchFolders;
+        private Label lblWatchFolders;
         private Button btnIdentifyClip;
         private Button btnRemoveDuplicates;
         private Button btnBrowseFolder;
