@@ -33,6 +33,7 @@ namespace VideoTrayApp
         public Form1()
         {
             InitializeComponent();
+            SetupActionPresetMenus();
             Text = $"Clips Manager v{FormatVersion(AppUpdater.CurrentVersion)}";
             watchFolderPath = LoadWatchFolderFromConfig();
             workingFolderPath = LoadWorkingFolderFromConfig();

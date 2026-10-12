@@ -4,7 +4,7 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-2.1.7
+2.1.8
 
 The window title displays the installed version. Clicking **X** hides the window to the tray on the first click; use the tray menu's **Exit** to quit.
 
@@ -37,6 +37,8 @@ After removing duplicates, the batch is refilled from the same shuffled order an
 Click **Presets** to manage saved settings in a tab for each clip action. **Always ask (Current)** is the initial default and keeps the existing prompts. Use **Add preset**, **Edit**, **Delete**, and **Set as default**; choosing Always ask restores manual prompts. Deleting a default preset also restores Always ask. Settings are saved in `%APPDATA%/ClipsManager/presets.json`.
 
 Saved presets can use the current working folder or a fixed target. Clicking an action with a saved default shows its settings and asks **Review the default preset settings, proceed?** Once confirmed, it runs without further configuration dialogs, including the saved move/recycle choice for Identify clip and duplicate cleanup for Remove duplicates. Declining makes no changes.
+
+Right-click any action button to choose from its existing presets for a single run. The saved default is checked in the menu; choosing a preset shows its settings for confirmation without changing the default. The menu reloads saved presets each time it opens and includes **Manage presets...**. If the action has no presets, the menu shows **No saved presets for this action**.
 
 Prepare Batch presets include a destination parent folder, a custom new batch folder name, duration and selection. Every preset automatically uses the highest numbered immediate `c_` subfolder (for example, `c_59` over `c_58`), preserving your starter clips and including their duration when refilling. The folder is discovered when you run the preset, so it does not need to exist when saving. No Main or create-folder checkbox is needed; target and destination parent may be the same folder. If no `c_` folder exists, a new folder is created automatically: leave the name blank for the next available `batch_1`, `batch_2`, etc., or enter your own name. Occupied custom names receive a numeric suffix. The confirmation shows the exact folder to use or create; if it disappears or becomes occupied after review, the run stops safely instead of switching destinations. Older presets automatically adopt this behavior. **Add random 30m archives** starts a preset with 30 minutes, recursive archive selection; choose your folders before saving it. Numbered MP4 selection uses top-level numbered MP4 files. AllVideos includes all top-level supported videos; Archives also includes subfolders, excluding Backup, destination folders, and links. All selections are randomized. Every Prepare Batch preset numbers newly prepared clips from shortest to longest, skipping occupied numbers and leaving starter filenames unchanged. Older batch naming settings are superseded by this duration ordering. Backups retain the original filenames.
 

@@ -4,6 +4,60 @@ public partial class Form1
 {
     private static string PresetConfigPath => Path.Combine(AppDataFolder, "presets.json");
 
+    private void SetupActionPresetMenus()
+    {
+        AttachPresetMenu(btnPrepare, PresetAction.PrepareBatch);
+        AttachPresetMenu(btnShuffleAndName, PresetAction.ShuffleAndName);
+        AttachPresetMenu(btnNameTenSteps, PresetAction.NameByTens);
+        AttachPresetMenu(btnShuffleRandom, PresetAction.ShuffleRandom);
+        AttachPresetMenu(btnArchive, PresetAction.Archive);
+        AttachPresetMenu(btnIdentifyClip, PresetAction.IdentifyClip);
+        AttachPresetMenu(btnRemoveDuplicates, PresetAction.RemoveDuplicates);
+    }
+
+    private void AttachPresetMenu(Button button, PresetAction action)
+    {
+        var menu = new ContextMenuStrip(components);
+        button.ContextMenuStrip = menu;
+        menu.Opening += (_, e) =>
+        {
+            if (operationCts is not null || !button.Enabled)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            // Reload on every opening so edits in the Presets window appear immediately.
+            while (menu.Items.Count > 0) menu.Items[0].Dispose();
+            try
+            {
+                var store = PresetStore.Load(PresetConfigPath);
+                string? defaultId = store.DefaultFor(action)?.Id;
+                foreach (var preset in store.Presets.Where(p => p.Action == action))
+                {
+                    // Preset names can contain literal ampersands.
+                    var item = new ToolStripMenuItem(preset.Name.Replace("&", "&&"))
+                    {
+                        Checked = preset.Id == defaultId
+                    };
+                    item.Click += async (_, _) => await RunPresetAsync(preset);
+                    menu.Items.Add(item);
+                }
+                if (menu.Items.Count == 0)
+                    menu.Items.Add(new ToolStripMenuItem("No saved presets for this action") { Enabled = false });
+            }
+            catch (Exception ex)
+            {
+                e.Cancel = true;
+                MessageBox.Show(this, $"Could not load presets:\n{ex.Message}", "Presets", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Manage presets...", null, btnPresets_Click);
+            e.Cancel = false;
+        };
+    }
+
     private void btnPresets_Click(object? sender, EventArgs e)
     {
         if (operationCts is not null) return;
@@ -23,13 +77,22 @@ public partial class Form1
     {
         if (operationCts is not null) return true;
         ActionPreset? preset;
-        try { preset = PresetStore.Load(PresetConfigPath).DefaultFor(action)?.Clone(); }
+        try { preset = PresetStore.Load(PresetConfigPath).DefaultFor(action); }
         catch (Exception ex)
         {
             MessageBox.Show(this, $"Could not load presets:\n{ex.Message}", "Presets", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return true;
         }
         if (preset is null) return false;
+        await RunPresetAsync(preset, isDefault: true);
+        return true;
+    }
+
+    private async Task RunPresetAsync(ActionPreset preset, bool isDefault = false)
+    {
+        if (operationCts is not null) return;
+        preset = preset.Clone();
+        PresetAction action = preset.Action;
         ShowWindow(this, EventArgs.Empty);
         string target = preset.ResolveTarget(workingFolderPath);
         BatchDestination? batchDestination = null;
@@ -41,13 +104,14 @@ public partial class Form1
         catch (Exception ex)
         {
             MessageBox.Show(this, $"Preset cannot run. No files changed.\n\n{ex.Message}", "Check preset settings", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return true;
+            return;
         }
         string review = preset.Summary(workingFolderPath);
         if (batchDestination is not null)
             review += $"\n\nBatch folder: {batchDestination.Path}\n{(batchDestination.Create ? "Create new folder" : "Use existing folder and its starter clips")}";
-        if (MessageBox.Show(this, "Review the default preset settings, proceed?\n\n" + review,
-            ActionPreset.Label(action), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return true;
+        string prompt = isDefault ? "Review the default preset settings, proceed?" : "Review the preset settings, proceed?";
+        if (MessageBox.Show(this, prompt + "\n\n" + review,
+            ActionPreset.Label(action), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
         bool watching = watcher?.EnableRaisingEvents == true;
         if (watcher is not null) watcher.EnableRaisingEvents = false;
@@ -86,7 +150,6 @@ public partial class Form1
             if (watcher is not null) watcher.EnableRaisingEvents = watching;
             if (watching) ScheduleUpdate();
         }
-        return true;
     }
 
     private string ExecutePreset(ActionPreset preset, string target, IOperationProgress progress, CancellationToken ct,
