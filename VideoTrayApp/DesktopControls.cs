@@ -124,6 +124,22 @@ internal enum ButtonKind { Command, Navigation, Tool, Tab }
 internal sealed class DesktopButton : Button
 {
     private bool hovered, pressed, selected;
+    private string statusText = "";
+    private bool statusActive;
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal string StatusText
+    {
+        get => statusText;
+        set { if (statusText == value) return; statusText = value; UpdateDescription(); Invalidate(); }
+    }
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal bool StatusActive
+    {
+        get => statusActive;
+        set { if (statusActive == value) return; statusActive = value; Invalidate(); }
+    }
+    private void UpdateDescription() => AccessibleDescription = string.Join("; ",
+        new[] { selected ? "Selected" : "", statusText }.Where(value => value.Length > 0));
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal ButtonKind Kind { get; set; }
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
@@ -134,7 +150,7 @@ internal sealed class DesktopButton : Button
         {
             if (selected == value) return;
             selected = value; Font = value ? DesktopTheme.EmphasisFont : DesktopTheme.BodyFont;
-            AccessibleDescription = value ? "Selected" : null;
+            UpdateDescription();
             Invalidate();
         }
     }
@@ -148,7 +164,8 @@ internal sealed class DesktopButton : Button
     protected override void OnLostFocus(EventArgs e) { pressed = false; base.OnLostFocus(e); Invalidate(); }
     protected override void OnPaint(PaintEventArgs e)
     {
-        if (SystemInformation.HighContrast) { base.OnPaint(e); return; }
+        bool contrast = SystemInformation.HighContrast;
+        if (contrast) { base.OnPaint(e); if (statusText.Length > 0) DrawStatus(e.Graphics, SystemColors.ControlText); return; }
         var graphics = e.Graphics;
         graphics.Clear(Parent?.BackColor ?? DesktopTheme.Canvas);
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -175,12 +192,24 @@ internal sealed class DesktopButton : Button
             if (selected) { using var brush = new SolidBrush(DesktopTheme.Accent); graphics.FillRectangle(brush, 12 * scale, Height - 3 * scale, Width - 24 * scale, 3 * scale); }
         }
         var textBounds = Rectangle.FromLTRB(Padding.Left, Padding.Top, Width - Padding.Right, Height - Padding.Bottom);
+        if (statusText.Length > 0) textBounds.Height = Math.Max(1, textBounds.Height - (int)(17 * scale));
         var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine
             | (Kind == ButtonKind.Navigation ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter);
         if (!UseMnemonic) flags |= TextFormatFlags.NoPrefix;
         else if (!ShowKeyboardCues) flags |= TextFormatFlags.HidePrefix;
         TextRenderer.DrawText(graphics, Text, Font, textBounds, ink, flags);
+        if (statusText.Length > 0) DrawStatus(graphics, statusActive ? DesktopTheme.Accent : DesktopTheme.Muted);
         if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(graphics, Rectangle.Inflate(ClientRectangle, -5, -5), ink, fill);
+    }
+    private void DrawStatus(Graphics graphics, Color ink)
+    {
+        float scale = DeviceDpi / 96f;
+        using var statusFont = new Font(Font.FontFamily, 8f);
+        int inset = (int)(6 * scale);
+        var bounds = new Rectangle(inset, Height - Padding.Bottom - (int)(17 * scale),
+            Math.Max(1, Width - inset * 2), (int)(17 * scale));
+        TextRenderer.DrawText(graphics, (statusActive ? "● " : "") + statusText, statusFont, bounds, ink,
+            TextFormatFlags.Right | TextFormatFlags.Bottom | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding);
     }
     private static GraphicsPath Rounded(RectangleF bounds, float radius)
     {

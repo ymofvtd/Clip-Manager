@@ -22,7 +22,10 @@ internal sealed partial class MainShell : Form
     private readonly Label jobStatus = new() { AutoSize = true, MaximumSize = new Size(750, 65), AccessibleName = "Current operation" };
     private readonly ProgressBar progress = new() { Width = 160, Height = 20 };
     private readonly Button cancel;
-    private readonly Button archiveIndicator;
+    private readonly DesktopButton archiveIndicator;
+    private readonly FlowLayoutPanel durationStats = new() { AutoSize = true, FlowDirection = FlowDirection.TopDown,
+        WrapContents = false, Margin = new Padding(0, 14, 0, 0), AccessibleName = "Duration quick stats" };
+    private readonly Dictionary<string, Label> durationLabels = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Control> pages = [];
     private readonly Dictionary<PresetAction, WorkflowWorkspace> workflows = [];
     private readonly Label overview = DesktopTheme.Text("");
@@ -60,8 +63,9 @@ internal sealed partial class MainShell : Form
         }
         catch (Exception ex) { persistentWarning += "\nFolder settings need attention: " + ex.Message; }
         cancel = DesktopTheme.Button("Cancel operation", () => jobs.Cancel());
-        archiveIndicator = DesktopTheme.Button("Archive: stopped", () => Navigate("Archive"));
-        var strip = DesktopTheme.Actions(archiveIndicator, jobStatus, progress, cancel, DesktopTheme.Button("View activity", () => Navigate("Activity")));
+        archiveIndicator = DesktopTheme.Button("Archive", () => Navigate("Archive"));
+        archiveIndicator.StatusText = "Stopped (0 pending)";
+        var strip = DesktopTheme.Actions(jobStatus, progress, cancel);
         strip.Dock = DockStyle.Bottom; strip.Padding = new Padding(12); strip.MinimumSize = new Size(0, 65); strip.Tag = SurfaceRole.Inset;
         navigation.Controls.Add(new Label { Text = "CLIP / MANAGER", AutoSize = true, Font = new Font("Segoe UI", 11, FontStyle.Bold),
             Margin = new Padding(10, 14, 0, 4), Tag = TextRole.Accent });
@@ -69,10 +73,14 @@ internal sealed partial class MainShell : Form
             Margin = new Padding(10, 0, 0, 28), Tag = TextRole.Secondary });
         foreach (string name in new[] { "Overview", "Archive", "Batches", "Find & clean", "Rename & shuffle", "Activity", "Settings" })
         {
-            var button = DesktopTheme.Button(name, () => Navigate(name)); button.Width = 176; button.AutoSize = false; button.Height = 44;
+            var button = name == "Archive" ? archiveIndicator : DesktopTheme.Button(name, () => Navigate(name));
+            button.Width = 176; button.AutoSize = false; button.Height = name == "Archive" ? 58 : 44;
+            if (name == "Archive") button.TextAlign = ContentAlignment.TopLeft;
             button.Kind = ButtonKind.Navigation;
             button.Tag = name; navigation.Controls.Add(button);
         }
+        navigation.Controls.Add(durationStats);
+        BuildDurationStats();
         Controls.Add(content); Controls.Add(heading); Controls.Add(navigation); Controls.Add(strip);
         BuildOverview(); BuildActivity();
         DesktopTheme.Current = preferences.Theme; DesktopTheme.Apply(this);
@@ -81,7 +89,8 @@ internal sealed partial class MainShell : Form
             bool compact = ClientSize.Width * 96 / Math.Max(DeviceDpi, 96) < 1000;
             navigation.Width = compact ? 168 : 204;
             foreach (Button button in navigation.Controls.OfType<Button>()) button.Width = navigation.Width - 28;
-            jobStatus.MaximumSize = new Size(Math.Max(220, ClientSize.Width - 620), 65);
+            ResizeDurationStats();
+            jobStatus.MaximumSize = new Size(Math.Max(220, ClientSize.Width - 310), 65);
         };
         refresh.Tick += (_, _) => RefreshPresentation();
         SystemEvents.UserPreferenceChanged += SystemPreferencesChanged;
@@ -192,7 +201,12 @@ internal sealed partial class MainShell : Form
         var state = archive.Status;
         TrackArchiveActivity(state);
         string archiveState = state.State switch { ArchiveRuntimeState.WaitingForForegroundWork => "Waiting for foreground work", ArchiveRuntimeState.WaitingForStableFile => "Waiting for stable files", _ => state.State.ToString() };
-        archiveIndicator.Text = $"Archive: {archiveState} ({state.Queued} pending)";
+        string sidebarState = state.State switch { ArchiveRuntimeState.WaitingForForegroundWork => "Waiting for work",
+            ArchiveRuntimeState.WaitingForStableFile => "Settling files", _ => archiveState };
+        archiveIndicator.StatusText = $"{sidebarState} ({state.Queued} pending)";
+        durationTooltips.SetToolTip(archiveIndicator, $"Archive: {archiveState} ({state.Queued} pending)");
+        archiveIndicator.StatusActive = state.Running && !state.Paused && state.State != ArchiveRuntimeState.Suspended;
+        RefreshDurationStats();
         var value = jobs.Progress;
         var elapsed = jobs.Started;
         jobStatus.Text = jobs.Busy ? $"{jobs.Title}: {DesktopTheme.StateLabel(jobs.State)} • {(elapsed.HasValue ? WorkflowWorkspace.Duration(DateTimeOffset.Now - elapsed.Value) : "")}\n{value.Message}" : $"{jobs.Title}: {DesktopTheme.StateLabel(jobs.State)}";
@@ -367,7 +381,7 @@ internal sealed partial class MainShell : Form
         {
             resourcesDisposed = true;
             SystemEvents.UserPreferenceChanged -= SystemPreferencesChanged;
-            lifetime.Cancel(); refresh.Dispose(); if (!jobs.Busy) jobs.Dispose(); tray.ContextMenuStrip?.Dispose(); tray.Dispose();
+            lifetime.Cancel(); refresh.Dispose(); durationTooltips.Dispose(); if (!jobs.Busy) jobs.Dispose(); tray.ContextMenuStrip?.Dispose(); tray.Dispose();
             folderRefresh?.Cancel(); folderRefresh?.Dispose(); folderRefresh = null;
             if (!archive.Running) archive.Dispose();
             lifetime.Dispose();

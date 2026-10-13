@@ -42,6 +42,9 @@ internal static class FolderTrackingChecks
             tracker.SetFolders([unavailable, first, second, first]);
             WaitFor(() => HasMarker(first, "0M2S.txt") && HasMarker(second, "0M3S.txt")
                 && HasMarker(child, "0M4S.txt"), "Startup refresh updates independent roots and immediate children");
+            WaitFor(() => tracker.Totals.TryGetValue(first, out var value) && value.Duration == TimeSpan.FromSeconds(6)
+                && value.Complete && tracker.Totals.TryGetValue(unavailable, out var missing) && missing.Duration is null,
+                "Quick stats include immediate children, exclude deeper clips, and distinguish unavailable roots");
             Check(!Directory.GetFiles(deep, "*.txt").Any(), "Existing immediate-child tracking scope is preserved");
             Check(File.ReadAllText(Path.Combine(first, "notes.txt")) == "Keep my notes"
                 && !File.Exists(Path.Combine(first, "99M9S.txt")), "Duration refresh preserves notes and replaces only old markers");
@@ -70,6 +73,9 @@ internal static class FolderTrackingChecks
 
             tracker.SetFolders([first, second, child]);
             WaitFor(() => HasMarker(deep, "0M5S.txt"), "An overlapping child root also tracks its own immediate children");
+            WaitFor(() => tracker.Totals.TryGetValue(first, out var parentTotal) && parentTotal.Duration == TimeSpan.FromSeconds(17)
+                && tracker.Totals.TryGetValue(child, out var childTotal) && childTotal.Duration == TimeSpan.FromSeconds(9),
+                "Overlapping roots each get their own complete total without counting any folder twice");
 
             string outside = Directory.CreateDirectory(Path.Combine(root, "incoming")).FullName;
             writeAvi(Path.Combine(outside, "incoming.avi"), 11, 9);
@@ -83,6 +89,7 @@ internal static class FolderTrackingChecks
             WaitFor(() => HasMarker(first, "0M17S.txt"), "Remaining watched folders continue updating after removal");
             Check(HasMarker(second, "0M8S.txt"), "Removed roots stop updating their markers");
             tracker.SetFolders([]);
+            Check(tracker.Totals.Count == 0, "Removing all roots clears cached sidebar totals");
             writeAvi(firstClip, 18, 12);
             Thread.Sleep(900);
             Check(HasMarker(first, "0M17S.txt"), "Removing all roots stops duration tracking");

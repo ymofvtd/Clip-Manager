@@ -120,6 +120,9 @@ internal static class UxChecks
                 string images = Path.GetFullPath("docs/ux/screenshots"); Directory.CreateDirectory(images);
                 WatchFolderSettings.Save(data, []);
                 using (var old = new Form1(data, false)) { old.Show(); Application.DoEvents(); old.Hide(); }
+                string trackedFolder = Directory.CreateDirectory(Path.Combine(data, "duration-library")).FullName;
+                foreach (string clip in Directory.EnumerateFiles(source, "*.avi")) File.Copy(clip, Path.Combine(trackedFolder, Path.GetFileName(clip)));
+                WatchFolderSettings.Save(data, [trackedFolder, Path.Combine(data, "unavailable-tracking")]);
                 string archiveDestination = Directory.CreateDirectory(Path.Combine(data, "continuous-archive")).FullName;
                 new ArchiveSettings { Sources = [source], Destination = archiveDestination, Speed = ArchiveSpeed.Fast,
                     WatchContinuously = true, SettlingSeconds = 0 }.Save(data);
@@ -136,7 +139,19 @@ internal static class UxChecks
                     Application.DoEvents(); Thread.Sleep(5);
                 }
                 Check(shell.Archive.Running && ArchiveSettings.Load(data).WatchContinuously, "New shell resumes saved watching without changing Archive enablement or source roots");
+                typeof(MainShell).GetMethod("RefreshPresentation", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(shell, []);
+                var archiveButton = Descendants(shell).OfType<DesktopButton>().Single(b => Equals(b.Tag, "Archive"));
+                Check(archiveButton.Text == "Archive" && archiveButton.StatusActive && archiveButton.StatusText.Contains("pending")
+                    && archiveButton.AccessibleDescription!.Contains(archiveButton.StatusText)
+                    && !Descendants(shell).OfType<Button>().Any(b => b.Text == "View activity"),
+                    "Archive navigation exposes live active status accessibly and the redundant activity button is removed");
+                var quickStats = Descendants(shell).Single(c => c.AccessibleName == "Duration quick stats");
+                var settingsButton = Descendants(shell).OfType<DesktopButton>().Single(b => Equals(b.Tag, "Settings"));
+                Check(quickStats.Parent == settingsButton.Parent && quickStats.Top >= settingsButton.Bottom
+                    && quickStats.Controls.OfType<Label>().Count(l => l.AccessibleName?.StartsWith("Tracked duration:") == true) == 2,
+                    "Duration quick stats show saved roots directly below Settings");
                 shell.Navigate("Archive"); shell.Archive.Pause(); Capture(shell, Path.Combine(images, "archive-paused.png"));
+                Check(!archiveButton.StatusActive && archiveButton.StatusText.StartsWith("Paused"), "Paused Archive loses the active dot and keeps its visible status");
                 Check(shell.Archive.Status.Paused && ArchiveSettings.Load(data).WatchContinuously, "Pausing the new shell Archive retains continuous watch enablement");
                 shell.Archive.Resume();
                 foreach (string page in new[] { "Overview", "Archive", "Batches", "Find & clean", "Rename & shuffle", "Activity", "Settings" })

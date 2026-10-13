@@ -4,7 +4,7 @@ A Windows system tray app that monitors video folders and helps organize/rename 
 
 ## Current Version
 
-2.1.17
+2.1.18
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -17,6 +17,8 @@ First launch opens visibly with optional setup; startup registration is opt in. 
 Open **Settings → Duration tracking** or the tray's **Duration tracking** entry. Add or paste each root, remove roots you no longer want, then **Save tracking roots**. Removing all roots disables tracking. The working folder for naming/shuffle actions is configured separately in Overview.
 
 Each watched folder and its immediate subfolders gets its own total-duration marker, such as `90M30S.txt`, based on the videos directly inside that folder. Totals refresh automatically when clips are added, modified, renamed, moved or deleted. Empty folders have their duration markers cleared; other text files are preserved. Overlapping watched folders are supported. Tracking pauses for preset operations and Shuffle Batches, then refreshes every watched folder afterward.
+
+Quick stats below **Settings** in the sidebar show each tracked root's combined duration, including its immediate subfolders. Unavailable roots and partial totals are labeled. The **Archive** button shows its live state and pending count in a small status line, with an active dot while Archive is running.
 
 The list is saved in `%APPDATA%/ClipsManager/watch_folders.json` and restored on restart. Your existing single-folder setting is migrated automatically. Unavailable folders stay in the saved list and are retried when you save the list, restart the app, or finish a preset operation.
 

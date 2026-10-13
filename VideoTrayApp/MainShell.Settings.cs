@@ -111,7 +111,9 @@ internal sealed partial class MainShell
             if (jobs.Busy) { totals.Text = "Wait for foreground work to finish before changing tracking roots."; return; }
             try
             {
-                var next = roots.Paths; WatchFolderSettings.Save(dataFolder, next); trackingRoots = next;
+                var next = WatchFolderSettings.Normalize(roots.Paths); WatchFolderSettings.Save(dataFolder, next); trackingRoots = next;
+                roots.Paths = next;
+                BuildDurationStats();
                 await Task.Run(() => tracker.SetFolders(next)); await UiThread.Switch(this); if (!IsDisposed) await ReadTotals();
             }
             catch (Exception ex) { await UiThread.Switch(this); if (!IsDisposed) totals.Text = "Tracking roots could not be saved: " + ex.Message; }

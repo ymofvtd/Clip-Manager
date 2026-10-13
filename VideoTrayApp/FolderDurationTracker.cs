@@ -2,6 +2,8 @@ using System.Text.RegularExpressions;
 
 namespace VideoTrayApp;
 
+internal sealed record RootDurationStats(TimeSpan? Duration, bool Complete);
+
 /// <summary>Tracks independent roots, retaining the root/immediate-child duration marker behavior.</summary>
 internal sealed class FolderDurationTracker : IDisposable
 {
@@ -14,6 +16,9 @@ internal sealed class FolderDurationTracker : IDisposable
     private bool paused;
     private bool disposed;
     private static readonly Regex MarkerPattern = new(@"^\d+M\d+S\.txt$", RegexOptions.IgnoreCase);
+    private IReadOnlyDictionary<string, RootDurationStats> totals = new Dictionary<string, RootDurationStats>();
+    // Published snapshots never change; the UI never waits for the scan lock or reads files.
+    internal IReadOnlyDictionary<string, RootDurationStats> Totals => Volatile.Read(ref totals);
 
     public FolderDurationTracker(IEnumerable<string> extensions)
     {
@@ -32,6 +37,7 @@ internal sealed class FolderDurationTracker : IDisposable
             watchers.Clear();
             pending.Clear();
             roots = normalized;
+            Volatile.Write(ref totals, new Dictionary<string, RootDurationStats>(StringComparer.OrdinalIgnoreCase));
             foreach (string root in roots)
             {
                 FileSystemWatcher? watcher = null;
@@ -97,30 +103,46 @@ internal sealed class FolderDurationTracker : IDisposable
             var folders = pending.ToArray();
             pending.Clear();
             // Parent and child roots may overlap; scan each folder path only once per refresh.
-            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var visited = new Dictionary<string, RootDurationStats>(StringComparer.OrdinalIgnoreCase);
+            var nextTotals = new Dictionary<string, RootDurationStats>(totals, StringComparer.OrdinalIgnoreCase);
             foreach (string root in folders)
             {
+                TimeSpan? duration = null;
+                bool complete = false;
                 try
                 {
-                    if (!Directory.Exists(root)) continue;
-                    UpdateFolder(root, visited);
-                    foreach (string child in Directory.EnumerateDirectories(root)) UpdateFolder(child, visited);
+                    if (Directory.Exists(root))
+                    {
+                        var result = UpdateFolder(root, visited);
+                        duration = result.Duration; complete = result.Complete;
+                        foreach (string child in Directory.EnumerateDirectories(root))
+                        {
+                            var childResult = UpdateFolder(child, visited);
+                            if (duration.HasValue) duration += childResult.Duration ?? TimeSpan.Zero;
+                            complete &= childResult.Complete;
+                        }
+                    }
                 }
                 catch
                 {
                     // Keep processing other roots when a folder disappears or cannot be read.
+                    complete = false;
                 }
+                nextTotals[root] = new(duration, complete);
             }
+            Volatile.Write(ref totals, nextTotals);
         }
     }
 
-    private void UpdateFolder(string path, HashSet<string> visited)
+    private RootDurationStats UpdateFolder(string path, Dictionary<string, RootDurationStats> visited)
     {
-        if (!visited.Add(path)) return;
+        if (visited.TryGetValue(path, out var cached)) return cached;
+        var result = new RootDurationStats(null, false);
         try
         {
             var folder = new DirectoryInfo(path);
             TimeSpan total = TimeSpan.Zero;
+            bool complete = true;
             foreach (var file in folder.EnumerateFiles().Where(file => videoExtensions.Contains(file.Extension)))
             {
                 try
@@ -128,8 +150,9 @@ internal sealed class FolderDurationTracker : IDisposable
                     using var video = TagLib.File.Create(file.FullName);
                     total += video.Properties.Duration;
                 }
-                catch { } // A clip may still be copying; Changed will schedule another scan.
+                catch { complete = false; } // A clip may still be copying; Changed will schedule another scan.
             }
+            result = new(total, complete);
             string? markerName = total > TimeSpan.Zero ? $"{(long)total.TotalMinutes}M{total.Seconds}S.txt" : null;
             foreach (var file in folder.GetFiles("*.txt"))
             {
@@ -143,6 +166,8 @@ internal sealed class FolderDurationTracker : IDisposable
             }
         }
         catch { } // Failure in one child must not prevent updating its siblings.
+        visited[path] = result;
+        return result;
     }
 
     public void Pause()
