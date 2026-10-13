@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
 using Microsoft.Win32;
 
 namespace VideoTrayApp;
@@ -6,6 +7,7 @@ namespace VideoTrayApp;
 internal static class DesktopTheme
 {
     internal static readonly Font BodyFont = new("Segoe UI", 10.5f);
+    internal static readonly Font EmphasisFont = new("Segoe UI", 10.5f, FontStyle.Bold);
     internal static AppTheme Current { get; set; }
     internal static bool Dark => Current == AppTheme.Dark || Current == AppTheme.System && SystemDark();
     private static bool SystemDark()
@@ -13,60 +15,85 @@ internal static class DesktopTheme
         using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
         return key?.GetValue("AppsUseLightTheme") is int value && value == 0;
     }
+    internal static Color Canvas => Tone("#F5F6FC", "#11172B");
+    internal static Color Surface => Tone("#FFFFFF", "#1B2440");
+    internal static Color Inset => Tone("#EDF0FA", "#151E36");
+    internal static Color Ink => Tone("#222A45", "#EDF0FF");
+    internal static Color Muted => Tone("#626C86", "#A8B4D4");
+    internal static Color Border => Tone("#D4DAEB", "#3C4A70");
+    internal static Color Accent => Tone("#6550D9", "#A99AFF");
+    internal static Color AccentFill => ColorTranslator.FromHtml("#6550D9");
+    internal static Color AccentSoft => Tone("#EAE5FF", "#332E58");
+    internal static Color Hover => Tone("#F0EDFF", "#2A3556");
+    private static Color Tone(string light, string dark) => ColorTranslator.FromHtml(Dark ? dark : light);
     internal static void Apply(Control root)
     {
-        bool contrast = SystemInformation.HighContrast, dark = !contrast && Dark;
-        Color surface = contrast ? SystemColors.Window : ColorTranslator.FromHtml(dark ? "#1C222B" : "#FFFFFF");
-        Color text = contrast ? SystemColors.WindowText : ColorTranslator.FromHtml(dark ? "#EDF2F7" : "#17212F");
-        Color border = contrast ? SystemColors.WindowText : ColorTranslator.FromHtml(dark ? "#B0BECE" : "#526174");
+        bool contrast = SystemInformation.HighContrast;
+        Color surface = contrast ? SystemColors.Window : Surface;
+        Color text = contrast ? SystemColors.WindowText : Ink;
+        Color border = contrast ? SystemColors.WindowText : Border;
         var controls = new List<Control>();
         void Collect(Control control) { controls.Add(control); control.SuspendLayout(); foreach (Control child in control.Controls) Collect(child); }
         Collect(root);
         void Style(Control control)
         {
-            control.BackColor = surface; control.ForeColor = text;
+            control.BackColor = contrast ? SystemColors.Window : control.Tag is SurfaceRole area ? area switch
+            {
+                SurfaceRole.Surface => Surface,
+                SurfaceRole.Inset or SurfaceRole.Sidebar => Inset,
+                _ => Canvas
+            } : control is TextBoxBase or ListBox or ComboBox or NumericUpDown or DataGridView ? surface
+                : control.Parent?.BackColor ?? Canvas;
+            control.ForeColor = !contrast && control.Tag is TextRole textRole
+                ? textRole == TextRole.Accent ? Accent : Muted : text;
             if (control is Button button)
             {
                 button.FlatStyle = FlatStyle.Flat;
                 button.FlatAppearance.BorderColor = border;
                 button.FlatAppearance.BorderSize = 1;
-                button.FlatAppearance.MouseOverBackColor = contrast ? SystemColors.Highlight : dark ? Color.FromArgb(48, 61, 80) : Color.FromArgb(226, 234, 248);
-                button.MinimumSize = new Size(0, 34);
-                button.Padding = new Padding(8, 4, 8, 4);
+                button.FlatAppearance.MouseOverBackColor = contrast ? SystemColors.Highlight : Hover;
+                button.MinimumSize = new Size(0, 36);
+                button.Padding = new Padding(12, 5, 12, 5);
                 if (!contrast && button.Tag is CommandRole role)
                 {
-                    button.BackColor = ColorTranslator.FromHtml(role == CommandRole.Primary ? "#245CC5" : "#B42336");
+                    button.BackColor = role == CommandRole.Primary ? AccentFill : ColorTranslator.FromHtml("#B42350");
                     button.ForeColor = Color.White;
                 }
+                button.Invalidate();
             }
             if (control is DataGridView grid)
             {
                 grid.BackgroundColor = surface; grid.GridColor = border; grid.EnableHeadersVisualStyles = false;
                 grid.DefaultCellStyle.BackColor = grid.ColumnHeadersDefaultCellStyle.BackColor = surface;
                 grid.DefaultCellStyle.ForeColor = grid.ColumnHeadersDefaultCellStyle.ForeColor = text;
-                grid.DefaultCellStyle.SelectionBackColor = SystemColors.Highlight;
-                grid.DefaultCellStyle.SelectionForeColor = SystemColors.HighlightText;
+                grid.ColumnHeadersDefaultCellStyle.BackColor = contrast ? surface : Inset;
+                grid.ColumnHeadersDefaultCellStyle.Font = EmphasisFont;
+                grid.AlternatingRowsDefaultCellStyle.BackColor = contrast ? surface : Canvas;
+                grid.DefaultCellStyle.SelectionBackColor = contrast ? SystemColors.Highlight : AccentSoft;
+                grid.DefaultCellStyle.SelectionForeColor = contrast ? SystemColors.HighlightText : Ink;
+                grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
                 grid.RowTemplate.Height = 32;
+                grid.BorderStyle = BorderStyle.None;
             }
             if (control.ContextMenuStrip is { } menu) StyleMenu(menu);
             foreach (Control child in control.Controls) Style(child);
         }
         Style(root);
-        root.BackColor = contrast ? SystemColors.Control : ColorTranslator.FromHtml(dark ? "#12161C" : "#F4F6F8");
+        if (root is Form) root.BackColor = contrast ? SystemColors.Control : Canvas;
         for (int i = controls.Count - 1; i >= 0; i--) controls[i].ResumeLayout(false);
         root.PerformLayout();
     }
     internal static void StyleMenu(ContextMenuStrip menu)
     {
         menu.RenderMode = ToolStripRenderMode.System;
-        menu.BackColor = SystemInformation.HighContrast ? SystemColors.Menu : Dark ? Color.FromArgb(28, 34, 43) : Color.White;
-        menu.ForeColor = SystemInformation.HighContrast ? SystemColors.MenuText : Dark ? Color.FromArgb(237, 242, 247) : Color.FromArgb(23, 33, 47);
+        menu.BackColor = SystemInformation.HighContrast ? SystemColors.Menu : Surface;
+        menu.ForeColor = SystemInformation.HighContrast ? SystemColors.MenuText : Ink;
     }
     internal static Label Text(string text) => new() { Text = text, AutoSize = true, MaximumSize = new Size(760, 0), Margin = new Padding(0, 8, 0, 8), UseMnemonic = false };
-    internal static Button Button(string text, Action click)
+    internal static DesktopButton Button(string text, Action click)
     {
-        var button = new Button { Text = text.Replace(" & ", " && "), AutoSize = true, AccessibleName = text.Replace(" & ", " and ").Replace("&", ""), Margin = new Padding(0, 4, 8, 4),
-            MinimumSize = new Size(0, 34), Padding = new Padding(8, 4, 8, 4), FlatStyle = FlatStyle.Flat, Font = BodyFont };
+        var button = new DesktopButton { Text = text.Replace(" & ", " && "), AutoSize = true, AccessibleName = text.Replace(" & ", " and ").Replace("&", ""), Margin = new Padding(0, 4, 8, 4),
+            MinimumSize = new Size(0, 36), Padding = new Padding(12, 5, 12, 5), FlatStyle = FlatStyle.Flat, Font = BodyFont };
         button.Click += (_, _) => click();
         return button;
     }
@@ -85,6 +112,93 @@ internal static class DesktopTheme
     internal static string StateLabel(Enum value) => System.Text.RegularExpressions.Regex.Replace(value.ToString(), @"\B[A-Z]", " $0");
 }
 internal enum CommandRole { Primary, Recycle }
+internal enum SurfaceRole { Canvas, Surface, Inset, Sidebar }
+internal enum TextRole { Secondary, Accent }
+internal enum ButtonKind { Command, Navigation, Tool, Tab }
+
+// Keep Button's keyboard, mnemonic, dialog and accessibility behavior; only replace its paint.
+internal sealed class DesktopButton : Button
+{
+    private bool hovered, pressed, selected;
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal ButtonKind Kind { get; set; }
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal bool Selected
+    {
+        get => selected;
+        set
+        {
+            if (selected == value) return;
+            selected = value; Font = value ? DesktopTheme.EmphasisFont : DesktopTheme.BodyFont;
+            AccessibleDescription = value ? "Selected" : null;
+            Invalidate();
+        }
+    }
+    internal DesktopButton() => DoubleBuffered = true;
+    protected override void OnMouseEnter(EventArgs e) { hovered = true; base.OnMouseEnter(e); Invalidate(); }
+    protected override void OnMouseLeave(EventArgs e) { hovered = pressed = false; base.OnMouseLeave(e); Invalidate(); }
+    protected override void OnMouseDown(MouseEventArgs e) { pressed = e.Button == MouseButtons.Left; base.OnMouseDown(e); Invalidate(); }
+    protected override void OnMouseUp(MouseEventArgs e) { pressed = false; base.OnMouseUp(e); Invalidate(); }
+    protected override void OnKeyDown(KeyEventArgs e) { if (e.KeyCode == Keys.Space) pressed = true; base.OnKeyDown(e); Invalidate(); }
+    protected override void OnKeyUp(KeyEventArgs e) { pressed = false; base.OnKeyUp(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { pressed = false; base.OnLostFocus(e); Invalidate(); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        if (SystemInformation.HighContrast) { base.OnPaint(e); return; }
+        var graphics = e.Graphics;
+        graphics.Clear(Parent?.BackColor ?? DesktopTheme.Canvas);
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        float scale = DeviceDpi / 96f;
+        var bounds = new RectangleF(.5f, .5f, Width - 1f, Height - 1f);
+        bool command = Kind == ButtonKind.Command;
+        bool filled = command && Tag is CommandRole;
+        Color fill = filled ? BackColor : selected ? DesktopTheme.AccentSoft : command ? DesktopTheme.Surface : Parent?.BackColor ?? DesktopTheme.Canvas;
+        Color ink = filled ? Color.White : selected ? DesktopTheme.Accent : DesktopTheme.Ink;
+        if (Enabled && (hovered || pressed)) fill = filled ? ControlPaint.Light(fill, pressed ? .05f : .15f) : DesktopTheme.Hover;
+        if (!Enabled) { fill = DesktopTheme.Inset; ink = DesktopTheme.Muted; }
+        if (Kind != ButtonKind.Tab)
+        {
+            using var path = Rounded(bounds, 8 * scale);
+            using var brush = new SolidBrush(fill); graphics.FillPath(brush, path);
+            if (command && !filled)
+            { using var pen = new Pen(DesktopTheme.Border); graphics.DrawPath(pen, path); }
+            if (selected && Kind == ButtonKind.Navigation)
+            { using var marker = new SolidBrush(DesktopTheme.Accent); graphics.FillRectangle(marker, 0, 10 * scale, 3 * scale, Height - 20 * scale); }
+        }
+        else
+        {
+            if (hovered) { using var brush = new SolidBrush(fill); graphics.FillRectangle(brush, ClientRectangle); }
+            if (selected) { using var brush = new SolidBrush(DesktopTheme.Accent); graphics.FillRectangle(brush, 12 * scale, Height - 3 * scale, Width - 24 * scale, 3 * scale); }
+        }
+        var textBounds = Rectangle.FromLTRB(Padding.Left, Padding.Top, Width - Padding.Right, Height - Padding.Bottom);
+        var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine
+            | (Kind == ButtonKind.Navigation ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter);
+        if (!UseMnemonic) flags |= TextFormatFlags.NoPrefix;
+        else if (!ShowKeyboardCues) flags |= TextFormatFlags.HidePrefix;
+        TextRenderer.DrawText(graphics, Text, Font, textBounds, ink, flags);
+        if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(graphics, Rectangle.Inflate(ClientRectangle, -5, -5), ink, fill);
+    }
+    private static GraphicsPath Rounded(RectangleF bounds, float radius)
+    {
+        float diameter = Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height));
+        var path = new GraphicsPath();
+        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure(); return path;
+    }
+}
+
+internal sealed class SectionDivider : Control
+{
+    internal SectionDivider() { Dock = DockStyle.Top; Height = 1; TabStop = false; SetStyle(ControlStyles.UserPaint, true); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        using var pen = new Pen(SystemInformation.HighContrast ? SystemColors.WindowText : DesktopTheme.Border);
+        e.Graphics.DrawLine(pen, 0, 0, Width, 0);
+    }
+}
 internal sealed class ResponsiveStack : TableLayoutPanel
 {
     private Control? observedParent;

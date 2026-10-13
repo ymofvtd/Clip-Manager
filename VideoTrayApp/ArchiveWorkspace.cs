@@ -81,6 +81,7 @@ internal sealed class ArchiveWorkspace : UserControl
         DesktopTheme.Add(config, DesktopTheme.Text("Slow defaults: one clip per 120 seconds; 20 MB/s aggregate reads/writes/verification; 10-second settling. Fast has no application I/O cap."));
         DesktopTheme.Add(page, config);
         start = DesktopTheme.Button("Start", Start);
+        start.Tag = CommandRole.Primary;
         pause = DesktopTheme.Button("Pause", () => worker.Pause());
         resume = DesktopTheme.Button("Resume", () => worker.Resume());
         stop = DesktopTheme.Button("Stop", async () => await StopAsync());

@@ -2,6 +2,8 @@
 
 Date: 2026-10-13. All fixtures in the automated checks are generated under a unique temporary directory. No production library is used.
 
+Version 2.1.15 visual refresh: Release build and portable publish succeeded without warnings or errors; all 90 UX checks passed. Added checks cover analysis selecting Review files, switching Configure/Review without losing results, and compact separation of tool choices and view tabs. Light, dark and compact screenshots were regenerated and visually inspected. This refresh did not rerun the full domain suite or certify physical High Contrast/Narrator/multiple-monitor DPI behavior.
+
 ## Reproduce
 
 ```powershell

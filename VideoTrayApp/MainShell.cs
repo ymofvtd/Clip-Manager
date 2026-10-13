@@ -17,9 +17,8 @@ internal sealed partial class MainShell : Form
     private readonly System.Windows.Forms.Timer refresh = new() { Interval = 300 };
     private readonly CancellationTokenSource lifetime = new();
     private readonly Panel content = new() { Dock = DockStyle.Fill, AutoScroll = true };
-    private readonly FlowLayoutPanel navigation = new() { Dock = DockStyle.Left, Width = 190, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12) };
-    private readonly Label heading = new() { Dock = DockStyle.Top, Height = 56, Font = new Font("Segoe UI", 18), Padding = new Padding(16, 8, 0, 0), AccessibleName = "Workspace title", UseMnemonic = false };
-    private readonly Font selectedNavigationFont = new("Segoe UI", 10.5f, FontStyle.Bold);
+    private readonly FlowLayoutPanel navigation = new() { Dock = DockStyle.Left, Width = 204, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12), Tag = SurfaceRole.Sidebar };
+    private readonly Label heading = new() { Dock = DockStyle.Top, Height = 76, Font = new Font("Segoe UI", 22, FontStyle.Bold), Padding = new Padding(24, 16, 0, 0), AccessibleName = "Workspace title", UseMnemonic = false };
     private readonly Label jobStatus = new() { AutoSize = true, MaximumSize = new Size(750, 65), AccessibleName = "Current operation" };
     private readonly ProgressBar progress = new() { Width = 160, Height = 20 };
     private readonly Button cancel;
@@ -63,10 +62,15 @@ internal sealed partial class MainShell : Form
         cancel = DesktopTheme.Button("Cancel operation", () => jobs.Cancel());
         archiveIndicator = DesktopTheme.Button("Archive: stopped", () => Navigate("Archive"));
         var strip = DesktopTheme.Actions(archiveIndicator, jobStatus, progress, cancel, DesktopTheme.Button("View activity", () => Navigate("Activity")));
-        strip.Dock = DockStyle.Bottom; strip.Padding = new Padding(12); strip.MinimumSize = new Size(0, 65);
+        strip.Dock = DockStyle.Bottom; strip.Padding = new Padding(12); strip.MinimumSize = new Size(0, 65); strip.Tag = SurfaceRole.Inset;
+        navigation.Controls.Add(new Label { Text = "CLIP / MANAGER", AutoSize = true, Font = new Font("Segoe UI", 11, FontStyle.Bold),
+            Margin = new Padding(10, 14, 0, 4), Tag = TextRole.Accent });
+        navigation.Controls.Add(new Label { Text = "Your library, in order.", AutoSize = true, Font = new Font("Segoe UI", 9),
+            Margin = new Padding(10, 0, 0, 28), Tag = TextRole.Secondary });
         foreach (string name in new[] { "Overview", "Archive", "Batches", "Find & clean", "Rename & shuffle", "Activity", "Settings" })
         {
-            var button = DesktopTheme.Button(name, () => Navigate(name)); button.Width = 162; button.AutoSize = false; button.Height = 44;
+            var button = DesktopTheme.Button(name, () => Navigate(name)); button.Width = 176; button.AutoSize = false; button.Height = 44;
+            button.Kind = ButtonKind.Navigation;
             button.Tag = name; navigation.Controls.Add(button);
         }
         Controls.Add(content); Controls.Add(heading); Controls.Add(navigation); Controls.Add(strip);
@@ -75,8 +79,8 @@ internal sealed partial class MainShell : Form
         Resize += (_, _) =>
         {
             bool compact = ClientSize.Width * 96 / Math.Max(DeviceDpi, 96) < 1000;
-            navigation.Width = compact ? 156 : 190;
-            foreach (Control button in navigation.Controls) button.Width = navigation.Width - 28;
+            navigation.Width = compact ? 168 : 204;
+            foreach (Button button in navigation.Controls.OfType<Button>()) button.Width = navigation.Width - 28;
             jobStatus.MaximumSize = new Size(Math.Max(220, ClientSize.Width - 620), 65);
         };
         refresh.Tick += (_, _) => RefreshPresentation();
@@ -130,7 +134,7 @@ internal sealed partial class MainShell : Form
         if (!content.Controls.Contains(page)) { page.Dock = page is TableLayoutPanel ? DockStyle.Top : DockStyle.Fill; content.Controls.Add(page); DesktopTheme.Apply(page); }
         page.Visible = true; page.BringToFront(); content.ResumeLayout();
         selected = name; heading.Text = name;
-        foreach (Button button in navigation.Controls) button.Font = Equals(button.Tag, name) ? selectedNavigationFont : Font;
+        foreach (DesktopButton button in navigation.Controls.OfType<DesktopButton>()) button.Selected = Equals(button.Tag, name);
         if (name == "Activity") RefreshActivity();
     }
     private void BuildOverview()
@@ -369,7 +373,6 @@ internal sealed partial class MainShell : Form
             lifetime.Dispose();
             if (!archive.Running && !jobs.Busy) coordinator.Dispose();
             if (trackingInitialization is null || trackingInitialization.IsCompleted) tracker.Dispose();
-            selectedNavigationFont.Dispose();
         }
         base.Dispose(disposing);
     }

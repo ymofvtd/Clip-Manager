@@ -31,6 +31,7 @@ internal sealed class WorkflowWorkspace : UserControl
     private readonly Panel stages = new() { Dock = DockStyle.Fill };
     private readonly Panel configurationPage = new() { Dock = DockStyle.Fill, AutoScroll = true };
     private readonly Panel reviewPage = new() { Dock = DockStyle.Fill, AutoScroll = true };
+    private readonly DesktopButton configureTab, reviewTab;
     private Func<ISet<string>, string?>? validateSelection;
 
     internal WorkflowWorkspace(MainShell shell, PresetAction action, JobController jobs, Func<string> workingFolder, UiPreferences preferences)
@@ -44,6 +45,8 @@ internal sealed class WorkflowWorkspace : UserControl
         selection.Items.AddRange(["Numbered MP4 (top level)", "All videos (top level)", "Archives (recursive, excluding Backup)"]); selection.SelectedIndex = 0;
         identifyAction.Items.AddRange(["Inspect results only", "Move matches", "Recycle matches"]); identifyAction.SelectedIndex = 0;
         fields = DesktopTheme.Stack();
+        fields.Tag = SurfaceRole.Surface;
+        fields.Padding = new Padding(24, 16, 24, 24);
         DesktopTheme.Add(fields, DesktopTheme.Text(Description(action)));
         DesktopTheme.Add(fields, DesktopTheme.Actions(DesktopTheme.Text("Preset"), presets,
             DesktopTheme.Button("Apply preset", ApplySelectedPreset), DesktopTheme.Button("Save preset…", SavePreset),
@@ -73,11 +76,21 @@ internal sealed class WorkflowWorkspace : UserControl
             if (review.Dock == DockStyle.Top) review.Height = 390;
         };
         stages.Controls.Add(configurationPage); stages.Controls.Add(reviewPage); reviewPage.Visible = false; Controls.Add(stages);
-        var stageButtons = DesktopTheme.Actions(DesktopTheme.Button("Configure", () => { reviewPage.Hide(); configurationPage.Show(); configurationPage.BringToFront(); }),
-            DesktopTheme.Button("Review files", ShowReview)); stageButtons.Dock = DockStyle.Top;
+        configureTab = DesktopTheme.Button("Configure", ShowConfiguration);
+        reviewTab = DesktopTheme.Button("Review files", ShowReview);
+        configureTab.Kind = reviewTab.Kind = ButtonKind.Tab;
+        configureTab.Selected = true;
+        configureTab.Margin = reviewTab.Margin = new Padding(0, 0, 8, 0);
+        var stageButtons = DesktopTheme.Actions(configureTab, reviewTab);
+        stageButtons.Padding = new Padding(20, 12, 0, 0); stageButtons.Tag = SurfaceRole.Surface;
+        stageButtons.AccessibleName = "Workspace views";
         Controls.Add(stageButtons);
-        var commands = DesktopTheme.Actions(analyze, run); commands.Dock = DockStyle.Bottom; commands.Padding = new Padding(8);
-        Controls.Add(result); Controls.Add(commands);
+        result.Tag = SurfaceRole.Inset;
+        result.BorderStyle = BorderStyle.None;
+        var commands = DesktopTheme.Actions(analyze, run); commands.Dock = DockStyle.Bottom; commands.Padding = new Padding(20, 10, 16, 10); commands.Tag = SurfaceRole.Surface;
+        var resultPanel = new Panel { Dock = DockStyle.Bottom, Height = 88, Padding = new Padding(24, 10, 24, 10), Tag = SurfaceRole.Inset };
+        result.Dock = DockStyle.Fill; resultPanel.Controls.Add(result);
+        Controls.Add(resultPanel); Controls.Add(commands);
         source.Value = workingFolder();
         VisibleChanged += (_, _) => { if (Visible && useWorking.Checked) source.Value = workingFolder(); };
         useWorking.CheckedChanged += (_, _) => { source.Enabled = !useWorking.Checked; if (useWorking.Checked) source.Value = workingFolder(); InvalidatePlan(); };
@@ -317,7 +330,16 @@ internal sealed class WorkflowWorkspace : UserControl
         foreach (string path in new[] { draft.Target, draft.Destination, draft.DirectoryB }) shell.RememberPath(path);
     }
     private HashSet<string> frozenSelection = new(StringComparer.OrdinalIgnoreCase);
-    private void ShowReview() { configurationPage.Hide(); reviewPage.Show(); reviewPage.BringToFront(); }
+    private void ShowConfiguration()
+    {
+        reviewPage.Hide(); configurationPage.Show(); configurationPage.BringToFront();
+        configureTab.Selected = true; reviewTab.Selected = false;
+    }
+    private void ShowReview()
+    {
+        configurationPage.Hide(); reviewPage.Show(); reviewPage.BringToFront();
+        configureTab.Selected = false; reviewTab.Selected = true;
+    }
     private async Task RunAsync()
     {
         if (execution is null || jobs.Busy) return;

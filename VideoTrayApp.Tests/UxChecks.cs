@@ -172,6 +172,14 @@ internal static class UxChecks
                     }
                     Check(contexts.Visible && contexts.Width > 400 && contexts.Height > 200, "Review controls remain visible inside the selected workflow");
                     Check(contexts.Rows.Count > 0, workspace.Action + ": valid configuration produces inspectable planned file rows");
+                    var tabs = Descendants(workspace).OfType<DesktopButton>().Where(b => b.Kind == ButtonKind.Tab).ToArray();
+                    var configure = tabs.Single(b => b.Text == "Configure");
+                    var reviewTab = tabs.Single(b => b.Text == "Review files");
+                    Check(reviewTab.Selected && !configure.Selected, workspace.Action + ": analysis activates the Review files tab");
+                    configure.PerformClick(); Application.DoEvents();
+                    Check(configure.Selected && !reviewTab.Selected && !contexts.Visible, workspace.Action + ": Configure switches back without discarding review rows");
+                    reviewTab.PerformClick(); Application.DoEvents();
+                    Check(contexts.Visible && contexts.Rows.Count > 0 && reviewTab.Selected, workspace.Action + ": Review files restores the retained preview");
                     Check(snapshot.SequenceEqual(Snapshot(source)), workspace.Action + ": workspace analysis preserves the configured source files");
                     Capture(shell, Path.Combine(images, "review-" + workspace.Action.ToString().ToLowerInvariant() + ".png"));
                 }
@@ -198,6 +206,17 @@ internal static class UxChecks
                     DesktopTheme.Current = theme; DesktopTheme.Apply(shell); shell.Navigate("Overview"); Application.DoEvents();
                     Capture(shell, Path.Combine(images, "overview-" + theme.ToString().ToLowerInvariant() + ".png"));
                 }
+                DesktopTheme.Current = AppTheme.Dark; DesktopTheme.Apply(shell);
+                shell.OpenTool(PresetAction.ShuffleAndName); Application.DoEvents();
+                var renameWorkspace = Descendants(shell).OfType<WorkflowWorkspace>().Single(w => w.Action == PresetAction.ShuffleAndName);
+                Descendants(renameWorkspace).OfType<DesktopButton>().Single(b => b.Kind == ButtonKind.Tab && b.Text == "Configure").PerformClick();
+                Capture(shell, Path.Combine(images, "rename-shuffle-dark.png"));
+                shell.Size = new Size(900, 600); Application.DoEvents();
+                var toolButtons = Descendants(shell).OfType<DesktopButton>().Where(b => b.Visible && b.Kind == ButtonKind.Tool).ToArray();
+                var viewTabs = Descendants(renameWorkspace).OfType<DesktopButton>().Where(b => b.Kind == ButtonKind.Tab).ToArray();
+                Check(toolButtons.Max(b => b.PointToScreen(Point.Empty).Y + b.Height) < viewTabs.Min(b => b.PointToScreen(Point.Empty).Y),
+                    "Compact layout keeps tool choices visibly separated from workspace tabs");
+                Capture(shell, Path.Combine(images, "rename-shuffle-compact.png"));
                 shell.Size = new Size(900, 600); shell.Navigate("Archive"); Application.DoEvents(); Capture(shell, Path.Combine(images, "archive-compact.png"));
                 foreach (PresetAction action in Enum.GetValues<PresetAction>())
                 {

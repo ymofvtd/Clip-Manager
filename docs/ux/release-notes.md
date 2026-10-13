@@ -1,3 +1,9 @@
+# 2.1.15 visual refresh
+
+Light surfaces now use lavender accents, while dark surfaces use navy with violet highlights. Rounded commands, stronger headings, branded navigation, and clear selected states replace the uniform outlined-button appearance. Configure and Review files are underlined view tabs below a divider separating tool selection; switching views retains previews. Operation status has its own padded surface, and review tables use softer rows and selected colors. High Contrast retains native painting and system colors.
+
+Release build and the generated UX checks validate navigation, analysis-driven tab selection, retained previews, compact separation, and background Archive lifecycle. Refreshed screenshots include light, dark, and compact workspaces. Physical High Contrast, Narrator, and monitor DPI checks remain manual items in acceptance.md.
+
 # 2.1.14 redesign release
 
 The native shell integrates all nine clip actions, independent tracking and Archive configuration, visible presets, exact previews, bounded Activity, Light/Dark/System themes, and persistent progress/cancellation. First use is visible and skippable; Windows startup is opt in. Tray and second-instance activation retain the same services. Archive catalog pages and capacity checks load on request.
