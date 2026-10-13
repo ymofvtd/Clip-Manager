@@ -1,7 +1,10 @@
 namespace VideoTrayApp;
 
+internal enum ArchiveRuntimeState { Stopped, Running, Watching, WaitingForStableFile, Paused, WaitingForForegroundWork, Suspended }
 internal sealed record ArchiveStatus(bool Running, bool Paused, int Queued, string Current, int Percent,
-    int Copied, int AlreadyArchived, int Failed, DateTimeOffset? LastSuccess, string Warning, string[] UnavailableRoots, string[] Log);
+    int Copied, int AlreadyArchived, int Failed, DateTimeOffset? LastSuccess, string Warning, string[] UnavailableRoots, string[] Log,
+    ArchiveRuntimeState State = ArchiveRuntimeState.Stopped);
+internal sealed record ArchivePending(string Path, int Attempts, DateTimeOffset NextAttempt, string Reason);
 
 internal sealed class ArchiveWorker : IDisposable, IOperationProgress
 {
@@ -18,6 +21,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
     private CancellationTokenSource? cycle;
     private Task? task;
     private bool paused, reconcileRequested, disposed;
+    private bool suspended;
     private string current = "", warning = "";
     private List<string> unavailableRoots = [];
     private int percent, copied, archived, failed;
@@ -28,6 +32,10 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
     internal ArchiveSettings Settings { get; private set; } = new();
     internal bool Running { get { lock (gate) return task is { IsCompleted: false }; } }
     internal ArchiveStatus Status { get { lock (gate) return Snapshot(); } }
+    internal IReadOnlyList<ArchivePending> Pending
+    {
+        get { lock (gate) return queue.Take(QueueCapacity).Select(p => new ArchivePending(p.Key, p.Value.Attempts, p.Value.Due, p.Value.Reason)).ToArray(); }
+    }
     public CancellationToken CancellationToken => stop?.Token ?? CancellationToken.None;
 
     internal ArchiveWorker(OperationCoordinator coordinator, ISet<string> extensions, string dataFolder, IArchiveClock? clock = null)
@@ -46,7 +54,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
             Settings = settings;
             queue.Clear(); log.Clear();
             copied = archived = failed = percent = 0;
-            current = warning = ""; paused = false; lastSuccess = null; reconcileRequested = true;
+            current = warning = ""; paused = suspended = false; lastSuccess = null; reconcileRequested = true;
             task = Task.Run(() => Run(stop.Token));
             _ = task.ContinueWith(_ => Publish(), TaskScheduler.Default);
         }
@@ -123,6 +131,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                         }
                         foreach (string error in errors.Take(20)) AddLog(error);
                         needsIndex = false;
+                        lock (gate) suspended = false;
                     }
                     if (rescan || scan is null && nextReconcile == DateTimeOffset.MinValue)
                     {
@@ -213,7 +222,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                 catch (Exception ex)
                 {
                     // Keep the queue while the destination/index is unavailable, including disk-full failures.
-                    lock (gate) warning = $"Archive suspended: {ex.Message}";
+                    lock (gate) { warning = $"Archive suspended: {ex.Message}"; suspended = true; }
                     AddLog(warning);
                     Publish();
                     // Release content access before backing off; foreground work has priority.
@@ -244,10 +253,11 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
     { ct.ThrowIfCancellationRequested(); if (Settings.Speed == ArchiveSpeed.Slow) clock.Delay(TimeSpan.FromMilliseconds(1), ct); }
     private void Retry(string path, Job job, string reason)
     {
-        job.Attempts++;
-        job.Due = clock.UtcNow.AddSeconds(Math.Min(300, 5 * Math.Pow(2, Math.Min(job.Attempts - 1, 6))));
         lock (gate)
         {
+            job.Attempts++;
+            job.Reason = reason;
+            job.Due = clock.UtcNow.AddSeconds(Math.Min(300, 5 * Math.Pow(2, Math.Min(job.Attempts - 1, 6))));
             warning = $"Pending/failed clips remain: {path}: {reason}";
             if (job.Attempts == 1) failed++;
         }
@@ -316,8 +326,16 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
     {
         lock (gate) { log.Enqueue($"{clock.UtcNow:HH:mm:ss} {message}"); while (log.Count > 200) log.Dequeue(); }
     }
-    private ArchiveStatus Snapshot() => new(task is { IsCompleted: false }, paused, queue.Count, current, percent,
-        copied, archived, failed, lastSuccess, warning, unavailableRoots.ToArray(), log.ToArray());
+    private ArchiveStatus Snapshot()
+    {
+        bool running = task is { IsCompleted: false };
+        var state = !running ? ArchiveRuntimeState.Stopped : paused ? ArchiveRuntimeState.Paused
+            : coordinator.ForegroundActive ? ArchiveRuntimeState.WaitingForForegroundWork : suspended ? ArchiveRuntimeState.Suspended
+            : queue.Count > 0 && queue.All(p => p.Value.Due > clock.UtcNow) ? ArchiveRuntimeState.WaitingForStableFile
+            : queue.Count == 0 && Settings.WatchContinuously ? ArchiveRuntimeState.Watching : ArchiveRuntimeState.Running;
+        return new(running, paused, queue.Count, current, percent, copied, archived, failed, lastSuccess, warning,
+            unavailableRoots.ToArray(), log.ToArray(), state);
+    }
     private void Publish()
     {
         ArchiveStatus snapshot;
@@ -341,6 +359,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
         internal DateTime Time;
         internal DateTimeOffset Due;
         internal int Attempts;
+        internal string Reason = "Waiting for a stable file or the next scheduled copy";
     }
     private sealed class ArchiveDestinationException(string message) : IOException(message);
 }

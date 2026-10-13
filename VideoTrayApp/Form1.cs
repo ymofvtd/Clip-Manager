@@ -12,7 +12,7 @@ namespace VideoTrayApp
 {
     public partial class Form1 : Form
     {
-        private NotifyIcon trayIcon;
+        private NotifyIcon trayIcon = null!;
         private List<string> watchFolderPaths = [];
         private readonly FolderDurationTracker durationTracker = new(DefaultVideoExts);
         /// <summary>Folder used by rename/shuffle actions in the main window.</summary>
@@ -455,7 +455,7 @@ namespace VideoTrayApp
         private void SetStartup()
         {
             // This adds your app to the Windows Registry to run on boot
-            RegistryKey rk = Registry.CurrentUser.OpenSubKey
+            using RegistryKey rk = Registry.CurrentUser.CreateSubKey
                 ("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
             try { rk.DeleteValue("VideoTrayApp", false); } catch { }
             rk.SetValue("ClipsManager", Application.ExecutablePath);

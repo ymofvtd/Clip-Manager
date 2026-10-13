@@ -79,7 +79,7 @@ namespace VideoTrayApp
             Action<long, long?> reportProgress,
             CancellationToken cancellationToken = default)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "ClipsManager");
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClipsManager", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             string fileName = Path.GetFileName(new Uri(downloadUrl).LocalPath);
@@ -87,15 +87,13 @@ namespace VideoTrayApp
                 fileName = $"ClipsManager-{version.Major}.{version.Minor}.{GetBuild(version)}.exe";
 
             string destinationPath = Path.Combine(tempDir, fileName);
-            if (File.Exists(destinationPath))
-                File.Delete(destinationPath);
 
             using var response = await Http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             long? totalBytes = response.Content.Headers.ContentLength;
             await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var fileStream = File.Create(destinationPath);
+            await using var fileStream = new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
 
             var buffer = new byte[81920];
             long downloaded = 0;
@@ -108,6 +106,8 @@ namespace VideoTrayApp
                 reportProgress(downloaded, totalBytes);
             }
 
+            if (downloaded == 0 || totalBytes.HasValue && downloaded != totalBytes.Value)
+                throw new IOException("Update download is incomplete. Retry before installing.");
             return destinationPath;
         }
 
@@ -118,32 +118,51 @@ namespace VideoTrayApp
                 ?? throw new InvalidOperationException("Could not determine the application path.");
 
             int pid = Environment.ProcessId;
-            string scriptPath = Path.Combine(Path.GetTempPath(), "ClipsManager", $"update_{pid}.bat");
+            using (var package = File.OpenRead(downloadedPath))
+                if (package.Length < 2 || package.ReadByte() != 'M' || package.ReadByte() != 'Z')
+                    throw new InvalidDataException("Downloaded package is not a Windows executable.");
+            string scriptPath = Path.Combine(Path.GetTempPath(), "ClipsManager", $"update_{pid}_{Guid.NewGuid():N}.ps1");
 
             Directory.CreateDirectory(Path.GetDirectoryName(scriptPath)!);
 
-            string script = $"""
-                @echo off
-                :wait
-                tasklist /FI "PID eq {pid}" 2>NUL | find "{pid}" >Nul
-                if %ERRORLEVEL%==0 (
-                    timeout /t 1 /nobreak >nul
-                    goto wait
-                )
-                move /Y "{downloadedPath}" "{targetPath}"
-                start "" "{targetPath}"
-                del /F /Q "%~f0"
-                """;
+            string script = BuildUpdateScript(pid, downloadedPath, targetPath,
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClipsManager", "update_error.log"));
 
             File.WriteAllText(scriptPath, script);
 
-            Process.Start(new ProcessStartInfo
+            var helper = new ProcessStartInfo
             {
-                FileName = scriptPath,
+                FileName = "powershell.exe",
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 WindowStyle = ProcessWindowStyle.Hidden
-            });
+            };
+            foreach (string argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath }) helper.ArgumentList.Add(argument);
+            Process.Start(helper);
+        }
+
+        internal static string BuildUpdateScript(int processId, string package, string application, string log)
+        {
+            static string Literal(string value) => "'" + value.Replace("'", "''") + "'";
+            return $$"""
+                $ErrorActionPreference = 'Stop'
+                $updatePackagePath = {{Literal(package)}}
+                $updateApplicationPath = {{Literal(application)}}
+                $updateLogPath = {{Literal(log)}}
+                $updateBackupPath = $updateApplicationPath + '.' + [guid]::NewGuid().ToString('N') + '.update-backup'
+                try {
+                    while (Get-Process -Id {{processId}} -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }
+                    Move-Item -LiteralPath $updateApplicationPath -Destination $updateBackupPath
+                    try { Move-Item -LiteralPath $updatePackagePath -Destination $updateApplicationPath }
+                    catch { Move-Item -LiteralPath $updateBackupPath -Destination $updateApplicationPath; throw }
+                    Start-Process -FilePath $updateApplicationPath
+                    Remove-Item -LiteralPath $updateBackupPath
+                    if (Test-Path -LiteralPath $updateLogPath) { Remove-Item -LiteralPath $updateLogPath }
+                } catch {
+                    New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($updateLogPath)) -Force | Out-Null
+                    ($_ | Out-String) + "`nRetained backup: $updateBackupPath" | Set-Content -LiteralPath $updateLogPath
+                } finally { Remove-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue }
+                """;
         }
 
         private static Version ParseVersion(string tagName)

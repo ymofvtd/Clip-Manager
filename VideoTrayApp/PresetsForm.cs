@@ -5,6 +5,7 @@ internal sealed class PresetsForm : Form
     private readonly PresetStore store;
     private readonly string path;
     private readonly string workingFolder;
+    private readonly List<Action> refreshers = [];
 
     internal PresetsForm(PresetStore store, string path, string workingFolder)
     {
@@ -20,6 +21,17 @@ internal sealed class PresetsForm : Form
         foreach (var action in Enum.GetValues<PresetAction>())
             tabs.TabPages.Add(BuildTab(action));
         Controls.Add(tabs);
+        VisibleChanged += (_, _) =>
+        {
+            if (!Visible) return;
+            try
+            {
+                var latest = PresetStore.Load(path); store.Presets = latest.Presets; store.Defaults = latest.Defaults;
+                foreach (var refresh in refreshers) refresh();
+            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Presets could not be reloaded", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        };
+        DesktopTheme.Apply(this);
     }
 
     private TabPage BuildTab(PresetAction action)
@@ -31,7 +43,7 @@ internal sealed class PresetsForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var list = new ListBox { Dock = DockStyle.Fill };
-        var detail = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
+        var detail = new DetailsBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
         var presets = new List<ActionPreset>();
         ActionPreset? Selected() => list.SelectedIndex > 0 && list.SelectedIndex <= presets.Count ? presets[list.SelectedIndex - 1] : null;
         void RefreshList(string? selectedId = null)
@@ -46,6 +58,8 @@ internal sealed class PresetsForm : Form
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true };
         var add = new Button { Text = "Add preset", AutoSize = true };
         var edit = new Button { Text = "Edit", AutoSize = true };
+        var duplicate = new Button { Text = "Duplicate", AutoSize = true };
+        var rename = new Button { Text = "Rename", AutoSize = true };
         var delete = new Button { Text = "Delete", AutoSize = true };
         var setDefault = new Button { Text = "Set as default", AutoSize = true };
         Button? archiveTemplate = action == PresetAction.PrepareBatch
@@ -88,6 +102,25 @@ internal sealed class PresetsForm : Form
             if (editor.ShowDialog(this) == DialogResult.OK && SaveChange(() => store.Presets[store.Presets.IndexOf(preset)] = editor.Preset))
                 RefreshList(editor.Preset.Id);
         };
+        duplicate.Click += (_, _) =>
+        {
+            if (Selected() is not { } preset) return;
+            var copy = preset.Clone(); copy.Id = Guid.NewGuid().ToString("N"); copy.Name += " copy";
+            if (SaveChange(() => store.Presets.Add(copy))) RefreshList(copy.Id);
+        };
+        rename.Click += (_, _) =>
+        {
+            if (Selected() is not { } preset) return;
+            using var dialog = new Form { Text = "Rename preset", ClientSize = new Size(420, 140), StartPosition = FormStartPosition.CenterParent, Font = Font };
+            var input = new TextBox { Text = preset.Name, Width = 365, AccessibleName = "Preset name" };
+            var save = new Button { Text = "Save name", DialogResult = DialogResult.OK, AutoSize = true };
+            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+            var layout = DesktopTheme.Stack(); DesktopTheme.Add(layout, input); DesktopTheme.Add(layout, DesktopTheme.Actions(save, cancel)); dialog.Controls.Add(layout);
+            dialog.AcceptButton = save; dialog.CancelButton = cancel; DesktopTheme.Apply(dialog);
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            if (string.IsNullOrWhiteSpace(input.Text)) { MessageBox.Show(this, "Enter a preset name."); return; }
+            if (SaveChange(() => preset.Name = input.Text.Trim())) RefreshList(preset.Id);
+        };
         delete.Click += (_, _) =>
         {
             if (Selected() is not { } preset) return;
@@ -111,10 +144,10 @@ internal sealed class PresetsForm : Form
         list.SelectedIndexChanged += (_, _) =>
         {
             var selected = Selected();
-            edit.Enabled = delete.Enabled = selected is not null;
-            detail.Text = selected?.Summary(workingFolder) ?? "Always ask (Current)\r\n\r\nUse the existing action dialogs each time. Select this and click Set as default to restore manual prompts.";
+            edit.Enabled = delete.Enabled = duplicate.Enabled = rename.Enabled = selected is not null;
+            detail.Text = selected?.Summary(workingFolder) ?? "Always ask (Current)\r\n\r\nOpen the normal configuration workspace. Select this and click Set as default to remove the saved default.";
         };
-        buttons.Controls.AddRange([add, edit, delete, setDefault]);
+        buttons.Controls.AddRange([add, edit, duplicate, rename, delete, setDefault]);
         if (archiveTemplate is not null) buttons.Controls.Add(archiveTemplate);
         layout.Controls.Add(list, 0, 0);
         layout.Controls.Add(detail, 1, 0);
@@ -122,6 +155,7 @@ internal sealed class PresetsForm : Form
         layout.SetColumnSpan(buttons, 2);
         page.Controls.Add(layout);
         RefreshList();
+        refreshers.Add(() => RefreshList(Selected()?.Id));
         return page;
     }
 }
@@ -131,6 +165,7 @@ internal sealed class PresetEditorForm : Form
     internal ActionPreset Preset { get; }
     internal PresetEditorForm(ActionPreset preset, string workingFolder)
     {
+        string originalValues = System.Text.Json.JsonSerializer.Serialize(preset);
         Preset = preset;
         Text = "Edit preset — " + ActionPreset.Label(preset.Action);
         StartPosition = FormStartPosition.CenterParent;
@@ -151,6 +186,7 @@ internal sealed class PresetEditorForm : Form
             int row = fields.RowCount++;
             fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             fields.Controls.Add(new Label { Text = label, AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, 0, row);
+            control.AccessibleName = label;
             control.Dock = DockStyle.Fill;
             control.Margin = new Padding(3, 6, 3, 6);
             fields.Controls.Add(control, 1, row);
@@ -170,34 +206,19 @@ internal sealed class PresetEditorForm : Form
         }
         void Choice<T>(string label, T value, Action<T> setter) where T : struct, Enum
         {
-            var control = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, DataSource = Enum.GetValues<T>(), SelectedItem = value };
+            var values = Enum.GetValues<T>();
+            var control = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = label };
+            control.Items.AddRange(values.Select(v => (object)(v.ToString() switch
+            { "NumberedMp4" => "Numbered MP4 (top level)", "AllVideos" => "All videos (top level)", "Archives" => "Archives (recursive)", "Recycle" => "Send to Recycle Bin", _ => v.ToString() })).ToArray());
+            control.SelectedIndex = Array.IndexOf(values, value);
             Add(label, control);
-            saveValues.Add(() => setter((T)control.SelectedItem!));
+            saveValues.Add(() => setter(values[control.SelectedIndex]));
         }
         void PathField(string label, string value, Action<string> setter, bool file = false)
         {
-            var panel = new TableLayoutPanel { AutoSize = true, ColumnCount = 2 };
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            var input = new TextBox { Text = value, Dock = DockStyle.Fill };
-            var browse = new Button { Text = "Browse…", AutoSize = true };
-            browse.Click += (_, _) =>
-            {
-                if (file)
-                {
-                    using var picker = new OpenFileDialog { Title = label, Filter = "Video files|*.mp4;*.mov;*.m4v;*.mxf;*.avi;*.mkv;*.wmv;*.mts;*.m2ts;*.mpg;*.mpeg;*.3gp;*.flv;*.webm", CheckFileExists = true };
-                    if (picker.ShowDialog(this) == DialogResult.OK) input.Text = picker.FileName;
-                }
-                else
-                {
-                    using var picker = new FolderBrowserDialog { Description = label, UseDescriptionForTitle = true, SelectedPath = input.Text };
-                    if (picker.ShowDialog(this) == DialogResult.OK) input.Text = picker.SelectedPath;
-                }
-            };
-            panel.Controls.Add(input, 0, 0);
-            panel.Controls.Add(browse, 1, 0);
-            Add(label, panel);
-            saveValues.Add(() => setter(input.Text.Trim()));
+            var picker = new PathPicker(label, file) { Value = value };
+            Add(label, picker);
+            saveValues.Add(() => setter(picker.Value));
         }
         TextField("Preset name", preset.Name, v => preset.Name = v);
         var useWorking = new CheckBox { Text = "Use current working folder", Checked = preset.UseWorkingFolder, AutoSize = true };
@@ -211,10 +232,9 @@ internal sealed class PresetEditorForm : Form
             PathField(preset.Action == PresetAction.PrepareBatch ? "Destination parent folder" : "Destination folder", preset.Destination, v => preset.Destination = v);
         if (preset.Action == PresetAction.Archive)
         {
-            var roots = new TextBox { Multiline = true, Height = 100, ScrollBars = ScrollBars.Vertical,
-                Text = string.Join(Environment.NewLine, preset.ArchiveSources) };
-            Add("Source list (one per line)", roots);
-            saveValues.Add(() => preset.ArchiveSources = roots.Lines.Where(line => !string.IsNullOrWhiteSpace(line)).Select(line => line.Trim()).ToList());
+            var roots = new SourceFolderList { Paths = preset.ArchiveSources };
+            Add("Archive sources", roots);
+            saveValues.Add(() => preset.ArchiveSources = roots.Paths);
             Add("Source selection", new Label { AutoSize = true, Text = "With current working folder selected, add it to this list.\nOtherwise use this list, or the fixed target when the list is empty.\nAlways copy and verify recursively; run once; keep completed copies." });
             Choice("Speed", preset.ArchiveSpeed, v => preset.ArchiveSpeed = v);
             Number("Slow interval (seconds)", preset.ArchiveIntervalSeconds, 0, 86400, v => preset.ArchiveIntervalSeconds = v);
@@ -235,7 +255,7 @@ internal sealed class PresetEditorForm : Form
             Add("Batch destination", new Label { AutoSize = true, Text = "Automatically use the highest numbered c_ folder\nin the destination. If none exists, create a new folder.\nLeave the name blank for batch_1, batch_2, etc.\nThe c_ folder does not need to exist when you save." });
             Number("Duration (minutes)", preset.DurationMinutes, 1, 10080, v => preset.DurationMinutes = v);
             Choice("Select clips", preset.Selection, v => preset.Selection = v);
-            Add("Selection help", new Label { AutoSize = true, Text = "NumberedMp4: existing batch behavior.\nAllVideos: all top-level videos.\nArchives: videos in target and subfolders, excluding Backup.\nEach mode uses a random order." });
+            Add("Selection help", new Label { AutoSize = true, Text = "Numbered MP4: numbered top-level MP4 files.\nAll videos: all top-level supported files.\nArchives: videos in target and subfolders, excluding Backup.\nEach mode uses a random order." });
             Add("Batch naming", new Label { AutoSize = true, Text = "New clips: 1, 2, 3, ... from shortest to longest.\nExisting filenames stay unchanged; occupied numbers are skipped." });
         }
         if (preset.Action == PresetAction.ShuffleBatches)
@@ -265,7 +285,7 @@ internal sealed class PresetEditorForm : Form
             try
             {
                 foreach (var setter in saveValues) setter();
-                preset.Validate(workingFolder);
+                preset.ValidateForSave();
                 DialogResult = DialogResult.OK;
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "Check preset settings", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
@@ -276,5 +296,14 @@ internal sealed class PresetEditorForm : Form
         Controls.Add(outer);
         AcceptButton = save;
         CancelButton = cancel;
+        DesktopTheme.Apply(this);
+        FormClosing += (_, e) =>
+        {
+            if (DialogResult == DialogResult.OK) return;
+            foreach (var setter in saveValues) setter();
+            if (System.Text.Json.JsonSerializer.Serialize(preset) != originalValues &&
+                MessageBox.Show(this, "Discard the unsaved preset changes?", "Unsaved preset", MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.OK) e.Cancel = true;
+        };
     }
 }

@@ -13,6 +13,8 @@ string root = Path.Combine(Path.GetTempPath(), "ClipIdentifierTests-" + Guid.New
 Directory.CreateDirectory(root);
 try
 {
+    UxChecks.Run(root, WriteAvi);
+    if (args.Contains("--ux-only")) return;
     string source = Directory.CreateDirectory(Path.Combine(root, "source")).FullName;
     string nested = Directory.CreateDirectory(Path.Combine(source, "nested")).FullName;
     string destination = Directory.CreateDirectory(Path.Combine(root, "destination")).FullName;

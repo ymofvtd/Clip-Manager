@@ -4,7 +4,7 @@ namespace VideoTrayApp
 {
     internal static class Program
     {
-        private static Mutex singleInstanceMutex;
+        private static Mutex? singleInstanceMutex;
 
         /// <summary>
         ///  The main entry point for the application.
@@ -20,15 +20,19 @@ namespace VideoTrayApp
 
                 if (!isNewInstance)
                 {
-                    // Another instance is running - show notification and exit
-                    ShowNotification();
+                    // Signal the existing window, then exit without creating services.
+                    using var activation = new InstanceActivation("ClipsManager_Activate");
+                    activation.Signal();
                     return;
                 }
 
                 // To customize application configuration such as set high DPI settings or default font,
                 // see https://aka.ms/applicationconfiguration.
                 ApplicationConfiguration.Initialize();
-                Application.Run(new Form1());
+                using var window = new MainShell();
+                using var activationListener = new InstanceActivation("ClipsManager_Activate");
+                window.HandleCreated += (_, _) => activationListener.Listen(window, window.ActivateExisting);
+                Application.Run(window);
             }
             catch (Exception ex)
             {
@@ -41,7 +45,7 @@ namespace VideoTrayApp
 
                 try
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(errorLog));
+                    Directory.CreateDirectory(Path.GetDirectoryName(errorLog)!);
                     File.AppendAllText(errorLog, $"\n[{DateTime.Now}] {ex}\n");
                 }
                 catch { }
@@ -59,47 +63,5 @@ namespace VideoTrayApp
             }
         }
 
-        static void ShowNotification()
-        {
-            using (var notifyIcon = new NotifyIcon())
-            {
-                notifyIcon.Icon = LoadApplicationIcon();
-                notifyIcon.Visible = true;
-                notifyIcon.ShowBalloonTip(
-                    3000,
-                    "Clips Manager",
-                    "Already running! Refreshed duration.",
-                    ToolTipIcon.Info
-                );
-                System.Threading.Thread.Sleep(3500);
-            }
-        }
-
-        static Icon LoadApplicationIcon()
-        {
-            try
-            {
-                // Try to load icon from the application directory
-                string iconPath = Path.Combine(AppContext.BaseDirectory, "icon.ico");
-                if (File.Exists(iconPath))
-                {
-                    return new Icon(iconPath);
-                }
-
-                // Try loading from current directory as fallback
-                if (File.Exists("icon.ico"))
-                {
-                    return new Icon("icon.ico");
-                }
-
-                // If icon not found, use system application icon
-                return SystemIcons.Application;
-            }
-            catch
-            {
-                // If anything fails, use system application icon
-                return SystemIcons.Application;
-            }
-        }
     }
 }

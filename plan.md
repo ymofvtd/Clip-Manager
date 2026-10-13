@@ -4,7 +4,7 @@ Updated: 2026-10-13. Baseline release: **2.1.12**.
 
 This replaces the completed feature implementation plan. The next project is a complete redesign of the desktop experience: navigation, every operation, presets, settings, tray behavior, progress, errors, recovery, accessibility, and presentation. The goal is a useful, polished application that makes large clip libraries easy to manage and makes file operations understandable before they run.
 
-**Status:** planning complete; redesign implementation has not started. The 2.1.12 version bump includes the previously completed Archive / Seek duplications feature work and this roadmap. It does not mean the redesigned interface is implemented or that production-drive acceptance is complete. Original feature notes remain in `todo.md`.
+**Status:** the native redesign is implemented for release **2.1.14**. All nine actions use the new shell, configuration/review flow, shared controls, results and settings. Generated regression and lifecycle evidence, screenshots, design tokens, wireframes, bug fixes and recovery contracts are in `docs/ux/`. Physical accessibility/DPI, real removable/full-drive, production-library and actual update/logoff acceptance remain open. Version 2.1.12 is the prior feature baseline. Release 2.1.14 is being pushed to the automatic main-branch release workflow; publication does not certify the remaining manual acceptance checks.
 
 ## 1. Outcomes and scope
 
@@ -24,19 +24,19 @@ Scope includes all current actions and all user-facing windows. Keep the existin
 
 These are code-observed design problems; user-reported bugs still need reproduction and a regression record.
 
-| Surface | Current friction | Redesign outcome |
-| --- | --- | --- |
-| Main window | 520 x 400 button grid, absolute positioning, competing button colors and emoji | Resizable shell with clear navigation, folder context, operation content, and persistent status |
-| Startup / tray | Window immediately hides; constructor opens setup and registers Windows startup | Visible, skippable first run; explicit startup and close behavior; predictable activation |
-| Folder selection | Working folder, tracking roots, archive sources, and duplicate roots are spread across dialogs | Clearly labeled folder roles with shared pickers, validation, availability, and remembered choices |
-| Archive | Separate utility window; checkbox implies run-once mode; status and errors are mostly concatenated text | Integrated workspace with explicit mode, source health, queue/phase status, and actionable issues |
-| Duplicate review | Very wide grid of raw paths/bytes; legacy cleanup uses a read-only text list | Grouped review, readable metadata, folder context, selection summary, and exact final confirmation |
-| Identify clip | Multiple pickers and result/action dialogs | Reference, search scope, results, destination, and action review in one workspace |
-| Batch / naming tools | Repeated prompts; consequential moves/renames are hard to visualize | Structured configuration and an exact change preview with clear cancellation semantics |
-| Presets | Important commands mainly in context menus; editor exposes raw enums and multiline source paths | Visible preset access inside each workflow, consistent editors, and human-readable summaries |
-| Settings | Watch-folder setup is separate from other preferences; startup is implicit | One settings destination with distinct General, Tracking, Updates, and About sections |
-| Feedback | Modal success/error boxes and brief generic completion labels | Persistent operation outcomes, useful empty states, recoverable inline errors, and Activity details |
-| Visual consistency | Dark main window and default-looking secondary forms; scattered typography/layout | Shared theme, typography, icons, spacing, focus styles, and control behavior everywhere |
+| Surface              | Current friction                                                                                        | Redesign outcome                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Main window          | 520 x 400 button grid, absolute positioning, competing button colors and emoji                          | Resizable shell with clear navigation, folder context, operation content, and persistent status     |
+| Startup / tray       | Window immediately hides; constructor opens setup and registers Windows startup                         | Visible, skippable first run; explicit startup and close behavior; predictable activation           |
+| Folder selection     | Working folder, tracking roots, archive sources, and duplicate roots are spread across dialogs          | Clearly labeled folder roles with shared pickers, validation, availability, and remembered choices  |
+| Archive              | Separate utility window; checkbox implies run-once mode; status and errors are mostly concatenated text | Integrated workspace with explicit mode, source health, queue/phase status, and actionable issues   |
+| Duplicate review     | Very wide grid of raw paths/bytes; legacy cleanup uses a read-only text list                            | Grouped review, readable metadata, folder context, selection summary, and exact final confirmation  |
+| Identify clip        | Multiple pickers and result/action dialogs                                                              | Reference, search scope, results, destination, and action review in one workspace                   |
+| Batch / naming tools | Repeated prompts; consequential moves/renames are hard to visualize                                     | Structured configuration and an exact change preview with clear cancellation semantics              |
+| Presets              | Important commands mainly in context menus; editor exposes raw enums and multiline source paths         | Visible preset access inside each workflow, consistent editors, and human-readable summaries        |
+| Settings             | Watch-folder setup is separate from other preferences; startup is implicit                              | One settings destination with distinct General, Tracking, Updates, and About sections               |
+| Feedback             | Modal success/error boxes and brief generic completion labels                                           | Persistent operation outcomes, useful empty states, recoverable inline errors, and Activity details |
+| Visual consistency   | Dark main window and default-looking secondary forms; scattered typography/layout                       | Shared theme, typography, icons, spacing, focus styles, and control behavior everywhere             |
 
 During the audit, inspect `Program.cs`, all `Form1*.cs` files, all designer-backed forms, `ArchiveForm`, `DuplicationReviewForm`, `PresetsForm`, `ProgressForm`, and `AppUpdater`. Record whether each screen is active, replaceable, or unused before removing anything.
 
@@ -46,15 +46,15 @@ Create `docs/ux/bug-audit.md` with reproduction steps, expected/actual behavior,
 
 Use one primary window with a left navigation rail, workspace header, content area, and a compact persistent operation strip. Secondary dialogs are reserved for OS file picking, a consequential final confirmation, and focused editing where useful.
 
-| Destination | Contents |
-| --- | --- |
-| Overview | Active work, archive health, working folder, duration tracking summary, recent outcomes, and useful next actions |
-| Archive | Source/destination configuration, run mode, speed, current work, pending/retrying issues, and archive details |
-| Batches | Prepare Batch and Shuffle Batches as clearly separate tools |
-| Find & clean | Compare folders (Seek duplications), Clean one folder (Remove duplicates), and Identify clip |
-| Rename & shuffle | Shuffle & Name, Name by 10s, and Shuffle Random |
-| Activity | Current and recent jobs, phase progress, outcomes, warnings, errors, and recovery locations |
-| Settings | General behavior, Duration tracking, Presets management, Updates, and About |
+| Destination      | Contents                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Overview         | Active work, archive health, working folder, duration tracking summary, recent outcomes, and useful next actions |
+| Archive          | Source/destination configuration, run mode, speed, current work, pending/retrying issues, and archive details    |
+| Batches          | Prepare Batch and Shuffle Batches as clearly separate tools                                                      |
+| Find & clean     | Compare folders (Seek duplications), Clean one folder (Remove duplicates), and Identify clip                     |
+| Rename & shuffle | Shuffle & Name, Name by 10s, and Shuffle Random                                                                  |
+| Activity         | Current and recent jobs, phase progress, outcomes, warnings, errors, and recovery locations                      |
+| Settings         | General behavior, Duration tracking, Presets management, Updates, and About                                      |
 
 Retain existing action names in help/preset mappings where new navigation labels differ. Every current action must remain reachable from the window and its applicable tray/context entry.
 
@@ -98,13 +98,13 @@ Accessibility is part of every component: logical Tab order, visible focus, acce
 
 Starting color tokens for the native prototype (adjust only after contrast/state checks):
 
-| Token | Light | Dark |
-| --- | --- | --- |
-| Application background | `#F4F6F8` | `#12161C` |
-| Panel / input surface | `#FFFFFF` | `#1C222B` |
-| Main text | `#17212F` | `#EDF2F7` |
-| Secondary text | `#526174` | `#B0BECE` |
-| Primary action with white text | `#245CC5` | `#245CC5` |
+| Token                              | Light     | Dark      |
+| ---------------------------------- | --------- | --------- |
+| Application background             | `#F4F6F8` | `#12161C` |
+| Panel / input surface              | `#FFFFFF` | `#1C222B` |
+| Main text                          | `#17212F` | `#EDF2F7` |
+| Secondary text                     | `#526174` | `#B0BECE` |
+| Primary action with white text     | `#245CC5` | `#245CC5` |
 | Destructive action with white text | `#B42336` | `#B42336` |
 
 Use dedicated contrasting focus/border tokens, not a low-contrast decorative divider as a control boundary. Success/warning colors supplement icons and text rather than coloring entire workspaces. High Contrast replaces these tokens with Windows system values.
@@ -222,15 +222,15 @@ A failed transaction shows what was restored, what could not be restored, and wh
 
 Keep file-operation services authoritative. Extract presentation code from `Form1` incrementally, avoiding a simultaneous rewrite of tested hashing/copying/recycling algorithms.
 
-| Layer / component | Responsibility |
-| --- | --- |
-| `MainShell` and workspace views | Layout, navigation, focus, view lifecycle, and rendering |
-| Small presenters / view state models | Validation, commands, immutable displayed state, review selection, and job transitions |
-| `JobController` / status adapter | Wrap existing progress and `OperationCoordinator`; serialize mutation, surface structured outcomes, and cancel safely |
-| Shared controls | `PathPicker`, `SourceFolderList`, `PresetSelector`, `StatusBanner`, `OperationStrip`, `FileContextList`, `ChangePreview`, and empty/error states |
-| Theme resources | Central colors, fonts, spacing, icons, state styles, and DPI handling |
-| Existing domain services | Archive worker/index/content, duplicate identification/recycling, batch planning/execution, transactions, tracking, and updater |
-| UI settings/history storage | Versioned, atomic local persistence independent of archive identity/index schemas |
+| Layer / component                    | Responsibility                                                                                                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `MainShell` and workspace views      | Layout, navigation, focus, view lifecycle, and rendering                                                                                         |
+| Small presenters / view state models | Validation, commands, immutable displayed state, review selection, and job transitions                                                           |
+| `JobController` / status adapter     | Wrap existing progress and `OperationCoordinator`; serialize mutation, surface structured outcomes, and cancel safely                            |
+| Shared controls                      | `PathPicker`, `SourceFolderList`, `PresetSelector`, `StatusBanner`, `OperationStrip`, `FileContextList`, `ChangePreview`, and empty/error states |
+| Theme resources                      | Central colors, fonts, spacing, icons, state styles, and DPI handling                                                                            |
+| Existing domain services             | Archive worker/index/content, duplicate identification/recycling, batch planning/execution, transactions, tracking, and updater                  |
+| UI settings/history storage          | Versioned, atomic local persistence independent of archive identity/index schemas                                                                |
 
 Use lightweight presenters rather than adding an application framework by default. Add structured operation results where existing human-readable summary strings are insufficient; retain compatibility adapters during migration. Future preview APIs must return immutable plans and must not perform mutations during analysis.
 
@@ -256,54 +256,54 @@ Each phase has a reviewable artifact and an exit gate. All implementation boxes 
 
 ### Phase 0 - Audit and baseline
 
-- [ ] Inventory every screen, entry point, command, setting, and tray action; map them to the new destinations.
-- [ ] Capture current screenshots and measure startup, scan, UI responsiveness, memory, and large-result behavior on disposable fixtures.
-- [ ] Create the prioritized bug audit with reproducible failures and coverage expectations.
-- [ ] Document current safety and cancellation contracts for every manual/preset workflow.
+- [x] Inventory every screen, entry point, command, setting, and tray action; map them to the new destinations.
+- [ ] Capture current screenshots and measure startup, scan, UI responsiveness, memory, and large-result behavior on disposable fixtures. New-screen captures and generated measurements are complete; the baseline visual capture remains pending. See `docs/ux/acceptance.md`.
+- [x] Create the prioritized bug audit with reproducible failures and coverage expectations.
+- [x] Document current safety and cancellation contracts for every manual/preset workflow.
 
 Exit: no current action is omitted; confirmed safety/correctness bugs are prioritized; baseline data and fixture steps are reproducible.
 
 ### Phase 1 - Design and native prototype
 
-- [ ] Write design tokens, component states, terminology, and accessibility conventions.
-- [ ] Create annotated wireframes for every destination and its empty/loading/error/result states in `docs/ux/wireframes.md`.
-- [ ] Build a disposable native prototype of the shell, Archive, and grouped duplicate review with generated data.
+- [x] Write design tokens, component states, terminology, and accessibility conventions.
+- [x] Create annotated wireframes for every destination and its empty/loading/error/result states in `docs/ux/wireframes.md`.
+- [x] Build a disposable native prototype of the shell, Archive, and grouped duplicate review with generated data.
 - [ ] Verify resizing, mixed DPI, long paths, keyboard use, and large review lists before converting production screens.
 
 Exit: validated implementation direction is concrete, all major states are specified, and native WinForms can meet the layout/accessibility requirements.
 
 ### Phase 2 - Shell, state, and common components
 
-- [ ] Introduce the shell, navigation, theme resources, shared pickers, presets access, status strip, and structured job presentation.
-- [ ] Add UI settings persistence, restored/clamped bounds, and skippable first-run setup.
-- [ ] Resolve startup, activation, close-to-tray, subscription/disposal, and conflicting-command defects identified in the audit.
-- [ ] Temporarily route unfinished workflows to their existing forms so the app stays usable during migration.
+- [x] Introduce the shell, navigation, theme resources, shared pickers, presets access, status strip, and structured job presentation.
+- [x] Add UI settings persistence, restored/clamped bounds, and skippable first-run setup.
+- [x] Resolve startup, activation, close-to-tray, subscription/disposal, and conflicting-command defects identified in the audit.
+- [x] Route production workflows to the new workspaces. No unfinished production routes remain; compatibility forms stay compiled because the baseline tests still call them.
 
 Exit: every action still works; navigation does not affect worker lifetime; first-run and tray behavior are predictable; common controls pass accessibility checks.
 
 ### Phase 3 - Archive and file-context review
 
-- [ ] Replace Archive configuration/status with the integrated workspace and structured issue projections.
-- [ ] Build the shared virtualized file-context/group review components and stable selection model.
-- [ ] Convert Seek duplications, Remove duplicates, and Identify clip, including partial-scan/error states and exact confirmations.
-- [ ] Verify foreground/background handoff, availability/retry controls, all-Keep defaults, aliases, and changed-file guards.
+- [x] Replace Archive configuration/status with the integrated workspace and structured issue projections.
+- [x] Build the shared virtualized file-context/group review components and stable selection model.
+- [x] Convert Seek duplications, Remove duplicates, and Identify clip, including partial-scan/error states and exact confirmations.
+- [x] Verify foreground/background handoff, availability/retry controls, all-Keep defaults, aliases, and changed-file guards.
 
 Exit: background status is always discoverable; all cleanup decisions show folder context; hidden selections and partial errors cannot produce misleading actions.
 
 ### Phase 4 - Batch and rename workflows
 
-- [ ] Add read-only planning APIs where needed; share plans between previews and execution.
-- [ ] Convert Prepare Batch and Shuffle Batches with resolved destinations and before/after summaries.
-- [ ] Convert the three naming/shuffling modes with collision validation and fixed reviewed random mappings.
-- [ ] Test cancellation, rollback, changed destinations, starter preservation, and archive reconciliation after moves.
+- [x] Add read-only planning APIs where needed; share plans between previews and execution.
+- [x] Convert Prepare Batch and Shuffle Batches with resolved destinations and before/after summaries.
+- [x] Convert the three naming/shuffling modes with collision validation and fixed reviewed random mappings.
+- [x] Test cancellation, rollback, changed destinations, starter preservation, and archive reconciliation after moves.
 
 Exit: every file-changing action has a meaningful review and accurate recovery contract; previews are mutation-free and execution matches them.
 
 ### Phase 5 - Presets, tracking, settings, Activity, and updates
 
-- [ ] Replace preset management/editor surfaces, preserving stored action mappings, defaults, and legacy migrations.
-- [ ] Integrate duration tracking, General/Updates/About, and startup/notification preferences.
-- [ ] Add bounded Activity persistence, recovery details, and diagnostics access.
+- [x] Replace preset management/editor surfaces, preserving stored action mappings, defaults, and legacy migrations.
+- [x] Integrate duration tracking, General/Updates/About, and startup/notification preferences.
+- [x] Add bounded Activity persistence, recovery details, and diagnostics access.
 - [ ] Complete tray parity, single-instance activation, safe update restart, and responsive shutdown.
 
 Exit: all remaining surfaces use the same components and language; old settings upgrade without data loss; recovery remains discoverable after restart.
@@ -311,7 +311,7 @@ Exit: all remaining surfaces use the same components and language; old settings 
 ### Phase 6 - Accessibility, performance, acceptance, and rollout
 
 - [ ] Complete the visual/accessibility/performance matrix below and fix all blocking defects.
-- [ ] Run existing domain integration checks plus meaningful new workflow/lifecycle/migration tests.
+- [x] Run existing domain integration checks plus meaningful new workflow/lifecycle/migration tests.
 - [ ] Validate a production-sized video library and real removable/full-drive behavior using backed-up data; record what was simulated versus physically tested.
 - [ ] Remove superseded forms/dialog helpers only after confirming that no callers remain; update linked test sources, README, screenshots, help, and release notes.
 - [ ] Release the redesign with its own subsequent version bump, build/publish validation, and an upgrade/recovery checklist.
@@ -361,4 +361,4 @@ Production-library throughput, real drive removal, and an actually full destinat
 
 The redesign is done when all nine current actions, tracking, presets, tray behavior, updates, settings, and diagnostics use the new experience; documented bugs are resolved; accessibility and performance targets are checked; existing safety guarantees still hold; and a new user can configure, review, run, and recover without external instructions.
 
-For this request, bump **2.1.11 -> 2.1.12** in project Version/AssemblyVersion/FileVersion and README, verify the completed baseline, commit the prior feature work plus this replacement plan, and push to the current `main` branch. The existing workflow automatically builds/releases on a main-branch version bump. Do not describe the new roadmap as delivered UI or mark its implementation checkboxes complete. Future redesign releases receive subsequent version bumps after their own acceptance gates.
+The **2.1.12** baseline was committed and pushed before this redesign (baseline commit `cd8e11e`). The redesign release uses the subsequent **2.1.14** Version/AssemblyVersion/FileVersion and updated README. Build, generated regression and local publish gates are recorded in `docs/ux/acceptance.md`; unchecked roadmap items remain acceptance/release work. The version bump is pushed to main for automatic publication as explicitly requested. Remaining manual acceptance and performance limitations stay documented; publication does not mark those acceptance checkboxes complete.

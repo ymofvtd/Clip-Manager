@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
+    <Version>2.1.14</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
@@ -35,5 +36,15 @@
     <Compile Include="../VideoTrayApp/FolderDurationTracker.cs" Link="FolderDurationTracker.cs" />
     <Compile Include="../VideoTrayApp/SettingsForm.cs" Link="SettingsForm.cs" />
     <Compile Include="../VideoTrayApp/SettingsForm.Designer.cs" Link="SettingsForm.Designer.cs" />
+    <Compile Include="../VideoTrayApp/UiPreferences.cs" Link="UiPreferences.cs" />
+    <Compile Include="../VideoTrayApp/DesktopControls.cs" Link="DesktopControls.cs" />
+    <Compile Include="../VideoTrayApp/ClipPlans.cs" Link="ClipPlans.cs" />
+    <Compile Include="../VideoTrayApp/JobController.cs" Link="JobController.cs" />
+    <Compile Include="../VideoTrayApp/MainShell*.cs" Link="%(Filename)%(Extension)" />
+    <Compile Include="../VideoTrayApp/WorkflowWorkspace.cs" Link="WorkflowWorkspace.cs" />
+    <Compile Include="../VideoTrayApp/ArchiveWorkspace.cs" Link="ArchiveWorkspace.cs" />
+    <Compile Include="../VideoTrayApp/InstanceActivation.cs" Link="InstanceActivation.cs" />
+    <Compile Include="../VideoTrayApp/ToolGroupWorkspace.cs" Link="ToolGroupWorkspace.cs" />
+    <Compile Include="../VideoTrayApp/UiThread.cs" Link="UiThread.cs" />
   </ItemGroup>
 </Project>

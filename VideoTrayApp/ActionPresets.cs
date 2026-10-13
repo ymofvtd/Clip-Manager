@@ -104,6 +104,22 @@ internal sealed class ActionPreset
             throw new FileNotFoundException("The reference clip no longer exists.", ReferenceClip);
     }
 
+    // Editing a preset must not discard useful settings when a removable drive is absent.
+    internal void ValidateForSave()
+    {
+        if (string.IsNullOrWhiteSpace(Name)) throw new ArgumentException("Enter a preset name.");
+        if (!Enum.IsDefined(Action) || !Enum.IsDefined(Selection) || !Enum.IsDefined(IdentifyBehavior) || !Enum.IsDefined(ArchiveSpeed))
+            throw new InvalidDataException("Preset contains an unknown action or setting.");
+        if (DurationMinutes is < 1 or > 10080 || Padding is < 0 or > 64 || RandomLength is < 4 or > 64 || Start < 0)
+            throw new ArgumentException("Preset numeric settings are out of range.");
+        if (Prefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) throw new ArgumentException("Invalid filename prefix.");
+        BatchDestinationResolver.ValidateName(BatchFolderName);
+        foreach (string path in new[] { Target, Destination, ReferenceClip, DirectoryB }.Concat(ArchiveSources))
+            if (path.Length > 0 && !Path.IsPathFullyQualified(path)) throw new ArgumentException("Use a full path: " + path);
+        if (ArchiveIntervalSeconds is < 0 or > 86400 || ArchiveSettlingSeconds is < 0 or > 3600 || ArchiveMegabytesPerSecond is < 1 or > 10000)
+            throw new ArgumentException("Archive scheduling settings are out of range.");
+    }
+
     internal static void ValidateFolder(string folder)
     {
         if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
@@ -130,6 +146,12 @@ internal sealed class PresetStore
             || store.Presets.Select(p => p.Id).Distinct().Count() != store.Presets.Count
             || store.Defaults.Any(entry => !store.Presets.Any(p => p.Id == entry.Value && p.Action == entry.Key)))
             throw new InvalidDataException("Preset file contains missing or invalid preset references.");
+        if (store.Presets.Any(p => !Enum.IsDefined(p.Action) || !Enum.IsDefined(p.Selection) || !Enum.IsDefined(p.Naming)
+            || !Enum.IsDefined(p.IdentifyBehavior) || !Enum.IsDefined(p.ArchiveSpeed)
+            || p.Name is null || p.Target is null || p.Destination is null || p.BatchFolderName is null
+            || p.Prefix is null || p.ReferenceClip is null || p.DirectoryB is null || p.ArchiveSources is null
+            || p.ArchiveSources.Any(source => source is null)))
+            throw new InvalidDataException("Preset file contains an unknown action or missing field. The original file has been retained; repair it before saving.");
         return store;
     }
     internal void Save(string path)
