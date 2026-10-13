@@ -36,7 +36,7 @@ internal sealed class ArchiveWorkspace : UserControl
         this.stateChanged = stateChanged;
         Font = DesktopTheme.BodyFont; Dock = DockStyle.Fill; SuspendLayout();
         destination = new("Archive destination — independent of the working folder", recent: preferences.RecentPaths);
-        mode.Items.AddRange(["Run once", "Watch continuously"]); mode.SelectedIndex = 0;
+        mode.Items.AddRange(["Run once", "Watch continuously", "Recheck all content once"]); mode.SelectedIndex = 0;
         speed.Items.AddRange(["Fast", "Slow"]); speed.SelectedIndex = 1;
         var page = DesktopTheme.Stack(); page.SuspendLayout();
         DesktopTheme.Add(page, DesktopTheme.Text("Copy and verify clips. Sources and existing archive filenames stay untouched. Completed verified copies survive cancellation."));
@@ -92,7 +92,7 @@ internal sealed class ArchiveWorkspace : UserControl
         DesktopTheme.Add(page, DesktopTheme.Text("Pending files and retry issues (bounded to 4,096 paths)")); DesktopTheme.Add(page, pending);
         DesktopTheme.Add(page, DesktopTheme.Text("Archive log — the latest 200 events")); DesktopTheme.Add(page, log);
         DesktopTheme.Add(page, DesktopTheme.Button("Load archive details", async () => await LoadCatalogAsync()));
-        DesktopTheme.Add(page, DesktopTheme.Text("Catalog entries show previously verified copies. Watching checks for new, changed or missing files. Run once rechecks source content and its archived copies."));
+        DesktopTheme.Add(page, DesktopTheme.Text("Run once and Watch continuously skip verified clips after checking source and archive file metadata. Choose Recheck all content once for a full integrity check that reads every clip."));
         previousPage = DesktopTheme.Button("Previous catalog page", () => { catalogPage--; ShowCatalogPage(); });
         nextPage = DesktopTheme.Button("Next catalog page", () => { catalogPage++; ShowCatalogPage(); });
         previousPage.Enabled = nextPage.Enabled = false;
@@ -110,7 +110,8 @@ internal sealed class ArchiveWorkspace : UserControl
     }
     internal void Apply(ArchiveSettings settings)
     {
-        sources.Paths = settings.Sources; destination.Value = settings.Destination; mode.SelectedIndex = settings.WatchContinuously ? 1 : 0;
+        sources.Paths = settings.Sources; destination.Value = settings.Destination;
+        mode.SelectedIndex = settings.WatchContinuously ? 1 : settings.VerifyExistingContent ? 2 : 0;
         speed.SelectedIndex = settings.Speed == ArchiveSpeed.Fast ? 0 : 1;
         interval.Value = Math.Clamp(settings.IntervalSeconds, 0, 86400); settling.Value = Math.Clamp(settings.SettlingSeconds, 0, 3600);
         limit.Checked = settings.MegabytesPerSecond.HasValue; bandwidth.Value = Math.Clamp(settings.MegabytesPerSecond ?? 20, 1, 10000);
@@ -121,6 +122,7 @@ internal sealed class ArchiveWorkspace : UserControl
         try
         {
             var next = new ArchiveSettings { Sources = sources.Paths, Destination = destination.Value, WatchContinuously = mode.SelectedIndex == 1,
+                VerifyExistingContent = mode.SelectedIndex == 2,
                 Speed = speed.SelectedIndex == 0 ? ArchiveSpeed.Fast : ArchiveSpeed.Slow, IntervalSeconds = (int)interval.Value,
                 SettlingSeconds = (int)settling.Value, MegabytesPerSecond = limit.Checked ? (int)bandwidth.Value : null, ReconcileSeconds = reconcileSeconds };
             next.Validate(false); next.Save(dataFolder); worker.Start(next); warning.Text = ""; stateChanged();
@@ -139,7 +141,8 @@ internal sealed class ArchiveWorkspace : UserControl
         var value = worker.Status;
         start.Enabled = !value.Running && !jobs.Busy; pause.Enabled = value.Running && !value.Paused;
         resume.Enabled = value.Running && value.Paused; stop.Enabled = value.Running;
-        status.Text = $"{DesktopTheme.StateLabel(value.State)} • {value.Queued} pending • {value.Copied} copied and verified • {value.AlreadyArchived} already archived • {value.Failed} failed/retrying\n" +
+        status.Text = $"{DesktopTheme.StateLabel(value.State)} • {value.Queued} pending • {value.Copied} copied and verified • {value.AlreadyArchived} already archived (content rechecked) • {value.Failed} failed/retrying\n" +
+            $"Skipped unchanged (metadata checked, latest scan): {value.Unchanged}\n" +
             $"Last successful verification: {value.LastSuccess?.ToLocalTime().ToString("g") ?? "none"}\n{value.Current}\n{value.Warning}\n" +
             (value.UnavailableRoots.Length > 0 ? "Unavailable roots: " + string.Join("; ", value.UnavailableRoots) + "\nReconnect the drive; automatic reconciliation will retry." : "");
         string nextLog = string.Join(Environment.NewLine, value.Log);

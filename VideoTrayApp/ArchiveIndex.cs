@@ -68,6 +68,7 @@ internal sealed class ArchiveIndex
 
     internal void RecoverPartials(string path)
     {
+        if (OwnedPartials.Count == 0) return;
         foreach (string partial in OwnedPartials.ToArray())
         {
             if (!ClipIdentifier.SamePath(Path.GetDirectoryName(partial)!, Destination)
@@ -81,8 +82,8 @@ internal sealed class ArchiveIndex
         Save(path);
     }
 
-    internal void Refresh(ISet<string> extensions, IoRateLimiter limiter, List<string> errors,
-        CancellationToken ct, Action? checkpoint = null, IOperationProgress? progress = null)
+    internal bool Refresh(ISet<string> extensions, IoRateLimiter limiter, List<string> errors,
+        CancellationToken ct, Action? checkpoint = null, IOperationProgress? progress = null, bool verifyContent = false)
     {
         // Build new locations before replacing the snapshot; cancelled scans keep the old index.
         var locations = new Dictionary<ClipIdentity, List<string>>();
@@ -94,7 +95,7 @@ internal sealed class ArchiveIndex
                 using var content = new ArchiveContent(file, limiter, ct);
                 var stamp = content.Stamp;
                 ClipIdentity identity;
-                if (stamp is not null && LocationHints.TryGetValue(file, out var hint) && hint.Stamp == stamp
+                if (!verifyContent && stamp is not null && LocationHints.TryGetValue(file, out var hint) && hint.Stamp == stamp
                     && FindEntry(hint.Identity)?.Locations.Contains(file, StringComparer.OrdinalIgnoreCase) == true)
                     identity = hint.Identity;
                 else
@@ -102,7 +103,7 @@ internal sealed class ArchiveIndex
                     identity = content.Identity(ct, (done, total) => progress?.Report((int)(done * 100 / Math.Max(1, total)), 100,
                         $"Indexing {file}: {done:N0}/{total:N0} bytes"));
                 }
-                // These are candidates, not a fresh integrity check. Explicit processing still hashes.
+                // Cached candidates require matching protected-file stamps; full rechecks always hash.
                 if (stamp is not null) refreshedHints[file] = new(identity, stamp);
                 if (!locations.TryGetValue(identity, out var paths)) locations[identity] = paths = [];
                 paths.Add(file);
@@ -110,6 +111,13 @@ internal sealed class ArchiveIndex
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { errors.Add($"{file}: {ex.Message}"); }
         }
+        bool changed = LocationHints.Count != refreshedHints.Count
+            || refreshedHints.Any(pair => !LocationHints.TryGetValue(pair.Key, out var hint) || hint != pair.Value)
+            || locations.Keys.Any(identity => FindEntry(identity) is null)
+            || Entries.Any(entry => locations.TryGetValue(entry.Identity, out var paths)
+                ? entry.Locations.Count != paths.Count || !entry.Locations.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(paths)
+                : entry.Locations.Count != 0);
+        if (!changed) return false;
         foreach (var entry in Entries) entry.Locations = [];
         foreach (var pair in locations)
         {
@@ -117,6 +125,7 @@ internal sealed class ArchiveIndex
             entry.Locations = pair.Value;
         }
         LocationHints = refreshedHints;
+        return true;
     }
     internal bool IsUnchangedVerifiedSource(string source, IoRateLimiter limiter, CancellationToken ct)
     {

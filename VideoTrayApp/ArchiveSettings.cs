@@ -9,6 +9,7 @@ internal sealed class ArchiveSettings
     public List<string> Sources { get; set; } = [];
     public string Destination { get; set; } = "";
     public bool WatchContinuously { get; set; }
+    public bool VerifyExistingContent { get; set; }
     public ArchiveSpeed Speed { get; set; } = ArchiveSpeed.Slow;
     public int IntervalSeconds { get; set; } = 120;
     public int? MegabytesPerSecond { get; set; } = 20;
@@ -22,6 +23,8 @@ internal sealed class ArchiveSettings
             || string.IsNullOrWhiteSpace(Destination)) throw new ArgumentException("Choose sources and an archive destination.");
         if (!Enum.IsDefined(Speed) || IntervalSeconds < 0 || SettlingSeconds < 0 || ReconcileSeconds < 1
             || MegabytesPerSecond is <= 0) throw new ArgumentException("Archive timing and speed settings are invalid.");
+        if (WatchContinuously && VerifyExistingContent)
+            throw new ArgumentException("Full content rechecks run once. Choose Run once to recheck all clip content.");
         Destination = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Destination));
         Sources = Sources.Select(source => Path.TrimEndingDirectorySeparator(Path.GetFullPath(source)))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();

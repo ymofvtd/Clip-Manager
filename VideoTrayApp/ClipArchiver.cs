@@ -2,10 +2,10 @@ namespace VideoTrayApp;
 
 internal enum ArchiveOutcome { CopiedAndVerified, AlreadyArchived, Pending, Failed }
 internal sealed record ArchiveClipResult(ArchiveOutcome Outcome, string Path, string? Message = null, bool DestinationUnavailable = false);
-internal sealed record ArchiveResult(int Copied, int AlreadyArchived, int Pending, bool Cancelled, List<string> Errors)
+internal sealed record ArchiveResult(int Copied, int AlreadyArchived, int Pending, bool Cancelled, List<string> Errors, int Unchanged = 0)
 {
     internal string Summary => $"{(Cancelled ? "Archive cancelled." : "Archive run finished.")}\n\n" +
-        $"Copied and verified: {Copied}\nAlready archived (verified): {AlreadyArchived}\nPending: {Pending}\nFailed: {Errors.Count}\nSources left unchanged." +
+        $"Copied and verified: {Copied}\nAlready archived (content rechecked): {AlreadyArchived}\nSkipped unchanged (metadata checked): {Unchanged}\nPending: {Pending}\nFailed: {Errors.Count}\nSources left unchanged." +
         ClipIdentifier.FormatErrors(Errors);
 }
 
@@ -15,6 +15,7 @@ internal sealed class ClipArchiver
     private readonly ArchiveIndex index;
     private readonly string indexPath;
     private readonly IoRateLimiter limiter;
+    private bool indexDirty;
     internal ClipArchiver(ArchiveSettings settings, string dataFolder, IoRateLimiter limiter)
     {
         this.settings = settings;
@@ -27,8 +28,12 @@ internal sealed class ClipArchiver
     {
         ActionPreset.ValidateFolder(settings.Destination);
         index.RecoverPartials(indexPath);
-        index.Refresh(extensions, limiter, errors, ct, checkpoint, progress);
-        index.Save(indexPath);
+        indexDirty |= index.Refresh(extensions, limiter, errors, ct, checkpoint, progress, settings.VerifyExistingContent);
+        if (indexDirty)
+        {
+            index.Save(indexPath);
+            indexDirty = false;
+        }
     }
 
     internal ArchiveClipResult Process(string source, IOperationProgress progress, CancellationToken ct)
@@ -128,7 +133,8 @@ internal sealed class ClipArchiver
         }
     }
 
-    internal bool IsUnchangedVerifiedSource(string source, CancellationToken ct) => index.IsUnchangedVerifiedSource(source, limiter, ct);
+    internal bool IsUnchangedVerifiedSource(string source, CancellationToken ct) =>
+        !settings.VerifyExistingContent && index.IsUnchangedVerifiedSource(source, limiter, ct);
 
     private ArchiveContent? VerifiedLocation(ClipIdentity identity, CancellationToken ct, out string? verifiedPath, IOperationProgress? progress = null)
     {
@@ -166,7 +172,7 @@ internal sealed class ClipArchiver
     internal static ArchiveResult Run(ArchiveSettings settings, string dataFolder, ISet<string> extensions,
         IOperationProgress progress, CancellationToken ct, IArchiveClock? clock = null)
     {
-        int copied = 0, existing = 0, pending = 0;
+        int copied = 0, existing = 0, pending = 0, unchanged = 0;
         var errors = new List<string>();
         clock ??= new ArchiveClock();
         try
@@ -182,6 +188,7 @@ internal sealed class ClipArchiver
             var schedule = new ArchiveSchedule(settings, clock);
             foreach (string path in ArchivePaths.Videos(settings.Sources, extensions, errors, ct, Yield))
             {
+                if (archiver.IsUnchangedVerifiedSource(path, ct)) { unchanged++; continue; }
                 var before = new FileInfo(path);
                 long size = before.Length;
                 DateTime time = before.LastWriteTimeUtc;
@@ -194,9 +201,9 @@ internal sealed class ClipArchiver
                 else if (result.Outcome == ArchiveOutcome.AlreadyArchived) existing++;
                 else errors.Add($"{path}: {result.Message}");
             }
-            return new(copied, existing, pending, false, errors);
+            return new(copied, existing, pending, false, errors, unchanged);
         }
-        catch (OperationCanceledException) { return new(copied, existing, pending, true, errors); }
-        catch (Exception ex) { errors.Add(ex.Message); return new(copied, existing, pending, false, errors); }
+        catch (OperationCanceledException) { return new(copied, existing, pending, true, errors, unchanged); }
+        catch (Exception ex) { errors.Add(ex.Message); return new(copied, existing, pending, false, errors, unchanged); }
     }
 }

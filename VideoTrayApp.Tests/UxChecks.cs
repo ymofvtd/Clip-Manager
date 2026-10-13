@@ -201,10 +201,30 @@ internal static class UxChecks
                     while (!generatedLoad.IsCompleted) { Application.DoEvents(); Thread.Sleep(2); }
                     Check(generatedLoad.Result?.State == JobState.Cancelled, "Cancellation reports a final Cancelled state after the worker actually stops");
                 }
-                foreach (AppTheme theme in new[] { AppTheme.Dark, AppTheme.System })
+                foreach (AppTheme theme in new[] { AppTheme.Light, AppTheme.Dark, AppTheme.System })
                 {
                     DesktopTheme.Current = theme; DesktopTheme.Apply(shell); shell.Navigate("Overview"); Application.DoEvents();
                     Capture(shell, Path.Combine(images, "overview-" + theme.ToString().ToLowerInvariant() + ".png"));
+                    shell.Navigate("Settings"); Application.DoEvents();
+                    Descendants(shell).OfType<ComboBox>().Single(c => c.AccessibleName == "Theme").SelectedIndex = (int)theme;
+                    Application.DoEvents();
+                    var settingsTabs = Descendants(shell).OfType<TabControl>().Single(t => t.AccessibleName == "Settings sections");
+                    foreach (TabPage section in settingsTabs.TabPages)
+                    {
+                        shell.OpenSettingsSection(section.Text); Application.DoEvents();
+                        foreach (TabPage page in new[] { section }.Concat(Descendants(section).OfType<TabPage>()))
+                        {
+                            Check(!page.UseVisualStyleBackColor && Contrast(page.ForeColor, page.BackColor) >= 4.5,
+                                $"{theme} Settings {section.Text} / {page.Text} has readable themed tab-page colors");
+                        }
+                        using var rendered = new Bitmap(section.Width, section.Height);
+                        section.DrawToBitmap(rendered, section.ClientRectangle);
+                        Check(Contrast(section.ForeColor, rendered.GetPixel(8, 48)) >= 4.5,
+                            $"{theme} Settings {section.Text} paints a readable background instead of the native tab's white surface");
+                        Capture(shell, Path.Combine(images, "settings-" + theme.ToString().ToLowerInvariant() + "-" + section.Text.Replace(" ", "-").ToLowerInvariant() + ".png"));
+                    }
+                    shell.OpenSettingsSection("General");
+                    Capture(shell, Path.Combine(images, "settings-" + theme.ToString().ToLowerInvariant() + ".png"));
                 }
                 DesktopTheme.Current = AppTheme.Dark; DesktopTheme.Apply(shell);
                 shell.OpenTool(PresetAction.ShuffleAndName); Application.DoEvents();
@@ -259,6 +279,27 @@ internal static class UxChecks
                     && e.State is JobState.Cancelled or JobState.CompletedWithIssues
                     && e.Details.Contains("Copied and verified: " + shell.Archive.Status.Copied)),
                     "Background Archive stop records an accurate retained-copy outcome in the shared Activity history");
+                shell.Navigate("Archive");
+                var archivePage = Descendants(shell).OfType<ArchiveWorkspace>().Single();
+                var archiveSettings = ArchiveSettings.Load(data);
+                archiveSettings.VerifyExistingContent = true; archiveSettings.Speed = ArchiveSpeed.Fast; archiveSettings.SettlingSeconds = 0;
+                archivePage.Apply(archiveSettings);
+                var archiveMode = Descendants(archivePage).OfType<ComboBox>().Single(c => c.AccessibleName == "Archive run mode");
+                Check(archiveMode.SelectedIndex == 2, "Archive exposes a separate full-content recheck mode");
+                var archiveStart = Descendants(archivePage).OfType<Button>().Single(b => b.Text == "Start");
+                archiveStart.PerformClick();
+                timeout.Restart();
+                while (shell.Archive.Running && timeout.ElapsedMilliseconds < 10000) { Application.DoEvents(); Thread.Sleep(5); }
+                Check(!shell.Archive.Running && shell.Archive.Settings.VerifyExistingContent && shell.Archive.Status.AlreadyArchived > 0
+                    && shell.Archive.Status.Unchanged == 0 && shell.Archive.Status.Failed == 0 && !ArchiveSettings.Load(data).WatchContinuously,
+                    "Starting full recheck from the desktop reads existing content and persists run-once configuration");
+                archivePage.RefreshStatus(); archiveMode.SelectedIndex = 0; archiveStart.PerformClick();
+                timeout.Restart();
+                while (shell.Archive.Running && timeout.ElapsedMilliseconds < 10000) { Application.DoEvents(); Thread.Sleep(5); }
+                Check(!shell.Archive.Running && !ArchiveSettings.Load(data).VerifyExistingContent && shell.Archive.Status.Unchanged > 0
+                    && shell.Archive.Status.AlreadyArchived == 0 && shell.Archive.Status.Copied == 0 && shell.Archive.Status.Failed == 0,
+                    "Switching the desktop back to Run once uses saved receipts and skips unchanged clip content");
+                archivePage.RefreshStatus(); Capture(shell, Path.Combine(images, "archive-cached-run.png"));
                 var exit = (Task)typeof(MainShell).GetMethod("ExitAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(shell, [false])!;
                 while (!exit.IsCompleted) { Application.DoEvents(); Thread.Sleep(5); }
                 exit.GetAwaiter().GetResult();
@@ -336,6 +377,16 @@ internal static class UxChecks
         bitmap.Save(path);
     }
     private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+    private static double Contrast(Color a, Color b)
+    {
+        static double Luminance(Color color)
+        {
+            static double Linear(byte channel) { double value = channel / 255d; return value <= .04045 ? value / 12.92 : Math.Pow((value + .055) / 1.055, 2.4); }
+            return .2126 * Linear(color.R) + .7152 * Linear(color.G) + .0722 * Linear(color.B);
+        }
+        double first = Luminance(a), second = Luminance(b);
+        return (Math.Max(first, second) + .05) / (Math.Min(first, second) + .05);
+    }
     private static string[] Snapshot(string path) => Directory.GetFiles(path, "*", SearchOption.AllDirectories).Select(p => Path.GetRelativePath(path, p) + ":" + Hash(p)).Order().ToArray();
     private static void Check(bool condition, string description)
     { if (!condition) throw new Exception(description); Console.WriteLine("PASS: " + description); }

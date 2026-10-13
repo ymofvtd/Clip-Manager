@@ -40,8 +40,8 @@ internal static class ArchiveChecks
         {
             if (message.StartsWith("Copying ")) duplicateCopyStarts++;
         } }, CancellationToken.None);
-        Check(again.Copied == 0 && again.AlreadyArchived == 3 && duplicateCopyStarts == 0,
-            "Reruns verify both content identities without copying known duplicate content to temporary files");
+        Check(again.Copied == 0 && again.AlreadyArchived == 0 && again.Unchanged == 3 && duplicateCopyStarts == 0,
+            "Routine reruns skip unchanged verified sources after checking source and archive metadata");
         var indexPath = ArchiveIndex.IndexPath(data, destination);
         var index = ArchiveIndex.Load(indexPath, destination);
         Check(index.Entries.Sum(e => e.Sources.Count) == 4, "Index retains original names, full paths and every overlapping source-root context");
@@ -87,6 +87,8 @@ internal static class ArchiveChecks
         result = ClipArchiver.Run(settings, data, exts, new TestProgress { OnMessage = m => { if (m == "Verifying locked.avi...") verifyCancel.Cancel(); } }, verifyCancel.Token);
         Check(result.Cancelled && Directory.GetFiles(isolatedDest, "*.avi").Length == 2 && Directory.GetFiles(isolatedDest, "*.partial").Length == 0,
             "Cancellation during read-back verification creates no completed entry");
+        Check(!ArchiveIndex.Load(ArchiveIndex.IndexPath(data, isolatedDest), isolatedDest).SourceReceipts.ContainsKey(lockClip),
+            "Interrupted copy verification never saves a source receipt that could skip recovery on restart");
         result = ClipArchiver.Run(settings, data, exts, new TestProgress { OnMessage = m =>
         {
             if (m == "Verifying locked.avi...")
@@ -130,6 +132,7 @@ internal static class ArchiveChecks
         RunLinksAndExtensions(root, write, data);
         RunCachedCorruption(root, write, exts);
         RunPersistentCache(root, write, exts);
+        RunRoutineCache(root, write, exts);
         RunTiming();
         RunWorker(root, write, exts);
         RunInterrupt(root, write, exts);
@@ -293,6 +296,83 @@ internal static class ArchiveChecks
             "Indexes without cache fields receive a one-time content scan and never infer source receipts from provenance");
     }
 
+    private static void RunRoutineCache(string root, Action<string, uint, byte> write, ISet<string> extensions)
+    {
+        string source = Directory.CreateDirectory(Path.Combine(root, "routine-source")).FullName;
+        string destination = Directory.CreateDirectory(Path.Combine(root, "routine-dest")).FullName;
+        string data = Path.Combine(root, "routine-settings");
+        for (int i = 0; i < 32; i++) write(Path.Combine(source, $"clip-{i}.avi"), (uint)i + 1, (byte)i);
+        var settings = new ArchiveSettings { Sources = [source], Destination = destination,
+            Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 };
+        var result = ClipArchiver.Run(settings, data, extensions, new TestProgress(), CancellationToken.None);
+        Check(result.Copied == 32 && result.Errors.Count == 0, "Routine cache fixture fully verifies every initial copy");
+        settings.Speed = ArchiveSpeed.Slow; settings.SettlingSeconds = 10; settings.IntervalSeconds = 120;
+        var clock = new FakeArchiveClock();
+        DateTimeOffset started = clock.UtcNow;
+        string indexPath = ArchiveIndex.IndexPath(data, destination);
+        byte[] saved = File.ReadAllBytes(indexPath);
+        int contentMessages = 0;
+        var progress = new TestProgress { OnMessage = message =>
+        {
+            if (message.StartsWith("Reading source ") || message.StartsWith("Indexing ")
+                || message.StartsWith("Verifying existing copy ") || message.StartsWith("Copying ")) contentMessages++;
+        } };
+        using (var lockedIndex = new FileStream(indexPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            result = ClipArchiver.Run(settings, data, extensions, progress, CancellationToken.None, clock);
+        Check(result.Unchanged == 32 && result.Copied == 0 && result.AlreadyArchived == 0 && result.Errors.Count == 0
+            && contentMessages == 0 && clock.UtcNow - started < TimeSpan.FromSeconds(1)
+            && File.ReadAllBytes(indexPath).SequenceEqual(saved),
+            "Quiet run-once restart skips all content I/O, settling and scheduling and does not rewrite the saved index");
+
+        using (var coordinator = new OperationCoordinator())
+        using (var worker = new ArchiveWorker(coordinator, extensions, data))
+        using (var lockedIndex = new FileStream(indexPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            worker.Start(settings); Wait(() => !worker.Running, 10000);
+            Check(worker.Status.Unchanged == 32 && worker.Status.Copied == 0 && worker.Status.AlreadyArchived == 0
+                && worker.Status.Failed == 0 && worker.Status.Warning.Length == 0,
+                "Desktop Run once skips cached history instead of processing thousands of already-archived jobs");
+        }
+
+        string clip = Path.Combine(source, "clip-0.avi");
+        var index = ArchiveIndex.Load(indexPath, destination);
+        string stored = index.FindEntry(index.SourceReceipts[clip].Identity)!.Locations.Single();
+        File.Delete(stored);
+        result = ClipArchiver.Run(settings, data, extensions, new TestProgress(), CancellationToken.None, new FakeArchiveClock());
+        Check(result.Unchanged == 31 && result.Copied == 1 && result.Errors.Count == 0 && File.Exists(stored),
+            "Routine cached run recreates a missing archived copy while skipping intact history");
+        DateTime time = File.GetLastWriteTimeUtc(clip);
+        write(clip, 1, 100); File.SetLastWriteTimeUtc(clip, time);
+        result = ClipArchiver.Run(settings, data, extensions, new TestProgress(), CancellationToken.None, new FakeArchiveClock());
+        Check(result.Unchanged == 31 && result.Copied == 1 && result.Errors.Count == 0,
+            "Routine cached run processes a changed source even when size and write time match the receipt");
+
+        settings.VerifyExistingContent = true; settings.Save(data);
+        settings = ArchiveSettings.Load(data);
+        contentMessages = 0;
+        result = ClipArchiver.Run(settings, data, extensions, progress, CancellationToken.None, new FakeArchiveClock());
+        Check(settings.VerifyExistingContent && !settings.WatchContinuously && result.Unchanged == 0
+            && result.AlreadyArchived == 32 && result.Errors.Count == 0 && contentMessages > 0,
+            "Explicit full recheck survives settings loading and reads archive and source content instead of skipping receipts");
+        settings.WatchContinuously = true;
+        bool rejected = false;
+        try { settings.Validate(); } catch (ArgumentException) { rejected = true; }
+        Check(rejected, "Full integrity rechecks cannot be configured to auto-resume as continuous watching");
+
+        settings.WatchContinuously = false; settings.VerifyExistingContent = false;
+        var archiver = new ClipArchiver(settings, data, new IoRateLimiter(null, new ArchiveClock()));
+        string renamed = Path.Combine(destination, "renamed.avi"); File.Move(stored, renamed);
+        bool saveFailed = false;
+        using (var lockedIndex = new FileStream(indexPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            try { archiver.Reconcile(extensions, [], CancellationToken.None); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { saveFailed = true; }
+        }
+        archiver.Reconcile(extensions, [], CancellationToken.None);
+        Check(saveFailed && ArchiveIndex.Load(indexPath, destination).LocationHints.ContainsKey(renamed),
+            "A failed reconciliation save is retried even when the next metadata scan is unchanged");
+    }
+
     private static void RunLinksAndExtensions(string root, Action<string, uint, byte> write, string data)
     {
         string source = Directory.CreateDirectory(Path.Combine(root, "extension-source")).FullName;
@@ -434,7 +514,12 @@ internal static class ArchiveChecks
             "Continuous watching choice and separate archive configuration survive restart");
         settings.WatchContinuously = false;
         worker.Start(settings); Wait(() => !worker.Running, 15000);
-        Check(worker.Status.AlreadyArchived == 3, "Run once drains its queue and stops after verifying existing copies");
+        Check(worker.Status.AlreadyArchived == 0 && worker.Status.Unchanged == 3,
+            "Run once finishes after checking cached source and archive stamps without reverifying existing content");
+        settings.VerifyExistingContent = true;
+        worker.Start(settings); Wait(() => !worker.Running, 15000);
+        Check(worker.Status.AlreadyArchived == 3 && worker.Status.Unchanged == 0,
+            "Full recheck worker drains its queue and verifies every existing source and archive copy");
     }
     private static void MeasureIndex(string data, string destination)
     {

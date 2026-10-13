@@ -229,7 +229,7 @@ internal sealed partial class MainShell : Form
         {
             var outcome = record with { Finished = DateTimeOffset.Now,
                 State = state.Failed > 0 || state.Warning.Length > 0 ? JobState.CompletedWithIssues : archive.CancellationToken.IsCancellationRequested ? JobState.Cancelled : JobState.Completed,
-                Details = $"Copied and verified: {state.Copied}\nAlready archived: {state.AlreadyArchived}\nFailed/retrying: {state.Failed}\nPending at stop: {state.Queued}\n{state.Warning}\nCompleted verified copies retained. Inspect Archive and archive_log.json for pending/retry details." };
+                Details = $"Copied and verified: {state.Copied}\nAlready archived (content rechecked): {state.AlreadyArchived}\nSkipped unchanged (metadata checked, latest scan): {state.Unchanged}\nFailed/retrying: {state.Failed}\nPending at stop: {state.Queued}\n{state.Warning}\nCompleted verified copies retained. Inspect Archive and archive_log.json for pending/retry details." };
             if (history.Entries.Contains(record)) history.Replace(record, outcome); else history.Add(outcome);
             archiveActivity = null;
         }

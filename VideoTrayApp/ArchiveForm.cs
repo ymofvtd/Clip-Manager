@@ -7,6 +7,7 @@ internal sealed class ArchiveForm : Form
     private readonly ListBox sources = new() { Dock = DockStyle.Fill };
     private readonly TextBox destination = new() { Dock = DockStyle.Fill };
     private readonly CheckBox watch = new() { Text = "Watch continuously", AutoSize = true };
+    private readonly CheckBox verify = new() { Text = "Recheck all content once", AutoSize = true };
     private readonly ComboBox speed = new() { DropDownStyle = ComboBoxStyle.DropDownList, DataSource = Enum.GetValues<ArchiveSpeed>(), Width = 90 };
     private readonly NumericUpDown interval = new() { Minimum = 0, Maximum = 86400, Width = 90 };
     private readonly CheckBox limit = new() { Text = "Limit I/O (MB/s)", AutoSize = true };
@@ -30,6 +31,8 @@ internal sealed class ArchiveForm : Form
         ClientSize = new Size(850, 660); MinimumSize = new Size(750, 590); StartPosition = FormStartPosition.CenterParent;
         sources.Items.AddRange(settings.Sources.Cast<object>().ToArray());
         destination.Text = settings.Destination; watch.Checked = settings.WatchContinuously;
+        verify.Checked = settings.VerifyExistingContent; verify.Enabled = !watch.Checked;
+        watch.CheckedChanged += (_, _) => { verify.Enabled = !watch.Checked; if (watch.Checked) verify.Checked = false; };
         speed.SelectedItem = settings.Speed; interval.Value = Math.Clamp(settings.IntervalSeconds, 0, 86400);
         settling.Value = Math.Clamp(settings.SettlingSeconds, 0, 3600);
         limit.Checked = settings.MegabytesPerSecond.HasValue; bandwidth.Value = Math.Clamp(settings.MegabytesPerSecond ?? 20, 1, 10000);
@@ -60,7 +63,7 @@ internal sealed class ArchiveForm : Form
         destPanel.Controls.Add(destination, 0, 0); destPanel.Controls.Add(browse, 1, 0);
         fields.Controls.Add(new Label { Text = "Destination", AutoSize = true }, 0, 1); fields.Controls.Add(destPanel, 1, 1);
         var mode = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
-        mode.Controls.AddRange([watch, new Label { Text = "Speed", AutoSize = true, Padding = new Padding(8, 5, 0, 0) }, speed]);
+        mode.Controls.AddRange([watch, verify, new Label { Text = "Speed", AutoSize = true, Padding = new Padding(8, 5, 0, 0) }, speed]);
         fields.Controls.Add(new Label { Text = "Run once / Watch", AutoSize = true }, 0, 2); fields.Controls.Add(mode, 1, 2);
         var slow = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
         slow.Controls.AddRange([new Label { Text = "Interval (s)", AutoSize = true }, interval, limit, bandwidth,
@@ -75,6 +78,7 @@ internal sealed class ArchiveForm : Form
             {
                 var next = new ArchiveSettings { Sources = sources.Items.Cast<string>().ToList(), Destination = destination.Text.Trim(),
                     WatchContinuously = watch.Checked, Speed = (ArchiveSpeed)speed.SelectedItem!, IntervalSeconds = (int)interval.Value,
+                    VerifyExistingContent = !watch.Checked && verify.Checked,
                     MegabytesPerSecond = limit.Checked ? (int)bandwidth.Value : null, SettlingSeconds = (int)settling.Value, ReconcileSeconds = reconcileSeconds };
                 next.Validate(false); next.Save(dataFolder); worker.Start(next); RefreshStatus();
             }
@@ -101,6 +105,7 @@ internal sealed class ArchiveForm : Form
         configuration.Enabled = start.Enabled = !value.Running;
         pause.Enabled = value.Running && !value.Paused; resume.Enabled = value.Running && value.Paused; stop.Enabled = value.Running;
         status.Text = $"{(value.Paused ? "Paused" : value.Running ? "Running" : "Stopped")} | Queued: {value.Queued} | Copied and verified: {value.Copied} | Already archived: {value.AlreadyArchived} | Failed/retrying: {value.Failed}\n" +
+            $"Skipped unchanged (metadata checked, latest scan): {value.Unchanged}\n" +
             $"Last success: {value.LastSuccess?.ToLocalTime().ToString("g") ?? "none"}\n{value.Current}\n{value.Warning}" +
             (value.UnavailableRoots.Length > 0 ? "\nUnavailable roots: " + string.Join("; ", value.UnavailableRoots) : "");
         progress.Value = Math.Clamp(value.Percent, 0, 100);

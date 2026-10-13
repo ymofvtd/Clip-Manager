@@ -3,7 +3,7 @@ namespace VideoTrayApp;
 internal enum ArchiveRuntimeState { Stopped, Running, Watching, WaitingForStableFile, Paused, WaitingForForegroundWork, Suspended }
 internal sealed record ArchiveStatus(bool Running, bool Paused, int Queued, string Current, int Percent,
     int Copied, int AlreadyArchived, int Failed, DateTimeOffset? LastSuccess, string Warning, string[] UnavailableRoots, string[] Log,
-    ArchiveRuntimeState State = ArchiveRuntimeState.Stopped);
+    ArchiveRuntimeState State = ArchiveRuntimeState.Stopped, int Unchanged = 0);
 internal sealed record ArchivePending(string Path, int Attempts, DateTimeOffset NextAttempt, string Reason);
 
 internal sealed class ArchiveWorker : IDisposable, IOperationProgress
@@ -24,7 +24,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
     private bool suspended;
     private string current = "", warning = "";
     private List<string> unavailableRoots = [];
-    private int percent, copied, archived, failed;
+    private int percent, copied, archived, failed, unchanged;
     private DateTimeOffset? lastSuccess;
     private DateTimeOffset nextStatus;
     internal event Action<ArchiveStatus>? StatusChanged;
@@ -53,7 +53,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
             stop = new();
             Settings = settings;
             queue.Clear(); log.Clear();
-            copied = archived = failed = percent = 0;
+            copied = archived = failed = percent = unchanged = 0;
             current = warning = ""; paused = suspended = false; lastSuccess = null; reconcileRequested = true;
             task = Task.Run(() => Run(stop.Token));
             _ = task.ContinueWith(_ => Publish(), TaskScheduler.Default);
@@ -136,6 +136,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                     if (rescan || scan is null && nextReconcile == DateTimeOffset.MinValue)
                     {
                         scanErrors.Clear();
+                        lock (gate) unchanged = 0;
                         scan = ArchivePaths.Videos(Settings.Sources, extensions, scanErrors, ct,
                             () => Yield(ct)).GetEnumerator();
                         nextReconcile = clock.UtcNow.AddSeconds(Settings.ReconcileSeconds);
@@ -155,10 +156,10 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                                 if (scanErrors.Count > 0) lock (gate) warning = $"Source scan incomplete: {scanErrors.Count} unreadable files/folders. See log.";
                                 break;
                             }
-                            // Run once remains an explicit content verification. Watching checks
-                            // saved protected-file stamps before queuing unchanged historical sources.
-                            if (!Settings.WatchContinuously || !archiver!.IsUnchangedVerifiedSource(scan.Current, workToken))
+                            // Routine runs check saved source and keeper stamps before queuing content work.
+                            if (!archiver!.IsUnchangedVerifiedSource(scan.Current, workToken))
                                 Enqueue(scan.Current, debounce: false);
+                            else lock (gate) unchanged++;
                         }
                     }
                     Job? job;
@@ -193,9 +194,10 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                             continue;
                         }
                         workToken.ThrowIfCancellationRequested();
-                        if (Settings.WatchContinuously && job.Attempts == 0 && archiver!.IsUnchangedVerifiedSource(path, workToken))
+                        if (job.Attempts == 0 && archiver!.IsUnchangedVerifiedSource(path, workToken))
                         {
                             RemoveJob(path, job);
+                            lock (gate) unchanged++;
                             continue;
                         }
                         SetIndeterminate($"Waiting to start: {path}");
@@ -345,7 +347,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
             : queue.Count > 0 && queue.All(p => p.Value.Due > clock.UtcNow) ? ArchiveRuntimeState.WaitingForStableFile
             : queue.Count == 0 && Settings.WatchContinuously ? ArchiveRuntimeState.Watching : ArchiveRuntimeState.Running;
         return new(running, paused, queue.Count, current, percent, copied, archived, failed, lastSuccess, warning,
-            unavailableRoots.ToArray(), log.ToArray(), state);
+            unavailableRoots.ToArray(), log.ToArray(), state, unchanged);
     }
     private void Publish()
     {

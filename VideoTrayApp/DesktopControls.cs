@@ -42,10 +42,14 @@ internal static class DesktopTheme
                 SurfaceRole.Surface => Surface,
                 SurfaceRole.Inset or SurfaceRole.Sidebar => Inset,
                 _ => Canvas
-            } : control is TextBoxBase or ListBox or ComboBox or NumericUpDown or DataGridView ? surface
+            } : control is TabPage ? Canvas
+                : control is TextBoxBase or ListBox or ComboBox or NumericUpDown or DataGridView ? surface
                 : control.Parent?.BackColor ?? Canvas;
             control.ForeColor = !contrast && control.Tag is TextRole textRole
                 ? textRole == TextRole.Accent ? Accent : Muted : text;
+            // Native TabControl ignores BackColor. Give pages their own painted surface
+            // so descendants never inherit its light system background in Dark mode.
+            if (control is TabPage page) page.UseVisualStyleBackColor = false;
             if (control is Button button)
             {
                 button.FlatStyle = FlatStyle.Flat;
