@@ -1,3 +1,9 @@
+# 2.1.16 incremental Archive restart
+
+Archive persists location candidates and verified source receipts across restarts. A cache check uses protected file identity, length, creation/write/change times; new or changed archive content is hashed, while unchanged videos are not reread just to rebuild the catalog. Continuous watching skips unchanged, previously verified sources before queuing/scheduling them. New arrivals retain full copy/read-back verification; missing or changed copies invalidate protection. Run once continues to verify source content and its archived copies.
+
+Periodic reconciliation waits a full interval after source discovery completes, avoiding immediate repeated scans when discovery exceeds the interval. Idle status reads “Watching for new or changed clips.” Existing version 1 indexes remain valid and receive a one-time cache population. Unsupported file change stamps fall back to full verification. The cache is not a silent disk-corruption audit; unchanged metadata can only establish previously verified protection.
+
 # 2.1.15 visual refresh
 
 Light surfaces now use lavender accents, while dark surfaces use navy with violet highlights. Rounded commands, stronger headings, branded navigation, and clear selected states replace the uniform outlined-button appearance. Configure and Review files are underlined view tabs below a divider separating tool selection; switching views retains previews. Operation status has its own padded surface, and review tables use softer rows and selected colors. High Contrast retains native painting and system colors.

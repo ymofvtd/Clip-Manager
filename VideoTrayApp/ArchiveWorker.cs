@@ -120,7 +120,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                     if (needsIndex || rescan)
                     {
                         RefreshWatchers();
-                        SetIndeterminate("Indexing and verifying archive locations...");
+                        SetIndeterminate("Checking archive index for new or changed clips...");
                         archiver ??= new ClipArchiver(Settings, dataFolder, limiter);
                         var errors = new List<string>();
                         archiver.Reconcile(extensions, errors, workToken, () => Yield(workToken), this);
@@ -150,11 +150,15 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                             if (!scan.MoveNext())
                             {
                                 scan.Dispose(); scan = null;
+                                nextReconcile = clock.UtcNow.AddSeconds(Settings.ReconcileSeconds);
                                 foreach (string error in scanErrors.Take(20)) AddLog(error);
                                 if (scanErrors.Count > 0) lock (gate) warning = $"Source scan incomplete: {scanErrors.Count} unreadable files/folders. See log.";
                                 break;
                             }
-                            Enqueue(scan.Current, debounce: false);
+                            // Run once remains an explicit content verification. Watching checks
+                            // saved protected-file stamps before queuing unchanged historical sources.
+                            if (!Settings.WatchContinuously || !archiver!.IsUnchangedVerifiedSource(scan.Current, workToken))
+                                Enqueue(scan.Current, debounce: false);
                         }
                     }
                     Job? job;
@@ -167,6 +171,8 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                     if (path is null || job is null)
                     {
                         if (!Settings.WatchContinuously && scan is null && Status.Queued == 0) break;
+                        if (Settings.WatchContinuously && scan is null && Status.Queued == 0)
+                            SetIndeterminate("Watching for new or changed clips...");
                         clock.Delay(TimeSpan.FromMilliseconds(100), workToken);
                         continue;
                     }
@@ -187,6 +193,11 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                             continue;
                         }
                         workToken.ThrowIfCancellationRequested();
+                        if (Settings.WatchContinuously && job.Attempts == 0 && archiver!.IsUnchangedVerifiedSource(path, workToken))
+                        {
+                            RemoveJob(path, job);
+                            continue;
+                        }
                         SetIndeterminate($"Waiting to start: {path}");
                         schedule.BeforeClip(workToken);
                         var result = archiver!.Process(path, this, workToken);

@@ -34,6 +34,7 @@ internal sealed class ClipArchiver
     internal ArchiveClipResult Process(string source, IOperationProgress progress, CancellationToken ct)
     {
         string? temporary = null;
+        ArchiveContent? occupiedContent = null;
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -51,7 +52,7 @@ internal sealed class ClipArchiver
                 if (existing is not null)
                 {
                     RecheckSource();
-                    index.Record(identity, existing, source, settings.Sources);
+                    index.Record(identity, existing, source, settings.Sources, content.Stamp, keeper!.Stamp);
                     index.Save(indexPath);
                     progress.SetIndeterminate($"Already archived (verified): {source}");
                     return new(ArchiveOutcome.AlreadyArchived, source);
@@ -85,13 +86,14 @@ internal sealed class ClipArchiver
                 try { File.Move(temporary, target, false); }
                 catch (IOException) when (File.Exists(target) || Directory.Exists(target))
                 {
-                    using var occupied = new ArchiveContent(target, limiter, ct);
-                    if (occupied.Identity(ct) != identity) throw new IOException($"Archive target conflict; never overwritten: {target}");
+                    occupiedContent = new ArchiveContent(target, limiter, ct);
+                    if (occupiedContent.Identity(ct) != identity) throw new IOException($"Archive target conflict; never overwritten: {target}");
                     copied = false;
                 }
             }
             progress.SetIndeterminate(copied ? $"Published verified copy: {target}" : $"Already archived (verified): {target}");
-            index.Record(identity, target, source, settings.Sources);
+            index.Record(identity, target, source, settings.Sources, content.Stamp,
+                (occupiedContent ?? duplicateHandle ?? verification).Stamp);
             index.Save(indexPath);
             return new(copied ? ArchiveOutcome.CopiedAndVerified : ArchiveOutcome.AlreadyArchived, source);
 
@@ -112,6 +114,7 @@ internal sealed class ClipArchiver
         }
         finally
         {
+            occupiedContent?.Dispose();
             if (temporary is not null)
             {
                 try
@@ -124,6 +127,8 @@ internal sealed class ClipArchiver
             }
         }
     }
+
+    internal bool IsUnchangedVerifiedSource(string source, CancellationToken ct) => index.IsUnchangedVerifiedSource(source, limiter, ct);
 
     private ArchiveContent? VerifiedLocation(ClipIdentity identity, CancellationToken ct, out string? verifiedPath, IOperationProgress? progress = null)
     {
@@ -172,7 +177,7 @@ internal sealed class ClipArchiver
                 ? (long)cap * 1_000_000 : null, clock);
             var archiver = new ClipArchiver(settings, dataFolder, limiter);
             void Yield() { if (settings.Speed == ArchiveSpeed.Slow) clock.Delay(TimeSpan.FromMilliseconds(1), ct); }
-            progress.SetIndeterminate("Indexing existing archive clips...");
+            progress.SetIndeterminate("Checking archive index for new or changed clips...");
             archiver.Reconcile(extensions, errors, ct, Yield, progress);
             var schedule = new ArchiveSchedule(settings, clock);
             foreach (string path in ArchivePaths.Videos(settings.Sources, extensions, errors, ct, Yield))

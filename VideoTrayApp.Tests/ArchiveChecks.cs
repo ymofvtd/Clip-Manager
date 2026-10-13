@@ -129,6 +129,7 @@ internal static class ArchiveChecks
         RunForcedTermination(root, write, exts, data);
         RunLinksAndExtensions(root, write, data);
         RunCachedCorruption(root, write, exts);
+        RunPersistentCache(root, write, exts);
         RunTiming();
         RunWorker(root, write, exts);
         RunInterrupt(root, write, exts);
@@ -191,6 +192,107 @@ internal static class ArchiveChecks
         result = archiver.Process(clip, new TestProgress(), CancellationToken.None);
         Check(result.Outcome == ArchiveOutcome.AlreadyArchived, "Invalidated location hints are rebuilt by content and reruns reuse the intact verified copy");
     }
+    private static void RunPersistentCache(string root, Action<string, uint, byte> write, ISet<string> extensions)
+    {
+        string source = Directory.CreateDirectory(Path.Combine(root, "persistent-source")).FullName;
+        string destination = Directory.CreateDirectory(Path.Combine(root, "persistent-dest")).FullName;
+        string data = Path.Combine(root, "persistent-settings");
+        string clip = Path.Combine(source, "clip.avi"); write(clip, 2, 63);
+        var settings = new ArchiveSettings { Sources = [source], Destination = destination, Speed = ArchiveSpeed.Fast,
+            WatchContinuously = true, SettlingSeconds = 0, ReconcileSeconds = 1 };
+        var limiter = new IoRateLimiter(null, new ArchiveClock());
+        var archiver = new ClipArchiver(settings, data, limiter);
+        archiver.Reconcile(extensions, [], CancellationToken.None);
+        Check(archiver.Process(clip, new TestProgress(), CancellationToken.None).Outcome == ArchiveOutcome.CopiedAndVerified,
+            "Persistent cache starts only after a successful protected copy and full read-back verification");
+        string stored = Directory.GetFiles(destination, "*.avi").Single();
+        limiter = new IoRateLimiter(null, new ArchiveClock());
+        archiver = new ClipArchiver(settings, data, limiter);
+        archiver.Reconcile(extensions, [], CancellationToken.None);
+        Check(archiver.IsUnchangedVerifiedSource(clip, CancellationToken.None) && limiter.BytesCharged == 0,
+            "Restart loads saved archive candidates and verified source receipts without rereading unchanged clip content");
+
+        using (var coordinator = new OperationCoordinator())
+        using (var worker = new ArchiveWorker(coordinator, extensions, data))
+        {
+            worker.Start(settings);
+            Wait(() => worker.Status.Current == "Watching for new or changed clips...", 10000);
+            worker.RequestReconciliation();
+            Thread.Sleep(1400);
+            Check(worker.Status.Copied == 0 && worker.Status.AlreadyArchived == 0 && worker.Status.Queued == 0,
+                "Watch restart and periodic reconciliation do not requeue previously verified unchanged sources");
+            write(Path.Combine(source, "new.avi"), 3, 64);
+            Wait(() => worker.Status.Copied == 1, 10000);
+            Check(worker.Status.AlreadyArchived == 0, "A new arrival is copied without reverifying the historical source queue");
+            worker.StopAsync().GetAwaiter().GetResult();
+        }
+
+        DateTime sourceTime = File.GetLastWriteTimeUtc(clip);
+        string replacement = clip + ".replacement"; File.Copy(clip, replacement);
+        File.SetLastWriteTimeUtc(replacement, sourceTime);
+        File.Move(clip, clip + ".original"); File.Move(replacement, clip);
+        Check(!archiver.IsUnchangedVerifiedSource(clip, CancellationToken.None),
+            "A replaced source with identical bytes, length and write time invalidates its saved receipt");
+        File.Delete(clip); File.Move(clip + ".original", clip);
+        archiver.Process(clip, new TestProgress(), CancellationToken.None);
+        write(clip, 2, 65); File.SetLastWriteTimeUtc(clip, sourceTime);
+        Check(!archiver.IsUnchangedVerifiedSource(clip, CancellationToken.None),
+            "Source content changes with a restored write time still invalidate the receipt through the file change stamp");
+        write(clip, 2, 63); archiver.Process(clip, new TestProgress(), CancellationToken.None);
+        DateTime archiveTime = File.GetLastWriteTimeUtc(stored);
+        write(stored, 2, 66); File.SetLastWriteTimeUtc(stored, archiveTime);
+        limiter = new IoRateLimiter(null, new ArchiveClock());
+        archiver = new ClipArchiver(settings, data, limiter);
+        archiver.Reconcile(extensions, [], CancellationToken.None);
+        Check(limiter.BytesCharged > 0 && !archiver.IsUnchangedVerifiedSource(clip, CancellationToken.None),
+            "Restart rehashes changed archive content even when its length and write time were preserved");
+        Check(archiver.Process(clip, new TestProgress(), CancellationToken.None).Outcome == ArchiveOutcome.Failed,
+            "A changed occupied hash filename is never overwritten by the cache optimization");
+        File.Delete(stored);
+        archiver.Reconcile(extensions, [], CancellationToken.None);
+        Check(!archiver.IsUnchangedVerifiedSource(clip, CancellationToken.None)
+            && archiver.Process(clip, new TestProgress(), CancellationToken.None).Outcome == ArchiveOutcome.CopiedAndVerified,
+            "Missing archived content invalidates saved protection and is copied again from the source");
+        string shuffled = Path.Combine(destination, "renamed.avi"); File.Move(stored, shuffled);
+        archiver.Reconcile(extensions, [], CancellationToken.None);
+        Check(archiver.IsUnchangedVerifiedSource(clip, CancellationToken.None)
+            && Directory.GetFiles(destination, "*.avi").Length == 2,
+            "Reconciliation reconnects a source receipt to a verified moved archive location without duplicating it");
+        limiter = new IoRateLimiter(null, new ArchiveClock());
+        archiver = new ClipArchiver(settings, data, limiter);
+        archiver.Reconcile(extensions, [], CancellationToken.None);
+        Check(archiver.Process(clip, new TestProgress(), CancellationToken.None).Outcome == ArchiveOutcome.AlreadyArchived
+            && limiter.BytesCharged >= new FileInfo(clip).Length * 2,
+            "Explicit processing still reads and verifies both source and archive content instead of trusting receipts");
+
+        string indexPath = ArchiveIndex.IndexPath(data, destination);
+        var cached = ArchiveIndex.Load(indexPath, destination);
+        int hintCount = cached.LocationHints.Count;
+        string uncached = Path.Combine(destination, "uncached.avi"); write(uncached, 4, 67);
+        using var cancelled = new CancellationTokenSource();
+        bool interrupted = false;
+        try
+        {
+            cached.Refresh(extensions, new IoRateLimiter(null, new ArchiveClock()), [], cancelled.Token,
+                progress: new TestProgress { OnMessage = message => { if (message.StartsWith("Indexing ")) cancelled.Cancel(); } });
+        }
+        catch (OperationCanceledException) { interrupted = true; }
+        Check(interrupted && cached.LocationHints.Count == hintCount && !cached.LocationHints.ContainsKey(uncached),
+            "A cancelled cache refresh preserves its previous complete location snapshot");
+        File.Delete(uncached);
+        cached.SourceReceipts[clip] = cached.SourceReceipts[clip] with { Stamp = cached.SourceReceipts[clip].Stamp with { Changed = 0 } };
+        cached.Save(indexPath);
+        archiver = new ClipArchiver(settings, data, new IoRateLimiter(null, new ArchiveClock()));
+        Check(!archiver.IsUnchangedVerifiedSource(clip, CancellationToken.None),
+            "Incomplete or unsupported saved change stamps fall back to verification rather than skipping a source");
+        var legacy = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(indexPath))!.AsObject();
+        legacy.Remove("LocationHints"); legacy.Remove("SourceReceipts"); File.WriteAllText(indexPath, legacy.ToJsonString());
+        limiter = new IoRateLimiter(null, new ArchiveClock()); archiver = new ClipArchiver(settings, data, limiter);
+        archiver.Reconcile(extensions, [], CancellationToken.None);
+        Check(limiter.BytesCharged > 0 && !archiver.IsUnchangedVerifiedSource(clip, CancellationToken.None),
+            "Indexes without cache fields receive a one-time content scan and never infer source receipts from provenance");
+    }
+
     private static void RunLinksAndExtensions(string root, Action<string, uint, byte> write, string data)
     {
         string source = Directory.CreateDirectory(Path.Combine(root, "extension-source")).FullName;
@@ -352,6 +454,13 @@ internal static class ArchiveChecks
         long fullScan = timer.ElapsedMilliseconds;
         timer.Restart(); index.Refresh(extensions, limiter, [], CancellationToken.None); timer.Stop();
         Check(index.Entries.Count == 1000, "Initial library indexing reads every unique identity and later reconciliation retains candidate locations");
+        string indexPath = ArchiveIndex.IndexPath(Path.Combine(root, "library-settings"), destination);
+        index.Save(indexPath);
+        var restartedLimiter = new IoRateLimiter(null, new ArchiveClock());
+        var restarted = ArchiveIndex.Load(indexPath, destination);
+        restarted.Refresh(extensions, restartedLimiter, [], CancellationToken.None);
+        Check(restarted.Entries.Count == 1000 && restartedLimiter.BytesCharged == 0,
+            "A 1,000-clip library restart performs metadata reconciliation with zero clip-content I/O");
         Console.WriteLine($"MEASURE: 1,000 generated clips: initial content indexing {fullScan} ms; metadata reconciliation {timer.ElapsedMilliseconds} ms.");
         string source = Directory.CreateDirectory(Path.Combine(root, "throughput-source")).FullName;
         string output = Directory.CreateDirectory(Path.Combine(root, "throughput-dest")).FullName;

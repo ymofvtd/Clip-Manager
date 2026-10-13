@@ -4,6 +4,7 @@ using System.Text;
 namespace VideoTrayApp;
 
 internal sealed record ArchiveProvenance(string Path, string OriginalName, string SourceRoot, string RootLabel);
+internal sealed record ArchiveFileHint(ClipIdentity Identity, ArchiveFileStamp Stamp);
 internal sealed class ArchiveEntry
 {
     public ClipIdentity Identity { get; set; } = new(0, TimeSpan.Zero, "");
@@ -19,7 +20,8 @@ internal sealed class ArchiveIndex
     // Only these exact paths may be removed during crash recovery.
     public List<string> OwnedPartials { get; set; } = [];
     private Dictionary<ClipIdentity, ArchiveEntry>? byIdentity;
-    private Dictionary<string, LocationHint> locationHints = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, ArchiveFileHint> LocationHints { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, ArchiveFileHint> SourceReceipts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     internal ArchiveEntry? FindEntry(ClipIdentity identity)
     {
         byIdentity ??= Entries.ToDictionary(entry => entry.Identity);
@@ -27,7 +29,7 @@ internal sealed class ArchiveIndex
     }
     internal void InvalidateLocation(string path)
     {
-        locationHints.Remove(path);
+        LocationHints.Remove(path);
         foreach (var entry in Entries) entry.Locations.RemoveAll(location => ClipIdentifier.SamePath(location, path));
     }
     private ArchiveEntry GetEntry(ClipIdentity identity)
@@ -52,6 +54,14 @@ internal sealed class ArchiveIndex
             || index.Entries.Any(e => e.Identity is null || e.Locations is null || e.Sources is null)
             || index.Entries.Select(e => e.Identity).Distinct().Count() != index.Entries.Count)
             throw new InvalidDataException("Unsupported or invalid archive index; existing files were left untouched.");
+        // Version 1 indexes without cache fields remain valid and populate them once.
+        index.LocationHints = new(index.LocationHints ?? [], StringComparer.OrdinalIgnoreCase);
+        index.SourceReceipts = new(index.SourceReceipts ?? [], StringComparer.OrdinalIgnoreCase);
+        foreach (var hints in new[] { index.LocationHints, index.SourceReceipts })
+            foreach (var pair in hints.ToArray())
+                if (pair.Value is not { Identity: not null, Stamp: { File: not null, Size: >= 0, Changed: > 0 } } hint
+                    || hint.Stamp.Size != hint.Identity.Size || index.FindEntry(hint.Identity) is null)
+                    hints.Remove(pair.Key);
         return index;
     }
     internal void Save(string path) => AtomicJson.Save(path, this);
@@ -76,23 +86,24 @@ internal sealed class ArchiveIndex
     {
         // Build new locations before replacing the snapshot; cancelled scans keep the old index.
         var locations = new Dictionary<ClipIdentity, List<string>>();
-        var refreshedHints = new Dictionary<string, LocationHint>(StringComparer.OrdinalIgnoreCase);
+        var refreshedHints = new Dictionary<string, ArchiveFileHint>(StringComparer.OrdinalIgnoreCase);
         foreach (string file in ArchivePaths.Videos([Destination], extensions, errors, ct, checkpoint))
         {
             try
             {
-                var info = new FileInfo(file);
+                using var content = new ArchiveContent(file, limiter, ct);
+                var stamp = content.Stamp;
                 ClipIdentity identity;
-                if (locationHints.TryGetValue(file, out var hint) && hint.Size == info.Length && hint.Time == info.LastWriteTimeUtc)
+                if (stamp is not null && LocationHints.TryGetValue(file, out var hint) && hint.Stamp == stamp
+                    && FindEntry(hint.Identity)?.Locations.Contains(file, StringComparer.OrdinalIgnoreCase) == true)
                     identity = hint.Identity;
                 else
                 {
-                    using var content = new ArchiveContent(file, limiter, ct);
                     identity = content.Identity(ct, (done, total) => progress?.Report((int)(done * 100 / Math.Max(1, total)), 100,
                         $"Indexing {file}: {done:N0}/{total:N0} bytes"));
                 }
-                // Metadata can only retain a candidate location. Process always verifies the actual content again.
-                refreshedHints[file] = new(identity, info.Length, info.LastWriteTimeUtc);
+                // These are candidates, not a fresh integrity check. Explicit processing still hashes.
+                if (stamp is not null) refreshedHints[file] = new(identity, stamp);
                 if (!locations.TryGetValue(identity, out var paths)) locations[identity] = paths = [];
                 paths.Add(file);
             }
@@ -105,15 +116,45 @@ internal sealed class ArchiveIndex
             var entry = GetEntry(pair.Key);
             entry.Locations = pair.Value;
         }
-        locationHints = refreshedHints;
+        LocationHints = refreshedHints;
     }
-    internal void Record(ClipIdentity identity, string location, string source, IEnumerable<string> roots)
+    internal bool IsUnchangedVerifiedSource(string source, IoRateLimiter limiter, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!SourceReceipts.TryGetValue(source, out var receipt) || FindEntry(receipt.Identity) is not { } entry) return false;
+        try
+        {
+            using var content = new ArchiveContent(source, limiter, ct);
+            if (content.Stamp is not { } sourceStamp || sourceStamp != receipt.Stamp) return false;
+            foreach (string location in entry.Locations)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!ArchivePaths.Contains(Destination, location) || !LocationHints.TryGetValue(location, out var hint)
+                    || hint.Identity != receipt.Identity) continue;
+                try
+                {
+                    using var keeper = new ArchiveContent(location, limiter, ct);
+                    if (keeper.Stamp is { } stamp && stamp == hint.Stamp) return true;
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        return false;
+    }
+    internal void Record(ClipIdentity identity, string location, string source, IEnumerable<string> roots,
+        ArchiveFileStamp? sourceStamp = null, ArchiveFileStamp? locationStamp = null)
     {
         var entry = GetEntry(identity);
         if (!entry.Locations.Contains(location, StringComparer.OrdinalIgnoreCase)) entry.Locations.Add(location);
         foreach (string root in roots.Where(root => ArchivePaths.Contains(root, source)))
             if (!entry.Sources.Any(p => ClipIdentifier.SamePath(p.Path, source) && ClipIdentifier.SamePath(p.SourceRoot, root)))
                 entry.Sources.Add(new(source, Path.GetFileName(source), root, Path.GetFileName(Path.TrimEndingDirectorySeparator(root))));
+        if (sourceStamp is not null) SourceReceipts[source] = new(identity, sourceStamp);
+        else SourceReceipts.Remove(source);
+        if (locationStamp is not null) LocationHints[location] = new(identity, locationStamp);
+        else LocationHints.Remove(location);
     }
-    private sealed record LocationHint(ClipIdentity Identity, long Size, DateTime Time);
 }

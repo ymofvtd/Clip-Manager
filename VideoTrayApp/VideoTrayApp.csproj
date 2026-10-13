@@ -8,9 +8,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
 
     <!-- Versioning - bump this before releases -->
-    <Version>2.1.15</Version>
-    <AssemblyVersion>2.1.15.0</AssemblyVersion>
-    <FileVersion>2.1.15.0</FileVersion>
+    <Version>2.1.16</Version>
+    <AssemblyVersion>2.1.16.0</AssemblyVersion>
+    <FileVersion>2.1.16.0</FileVersion>
     <AssemblyName>ClipsManager</AssemblyName>
 
     <!-- Single File Deployment - produces one portable .exe -->

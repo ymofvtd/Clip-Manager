@@ -92,7 +92,7 @@ internal sealed class ArchiveWorkspace : UserControl
         DesktopTheme.Add(page, DesktopTheme.Text("Pending files and retry issues (bounded to 4,096 paths)")); DesktopTheme.Add(page, pending);
         DesktopTheme.Add(page, DesktopTheme.Text("Archive log — the latest 200 events")); DesktopTheme.Add(page, log);
         DesktopTheme.Add(page, DesktopTheme.Button("Load archive details", async () => await LoadCatalogAsync()));
-        DesktopTheme.Add(page, DesktopTheme.Text("Catalog entries describe previously indexed copies, not a fresh whole-library integrity check. Use Start to reconcile and verify content."));
+        DesktopTheme.Add(page, DesktopTheme.Text("Catalog entries show previously verified copies. Watching checks for new, changed or missing files. Run once rechecks source content and its archived copies."));
         previousPage = DesktopTheme.Button("Previous catalog page", () => { catalogPage--; ShowCatalogPage(); });
         nextPage = DesktopTheme.Button("Next catalog page", () => { catalogPage++; ShowCatalogPage(); });
         previousPage.Enabled = nextPage.Enabled = false;

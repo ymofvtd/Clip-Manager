@@ -34,6 +34,8 @@ The status window shows queued clips, byte progress, copied/verified and already
 
 Settings, per-destination indexes, and the bounded shutdown log are stored atomically under `%APPDATA%/ClipsManager` (`archive_settings.json`, `archive_index_*.json`, `archive_log.json`). Archive presets support source lists and speed settings and always run once. Older Target/UseWorkingFolder and Destination settings resolve to the same folders with the new copy-only behavior. Completed copies are independent of preset rollback.
 
+Archive saves its file cache across restarts. Startup and periodic reconciliation enumerate paths and check file identity, size, creation/write/change times, hashing only new or changed archive files. Continuous watching also skips an already verified source when both it and an archived copy retain their protected-file stamps; unchanged historical clips do not take a Slow scheduling slot. New clips still receive full copy and read-back verification, and changed or missing copies trigger checking/recovery. **Run once** explicitly rechecks source content and its archived copies. The first launch with an older index needs one content scan to populate the new cache. Filesystems without reliable change stamps fall back to full checking. Metadata checks are not a fresh integrity audit and cannot detect silent disk corruption that leaves all file metadata unchanged.
+
 A queued clip is not protected until a copy is verified. Clips deleted before processing, while the app is closed, or while the destination is unavailable can still be lost. Slow mode leaves a longer gap; pending and unavailable status remain visible.
 
 ## Seek duplications

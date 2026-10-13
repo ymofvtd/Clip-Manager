@@ -13,6 +13,11 @@ string root = Path.Combine(Path.GetTempPath(), "ClipIdentifierTests-" + Guid.New
 Directory.CreateDirectory(root);
 try
 {
+    if (args.Contains("--archive-only"))
+    {
+        ArchiveChecks.Run(root, WriteAvi);
+        return;
+    }
     UxChecks.Run(root, WriteAvi);
     if (args.Contains("--ux-only")) return;
     string source = Directory.CreateDirectory(Path.Combine(root, "source")).FullName;
