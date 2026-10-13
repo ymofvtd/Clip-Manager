@@ -95,17 +95,20 @@ internal static class PresetChecks
         }
         Check(before.SequenceEqual(Snapshot(source, destination)), "A failure midway through recycling restores even the already recycled content");
 
-        using var cancel = new CancellationTokenSource();
-        using (var tx = new OperationTransaction())
-        {
-            var result = ClipArchiver.Run(source, destination, extensions, new TestProgress
-            {
-                OnMessage = message => { if (message.StartsWith("Moving second")) cancel.Cancel(); }
-            }, cancel.Token);
-            Check(result.Cancelled && result.Moved == 1, "Archive cancellation reaches a partially moved preset run");
-            tx.Rollback();
-        }
-        Check(before.SequenceEqual(Snapshot(source, destination)), "Cancelled archive preset restores original source and destination");
+        var migrated = new ActionPreset { Action = PresetAction.Archive, UseWorkingFolder = true, Destination = destination };
+        var mapped = migrated.ArchiveConfiguration(source);
+        Check(mapped.Sources.SequenceEqual([source]) && !mapped.WatchContinuously && mapped.Speed == ArchiveSpeed.Slow
+            && migrated.Summary(source).Contains("Copy and verify only"), "Legacy Archive presets resolve the working folder and adopt copy-only run-once semantics");
+        Check((int)PresetAction.ShuffleBatches == 7 && (int)PresetAction.SeekDuplications == 8,
+            "Existing numeric action values are preserved; Seek duplications is appended");
+        var archivePreset = migrated.Clone(); archivePreset.UseWorkingFolder = false; archivePreset.ArchiveSources = [source];
+        archivePreset.ArchiveSpeed = ArchiveSpeed.Fast; archivePreset.ArchiveMegabytesPerSecond = null;
+        var archiveStore = new PresetStore { Presets = [archivePreset], Defaults = new() { [PresetAction.Archive] = archivePreset.Id } };
+        string archiveConfig = Path.Combine(root, "archive-presets.json"); archiveStore.Save(archiveConfig);
+        var savedArchive = PresetStore.Load(archiveConfig).DefaultFor(PresetAction.Archive)!;
+        Check(savedArchive.ArchiveSources.SequenceEqual([source]) && savedArchive.ArchiveConfiguration(source).Speed == ArchiveSpeed.Fast
+            && savedArchive.ArchiveMegabytesPerSecond is null && !savedArchive.ArchiveConfiguration(source).WatchContinuously,
+            "Multi-source Archive preset settings round-trip without silently enabling watching");
 
         string batchSource = Directory.CreateDirectory(Path.Combine(root, "batch-source")).FullName;
         string batchDest = Directory.CreateDirectory(Path.Combine(root, "batch-dest")).FullName;

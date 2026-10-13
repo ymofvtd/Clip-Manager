@@ -2,7 +2,7 @@ namespace VideoTrayApp;
 
 public partial class Form1
 {
-    private static string PresetConfigPath => Path.Combine(AppDataFolder, "presets.json");
+    private string PresetConfigPath => Path.Combine(AppDataFolder, "presets.json");
 
     private void SetupActionPresetMenus()
     {
@@ -14,6 +14,7 @@ public partial class Form1
         AttachPresetMenu(btnArchive, PresetAction.Archive);
         AttachPresetMenu(btnIdentifyClip, PresetAction.IdentifyClip);
         AttachPresetMenu(btnRemoveDuplicates, PresetAction.RemoveDuplicates);
+        AttachPresetMenu(btnSeekDuplications, PresetAction.SeekDuplications);
     }
 
     private void AttachPresetMenu(Button button, PresetAction action)
@@ -114,6 +115,10 @@ public partial class Form1
         if (MessageBox.Show(this, prompt + "\n\n" + review,
             ActionPreset.Label(action), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
+        if (action == PresetAction.Archive) { RunArchivePreset(preset); return; }
+        if (action == PresetAction.SeekDuplications)
+        { await RunSeekDuplicationsAsync(target, preset.DirectoryB, preset.IncludeSubfolders); return; }
+
         durationTracker.Pause();
         try
         {
@@ -163,10 +168,7 @@ public partial class Form1
                 ShuffleToRandom(target, preset.RandomLength, progress, ct);
                 break;
             case PresetAction.Archive:
-                var archive = ClipArchiver.Run(target, preset.Destination, DefaultVideoExts, progress, ct);
-                ct.ThrowIfCancellationRequested();
-                ThrowScanErrors(archive.Errors);
-                return archive.Summary;
+                throw new InvalidOperationException("Archive uses per-file background completion; it cannot run inside an operation transaction.");
             case PresetAction.RemoveDuplicates:
                 var duplicates = ClipDuplicateCleaner.Find(target, DefaultVideoExts, progress, ct);
                 ThrowScanErrors(duplicates.Errors);

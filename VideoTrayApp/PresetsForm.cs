@@ -209,6 +209,26 @@ internal sealed class PresetEditorForm : Form
         useWorking.CheckedChanged += (_, _) => targetPanel.Enabled = !useWorking.Checked;
         if (preset.Action is PresetAction.PrepareBatch or PresetAction.Archive or PresetAction.IdentifyClip)
             PathField(preset.Action == PresetAction.PrepareBatch ? "Destination parent folder" : "Destination folder", preset.Destination, v => preset.Destination = v);
+        if (preset.Action == PresetAction.Archive)
+        {
+            var roots = new TextBox { Multiline = true, Height = 100, ScrollBars = ScrollBars.Vertical,
+                Text = string.Join(Environment.NewLine, preset.ArchiveSources) };
+            Add("Source list (one per line)", roots);
+            saveValues.Add(() => preset.ArchiveSources = roots.Lines.Where(line => !string.IsNullOrWhiteSpace(line)).Select(line => line.Trim()).ToList());
+            Add("Source selection", new Label { AutoSize = true, Text = "With current working folder selected, add it to this list.\nOtherwise use this list, or the fixed target when the list is empty.\nAlways copy and verify recursively; run once; keep completed copies." });
+            Choice("Speed", preset.ArchiveSpeed, v => preset.ArchiveSpeed = v);
+            Number("Slow interval (seconds)", preset.ArchiveIntervalSeconds, 0, 86400, v => preset.ArchiveIntervalSeconds = v);
+            Number("I/O cap MB/s (0 = off)", preset.ArchiveMegabytesPerSecond ?? 0, 0, 10000,
+                v => preset.ArchiveMegabytesPerSecond = v == 0 ? null : v);
+            Number("Settling (seconds)", preset.ArchiveSettlingSeconds, 0, 3600, v => preset.ArchiveSettlingSeconds = v);
+        }
+        if (preset.Action == PresetAction.SeekDuplications)
+        {
+            PathField("Directory B", preset.DirectoryB, v => preset.DirectoryB = v);
+            var recursive = new CheckBox { Text = "Include subfolders", Checked = preset.IncludeSubfolders, AutoSize = true };
+            Add("Scan options", recursive); saveValues.Add(() => preset.IncludeSubfolders = recursive.Checked);
+            Add("Review", new Label { Text = "Always review individual copies and confirm selection.\nAll files start as Keep; neither folder has priority.", AutoSize = true });
+        }
         if (preset.Action == PresetAction.PrepareBatch)
         {
             TextField("New batch folder name", preset.BatchFolderName, v => preset.BatchFolderName = v);

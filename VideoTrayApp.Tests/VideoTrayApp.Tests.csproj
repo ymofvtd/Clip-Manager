@@ -11,6 +11,19 @@
     <Compile Include="../VideoTrayApp/ClipIdentifier.cs" Link="ClipIdentifier.cs" />
     <Compile Include="../VideoTrayApp/ClipDuplicateCleaner.cs" Link="ClipDuplicateCleaner.cs" />
     <Compile Include="../VideoTrayApp/ClipArchiver.cs" Link="ClipArchiver.cs" />
+    <Compile Include="../VideoTrayApp/ArchiveSettings.cs" Link="ArchiveSettings.cs" />
+    <Compile Include="../VideoTrayApp/ArchiveIndex.cs" Link="ArchiveIndex.cs" />
+    <Compile Include="../VideoTrayApp/ArchiveContent.cs" Link="ArchiveContent.cs" />
+    <Compile Include="../VideoTrayApp/ArchiveWorker.cs" Link="ArchiveWorker.cs" />
+    <Compile Include="../VideoTrayApp/IoRateLimiter.cs" Link="IoRateLimiter.cs" />
+    <Compile Include="../VideoTrayApp/OperationCoordinator.cs" Link="OperationCoordinator.cs" />
+    <Compile Include="../VideoTrayApp/ClipDuplicationSeeker.cs" Link="ClipDuplicationSeeker.cs" />
+    <Compile Include="../VideoTrayApp/PhysicalFile.cs" Link="PhysicalFile.cs" />
+    <Compile Include="../VideoTrayApp/RecycleBin.cs" Link="RecycleBin.cs" />
+    <Compile Include="../VideoTrayApp/DuplicationReviewForm.cs" Link="DuplicationReviewForm.cs" />
+    <Compile Include="../VideoTrayApp/ArchiveForm.cs" Link="ArchiveForm.cs" />
+    <Compile Include="../VideoTrayApp/Form1*.cs" Link="%(Filename)%(Extension)" />
+    <Compile Include="../VideoTrayApp/AppUpdater.cs" Link="AppUpdater.cs" />
     <Compile Include="../VideoTrayApp/ClipBatchPreparer.cs" Link="ClipBatchPreparer.cs" />
     <Compile Include="../VideoTrayApp/ClipBatchShuffler.cs" Link="ClipBatchShuffler.cs" />
     <Compile Include="../VideoTrayApp/OperationTransaction.cs" Link="OperationTransaction.cs" />

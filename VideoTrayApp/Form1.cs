@@ -18,6 +18,8 @@ namespace VideoTrayApp
         /// <summary>Folder used by rename/shuffle actions in the main window.</summary>
         private string workingFolderPath = string.Empty;
         private CancellationTokenSource? operationCts;
+        private readonly string settingsFolder;
+        private readonly string legacySettingsFolder;
 
         // Common video extensions used by original Python scripts
         private static readonly HashSet<string> DefaultVideoExts = new(StringComparer.OrdinalIgnoreCase)
@@ -26,8 +28,13 @@ namespace VideoTrayApp
             ".mts", ".m2ts", ".mpg", ".mpeg", ".3gp", ".flv", ".webm"
         };
 
-        public Form1()
+        public Form1() : this(null, registerStartup: true) { }
+
+        internal Form1(string? dataFolder, bool registerStartup)
         {
+            settingsFolder = dataFolder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClipsManager");
+            legacySettingsFolder = dataFolder is null
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VideoTrayApp") : Path.Combine(dataFolder, "legacy");
             InitializeComponent();
             SetupActionPresetMenus();
             Text = $"Clips Manager v{FormatVersion(AppUpdater.CurrentVersion)}";
@@ -55,7 +62,7 @@ namespace VideoTrayApp
 
             SetupTrayIcon();
             durationTracker.SetFolders(watchFolderPaths);
-            SetStartup();
+            if (registerStartup) SetStartup();
             UpdateFolderDisplay();
             UpdateWatchFolderDisplay();
 
@@ -64,15 +71,13 @@ namespace VideoTrayApp
             this.ShowInTaskbar = false;
         }
 
-        private static string AppDataFolder =>
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClipsManager");
+        private string AppDataFolder => settingsFolder;
 
-        private static string LegacyAppDataFolder =>
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VideoTrayApp");
+        private string LegacyAppDataFolder => legacySettingsFolder;
 
         private string GetWorkingConfigPath() => Path.Combine(AppDataFolder, "working_folder.txt");
 
-        private static void EnsureAppDataFolder()
+        private void EnsureAppDataFolder()
         {
             if (!Directory.Exists(AppDataFolder))
                 Directory.CreateDirectory(AppDataFolder);
@@ -117,6 +122,8 @@ namespace VideoTrayApp
             menu.Items.Add("Shuffle Batches", null, async (s, e) => await RunShuffleBatchesAsync());
             menu.Items.Add("Identify clip", null, async (s, e) => await RunIdentifyClipAsync());
             menu.Items.Add("Remove duplicates", null, async (s, e) => await RunRemoveDuplicatesAsync());
+            menu.Items.Add("Seek duplications", null, async (s, e) => await RunSeekDuplicationsAsync());
+            menu.Items.Add("Manage presets...", null, btnPresets_Click);
             menu.Items.Add("Watch Folders...", null, SetFolderPath);
             menu.Items.Add("Show Window", null, ShowWindow);
             menu.Items.Add("Check for Updates", null, async (s, e) => await RunCheckForUpdateAsync());
@@ -215,10 +222,11 @@ namespace VideoTrayApp
                 form.ReportEmbeddedProgress(0, 0, message);
         }
 
-        private void BeginEmbeddedOperation(string title)
+        private async Task BeginEmbeddedOperationAsync(string title)
         {
             operationCts?.Dispose();
             operationCts = new CancellationTokenSource();
+            foregroundLease = await operationCoordinator.ForegroundAsync();
 
             lblProgressStatus.Text = title;
             progressBarMain.Style = ProgressBarStyle.Marquee;
@@ -263,6 +271,9 @@ namespace VideoTrayApp
             btnCancelOperation.Enabled = false;
             operationCts?.Dispose();
             operationCts = null;
+            foregroundLease?.Dispose();
+            foregroundLease = null;
+            archiveWorker?.RequestReconciliation();
         }
 
         private void btnCancelOperation_Click(object? sender, EventArgs e)
@@ -285,11 +296,11 @@ namespace VideoTrayApp
             btnPrepare.Enabled = enabled;
             btnShuffleBatches.Enabled = enabled;
             btnShuffleRandom.Enabled = enabled;
-            btnArchive.Enabled = enabled;
+            btnArchive.Enabled = true;
             btnIdentifyClip.Enabled = enabled;
             btnRemoveDuplicates.Enabled = enabled;
             btnBrowseFolder.Enabled = enabled;
-            btnPresets.Enabled = enabled;
+            btnSeekDuplications.Enabled = enabled;
             btnWatchFolders.Enabled = enabled;
             if (!enabled)
                 btnCancelOperation.Enabled = enabled;
@@ -305,9 +316,10 @@ namespace VideoTrayApp
             if (operationCts is not null)
                 return;
             SetButtonsEnabled(false);
-            BeginEmbeddedOperation(title);
+            await BeginEmbeddedOperationAsync(title);
 
             var progress = new EmbeddedOperationProgress(this);
+            durationTracker.Pause();
             var workTask = Task.Run(() => work(progress, progress.CancellationToken));
             try
             {
@@ -335,6 +347,7 @@ namespace VideoTrayApp
             }
             finally
             {
+                durationTracker.Resume();
                 SetButtonsEnabled(true);
 
                 if (refreshVideoCountOnComplete)
@@ -356,7 +369,7 @@ namespace VideoTrayApp
             if (operationCts is not null)
                 return;
             SetButtonsEnabled(false);
-            BeginEmbeddedOperation("Check for Updates");
+            await BeginEmbeddedOperationAsync("Check for Updates");
 
             try
             {
@@ -451,7 +464,11 @@ namespace VideoTrayApp
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
-            this.Hide(); // Ensure it stays hidden
+            if (archiveWorker is null)
+            {
+                InitializeArchive();
+                Hide(); // First launch starts in the tray; handle recreation must not restart Archive.
+            }
             UpdateVideoCount();
         }
 
@@ -464,6 +481,9 @@ namespace VideoTrayApp
             }
             else
             {
+                operationCts?.Cancel();
+                archiveForm?.Close();
+                archiveWorker?.Dispose();
                 durationTracker.Dispose();
                 trayIcon?.Dispose();
             }
@@ -722,51 +742,6 @@ namespace VideoTrayApp
         private async void btnArchive_Click(object? sender, EventArgs e)
         {
             await RunArchiveAsync();
-        }
-
-        private async Task RunArchiveAsync()
-        {
-            if (await TryRunDefaultPresetAsync(PresetAction.Archive)) return;
-            if (operationCts is not null)
-                return;
-            ShowWindow(this, EventArgs.Empty);
-            using var sourcePicker = new FolderBrowserDialog
-            {
-                Description = "Archive - select the source folder. All clips directly in this folder will be moved.",
-                UseDescriptionForTitle = true,
-                SelectedPath = Directory.Exists(workingFolderPath) ? workingFolderPath : string.Empty
-            };
-            if (sourcePicker.ShowDialog(this) != DialogResult.OK)
-                return;
-            using var destinationPicker = new FolderBrowserDialog
-            {
-                Description = "Archive - select the destination. Move clips here, recycle exact duplicates, then shuffle random filenames.",
-                UseDescriptionForTitle = true
-            };
-            if (destinationPicker.ShowDialog(this) != DialogResult.OK)
-                return;
-
-            SetButtonsEnabled(false);
-            BeginEmbeddedOperation("Archive");
-            var progress = new EmbeddedOperationProgress(this);
-            try
-            {
-                var result = await Task.Run(() => ClipArchiver.Run(sourcePicker.SelectedPath,
-                    destinationPicker.SelectedPath, DefaultVideoExts, progress, progress.CancellationToken));
-                CompleteEmbeddedOperation(result.Cancelled ? "Cancelled" : result.Errors.Count > 0 ? "Stopped" : "Done");
-                MessageBox.Show(this, result.Summary, "Archive", MessageBoxButtons.OK,
-                    result.Errors.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                CompleteEmbeddedOperation("Failed");
-                MessageBox.Show(this, ex.Message, "Archive", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                SetButtonsEnabled(true);
-                UpdateVideoCount();
-            }
         }
 
         //

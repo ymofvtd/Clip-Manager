@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace VideoTrayApp;
 
-internal enum PresetAction { PrepareBatch, ShuffleAndName, NameByTens, ShuffleRandom, Archive, IdentifyClip, RemoveDuplicates, ShuffleBatches }
+internal enum PresetAction { PrepareBatch, ShuffleAndName, NameByTens, ShuffleRandom, Archive, IdentifyClip, RemoveDuplicates, ShuffleBatches, SeekDuplications }
 internal enum BatchSelection { NumberedMp4, AllVideos, Archives }
 // Retained for loading saved presets; Prepare Batch always numbers clips by duration.
 internal enum BatchNaming { Preserve, NumberByTens, Random }
@@ -26,6 +26,22 @@ internal sealed class ActionPreset
     public int RandomLength { get; set; } = 12;
     public string ReferenceClip { get; set; } = "";
     public IdentifyBehavior IdentifyBehavior { get; set; }
+    public List<string> ArchiveSources { get; set; } = [];
+    public ArchiveSpeed ArchiveSpeed { get; set; } = ArchiveSpeed.Slow;
+    public int ArchiveIntervalSeconds { get; set; } = 120;
+    public int? ArchiveMegabytesPerSecond { get; set; } = 20;
+    public int ArchiveSettlingSeconds { get; set; } = 10;
+    public string DirectoryB { get; set; } = "";
+    public bool IncludeSubfolders { get; set; } = true;
+
+    internal ArchiveSettings ArchiveConfiguration(string workingFolder) => new()
+    {
+        Sources = UseWorkingFolder ? new[] { workingFolder }.Concat(ArchiveSources).ToList()
+            : ArchiveSources.Count > 0 ? ArchiveSources.ToList() : [Target],
+        Destination = Destination, Speed = ArchiveSpeed, IntervalSeconds = ArchiveIntervalSeconds,
+        MegabytesPerSecond = ArchiveMegabytesPerSecond, SettlingSeconds = ArchiveSettlingSeconds,
+        WatchContinuously = false
+    };
 
     internal ActionPreset Clone() => JsonSerializer.Deserialize<ActionPreset>(JsonSerializer.Serialize(this))!;
     internal string ResolveTarget(string workingFolder) => UseWorkingFolder ? workingFolder : Target;
@@ -34,7 +50,7 @@ internal sealed class ActionPreset
         PresetAction.PrepareBatch => "Prepare Batch", PresetAction.ShuffleAndName => "Shuffle & Name",
         PresetAction.NameByTens => "Name by 10s", PresetAction.ShuffleRandom => "Shuffle Random",
         PresetAction.IdentifyClip => "Identify clip", PresetAction.RemoveDuplicates => "Remove duplicates",
-        PresetAction.ShuffleBatches => "Shuffle Batches", _ => "Archive"
+        PresetAction.ShuffleBatches => "Shuffle Batches", PresetAction.SeekDuplications => "Seek duplications", _ => "Archive"
     };
 
     internal string Summary(string workingFolder)
@@ -52,7 +68,12 @@ internal sealed class ActionPreset
             lines.Add($"Start: {Start}; padding: {Padding}; prefix: {Prefix}");
         if (Action == PresetAction.ShuffleRandom)
             lines.Add($"Random name length: {RandomLength}");
-        if (Action == PresetAction.Archive) lines.Add("Move all top-level videos, recycle duplicates, shuffle destination filenames.");
+        if (Action == PresetAction.Archive)
+        {
+            var settings = ArchiveConfiguration(workingFolder);
+            lines.Add($"Recursive sources: {string.Join("; ", settings.Sources)}\nCopy and verify only; sources unchanged; completed copies retained on cancellation.\nRun once, {ArchiveSpeed}; interval {ArchiveIntervalSeconds}s; I/O cap {ArchiveMegabytesPerSecond?.ToString() ?? "off"} MB/s; settle {ArchiveSettlingSeconds}s.");
+        }
+        if (Action == PresetAction.SeekDuplications) lines.Add($"Directory B: {DirectoryB}\nInclude subfolders: {IncludeSubfolders}\nScan exact copies; always review individual paths and confirm selection. All start as Keep.");
         if (Action == PresetAction.IdentifyClip) lines.Add($"Reference: {ReferenceClip}\nMatches: {IdentifyBehavior}; includes subfolders.");
         if (Action == PresetAction.RemoveDuplicates) lines.Add("Includes subfolders. Keep first copy alphabetically; recycle exact duplicates.");
         if (Action == PresetAction.ShuffleBatches)
@@ -65,11 +86,13 @@ internal sealed class ActionPreset
         if (string.IsNullOrWhiteSpace(Name)) throw new ArgumentException("Enter a preset name.");
         if (!Enum.IsDefined(Action) || !Enum.IsDefined(Selection) || !Enum.IsDefined(Naming) || !Enum.IsDefined(IdentifyBehavior))
             throw new InvalidDataException("Preset contains an unknown action or setting.");
-        ValidateFolder(ResolveTarget(workingFolder));
+        if (Action == PresetAction.Archive) ArchiveConfiguration(workingFolder).Validate();
+        else ValidateFolder(ResolveTarget(workingFolder));
+        if (Action == PresetAction.SeekDuplications) ValidateFolder(DirectoryB);
         if (Action is PresetAction.PrepareBatch or PresetAction.Archive || Action == PresetAction.IdentifyClip && IdentifyBehavior == IdentifyBehavior.Move)
         {
             ValidateFolder(Destination);
-            if (ClipIdentifier.SamePath(ResolveTarget(workingFolder), Destination) && Action != PresetAction.PrepareBatch)
+            if (Action != PresetAction.Archive && ClipIdentifier.SamePath(ResolveTarget(workingFolder), Destination) && Action != PresetAction.PrepareBatch)
                 throw new IOException("Source and destination must be different folders.");
         }
         if (Action == PresetAction.PrepareBatch) BatchDestinationResolver.ValidateName(BatchFolderName);

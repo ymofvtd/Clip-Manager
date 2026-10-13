@@ -1,106 +1,197 @@
 namespace VideoTrayApp;
 
-internal sealed record ArchiveResult(int Moved, int Recycled, int Shuffled, bool Cancelled,
-    List<string> Errors)
+internal enum ArchiveOutcome { CopiedAndVerified, AlreadyArchived, Pending, Failed }
+internal sealed record ArchiveClipResult(ArchiveOutcome Outcome, string Path, string? Message = null, bool DestinationUnavailable = false);
+internal sealed record ArchiveResult(int Copied, int AlreadyArchived, int Pending, bool Cancelled, List<string> Errors)
 {
-    internal string Summary => $"{(Cancelled ? "Archive cancelled." : Errors.Count > 0 ? "Archive stopped." : "Archive completed.")}\n\n" +
-        $"Moved: {Moved}\nDuplicates sent to Recycle Bin: {Recycled}\nShuffled: {Shuffled}\nErrors: {Errors.Count}" +
+    internal string Summary => $"{(Cancelled ? "Archive cancelled." : "Archive run finished.")}\n\n" +
+        $"Copied and verified: {Copied}\nAlready archived (verified): {AlreadyArchived}\nPending: {Pending}\nFailed: {Errors.Count}\nSources left unchanged." +
         ClipIdentifier.FormatErrors(Errors);
 }
 
-internal static class ClipArchiver
+internal sealed class ClipArchiver
 {
-    internal static ArchiveResult Run(string source, string destination, ISet<string> extensions,
-        IOperationProgress progress, CancellationToken ct)
+    private readonly ArchiveSettings settings;
+    private readonly ArchiveIndex index;
+    private readonly string indexPath;
+    private readonly IoRateLimiter limiter;
+    internal ClipArchiver(ArchiveSettings settings, string dataFolder, IoRateLimiter limiter)
     {
-        int moved = 0, recycled = 0, shuffled = 0;
-        var errors = new List<string>();
-        DuplicateClipResult? duplicates = null;
+        this.settings = settings;
+        this.limiter = limiter;
+        indexPath = ArchiveIndex.IndexPath(dataFolder, settings.Destination);
+        index = ArchiveIndex.Load(indexPath, settings.Destination);
+    }
+    internal void Reconcile(ISet<string> extensions, List<string> errors, CancellationToken ct, Action? checkpoint = null,
+        IOperationProgress? progress = null)
+    {
+        ActionPreset.ValidateFolder(settings.Destination);
+        index.RecoverPartials(indexPath);
+        index.Refresh(extensions, limiter, errors, ct, checkpoint, progress);
+        index.Save(indexPath);
+    }
+
+    internal ArchiveClipResult Process(string source, IOperationProgress progress, CancellationToken ct)
+    {
+        string? temporary = null;
         try
         {
-            source = Path.GetFullPath(source);
-            destination = Path.GetFullPath(destination);
-            if (ClipIdentifier.SamePath(source, destination))
-                throw new IOException("Source and destination must be different folders.");
-            foreach (string folder in new[] { source, destination })
-            {
-                if (!Directory.Exists(folder))
-                    throw new DirectoryNotFoundException(folder);
-                if ((File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0)
-                    throw new IOException("Choose a regular folder rather than a junction or symbolic link.");
-            }
-
             ct.ThrowIfCancellationRequested();
-            var files = ListClips(source, extensions);
-            if (files.Count == 0)
-                return new(moved, recycled, shuffled, false, errors);
-            // Prefer copies already in the destination when choosing duplicate keepers.
-            var existing = ListClips(destination, extensions);
-            var incoming = new List<string>();
-            foreach (string path in files)
+            ActionPreset.ValidateFolder(settings.Destination);
+            ArchivePaths.RejectLinks(source);
+            DateTime stamp = File.GetLastWriteTimeUtc(source);
+            using var content = new ArchiveContent(source, limiter, ct);
+            long size = content.Length;
+            TimeSpan duration = content.Duration();
+            ClipIdentity? identity = null;
+            if (index.Entries.Any(entry => entry.Identity.Size == size && entry.Identity.Duration == duration && entry.Locations.Count > 0))
             {
-                progress.Report(moved, files.Count, $"Moving {Path.GetFileName(path)}...");
+                identity = new(size, duration, content.HashTo(null, (done, total) => ByteProgress("Reading source", source, done, total), ct));
+                using var keeper = VerifiedLocation(identity, ct, out string? existing, progress);
+                if (existing is not null)
+                {
+                    RecheckSource();
+                    index.Record(identity, existing, source, settings.Sources);
+                    index.Save(indexPath);
+                    progress.SetIndeterminate($"Already archived (verified): {source}");
+                    return new(ArchiveOutcome.AlreadyArchived, source);
+                }
+            }
+            temporary = Path.Combine(settings.Destination, ".clipsmanager-" + Guid.NewGuid().ToString("N") + ".partial");
+            index.OwnedPartials.Add(temporary);
+            index.Save(indexPath);
+            progress.SetIndeterminate($"Copying {Path.GetFileName(source)}...");
+            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024))
+            {
+                string hash = content.HashTo(output, (done, total) => progress.Report(
+                    (int)(done * 100 / Math.Max(1, total)), 100,
+                    $"Copying {Path.GetFileName(source)}: {done:N0}/{total:N0} bytes"), ct, limiter, identity?.Hash);
+                identity = new(size, duration, hash);
                 ct.ThrowIfCancellationRequested();
-                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-                    throw new IOException($"Clip became a symbolic link: {path}");
-                string target = UniqueDestination(destination, Path.GetFileName(path));
-                OperationTransaction.Move(path, target);
-                incoming.Add(target);
-                moved++;
+                output.Flush(true);
             }
-
-            progress.SetIndeterminate("Identifying duplicate clips in destination...");
+            progress.SetIndeterminate($"Verifying {Path.GetFileName(source)}...");
+            using var verification = new ArchiveContent(temporary, limiter, ct, source, allowRename: true);
+            if (verification.Identity(ct, (done, total) => ByteProgress("Verifying copy", source, done, total)) != identity)
+                throw new IOException("Copied clip failed size, SHA-256 or duration verification.");
+            RecheckSource();
             ct.ThrowIfCancellationRequested();
-            duplicates = ClipDuplicateCleaner.Find(existing.Concat(incoming), progress, ct);
-            if (duplicates.Errors.Count > 0)
+            string target = Path.Combine(settings.Destination, identity.Hash.ToLowerInvariant() + Path.GetExtension(source).ToLowerInvariant());
+            using var duplicateHandle = VerifiedLocation(identity, ct, out string? duplicate, progress);
+            bool copied = duplicate is null;
+            if (duplicate is not null) target = duplicate;
+            else
             {
-                errors.AddRange(duplicates.Errors);
-                return new(moved, recycled, shuffled, false, errors);
+                try { File.Move(temporary, target, false); }
+                catch (IOException) when (File.Exists(target) || Directory.Exists(target))
+                {
+                    using var occupied = new ArchiveContent(target, limiter, ct);
+                    if (occupied.Identity(ct) != identity) throw new IOException($"Archive target conflict; never overwritten: {target}");
+                    copied = false;
+                }
             }
-            // The existing cleaner rechecks hashes and durations before recycling extras.
-            string cleanup = ClipDuplicateCleaner.Apply(duplicates, progress, ct);
-            recycled = duplicates.Groups.Sum(group => group.Duplicates.Count(path => !File.Exists(path)));
-            ct.ThrowIfCancellationRequested();
-            if (recycled != duplicates.DuplicateCount)
-                throw new IOException("Duplicate cleanup was incomplete; shuffling has not started.\n" + cleanup);
+            progress.SetIndeterminate(copied ? $"Published verified copy: {target}" : $"Already archived (verified): {target}");
+            index.Record(identity, target, source, settings.Sources);
+            index.Save(indexPath);
+            return new(copied ? ArchiveOutcome.CopiedAndVerified : ArchiveOutcome.AlreadyArchived, source);
 
-            var remaining = ListClips(destination, extensions);
-            foreach (string path in remaining)
+            void RecheckSource()
             {
-                progress.Report(shuffled, remaining.Count, $"Shuffling {Path.GetFileName(path)}...");
-                ct.ThrowIfCancellationRequested();
-                string target = UniqueDestination(destination,
-                    Guid.NewGuid().ToString("N")[..12] + Path.GetExtension(path));
-                OperationTransaction.Move(path, target);
-                shuffled++;
+                if (content.Length != size || File.GetLastWriteTimeUtc(source) != stamp)
+                    throw new IOException("Source metadata changed during the protected read; retry required.");
             }
-            return new(moved, recycled, shuffled, false, errors);
+            void ByteProgress(string verb, string path, long done, long total) => progress.Report((int)(done * 100 / Math.Max(1, total)), 100,
+                $"{verb} {path}: {done:N0}/{total:N0} bytes");
         }
-        catch (OperationCanceledException)
-        {
-            if (duplicates is not null)
-                recycled = duplicates.Groups.Sum(group => group.Duplicates.Count(path => !File.Exists(path)));
-            return new(moved, recycled, shuffled, true, errors);
-        }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            errors.Add(ex.Message);
-            return new(moved, recycled, shuffled, false, errors);
+            bool unavailable = !Directory.Exists(settings.Destination) || (ex.HResult & 0xFFFF) is 0x70 or 0x27
+                || temporary is not null && ex is UnauthorizedAccessException;
+            return new(ArchiveOutcome.Failed, source, ex.Message, unavailable);
+        }
+        finally
+        {
+            if (temporary is not null)
+            {
+                try
+                {
+                    if (File.Exists(temporary)) File.Delete(temporary);
+                    index.OwnedPartials.Remove(temporary);
+                    index.Save(indexPath);
+                }
+                catch { /* Retain ownership for recovery; completed copies stay in place. */ }
+            }
         }
     }
 
-    private static List<string> ListClips(string folder, ISet<string> extensions) =>
-        Directory.EnumerateFiles(folder)
-            .Where(path => extensions.Contains(Path.GetExtension(path))
-                && (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
-
-    private static string UniqueDestination(string folder, string name)
+    private ArchiveContent? VerifiedLocation(ClipIdentity identity, CancellationToken ct, out string? verifiedPath, IOperationProgress? progress = null)
     {
-        string path = Path.Combine(folder, name);
-        int suffix = 1;
-        while (File.Exists(path) || Directory.Exists(path))
-            path = Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(name)}__{suffix++}{Path.GetExtension(name)}");
-        return path;
+        verifiedPath = null;
+        if (index.FindEntry(identity) is { } entry)
+            foreach (string location in entry.Locations.ToArray())
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    if (!ArchivePaths.Contains(settings.Destination, location)) throw new IOException("Archive location outside destination.");
+                    var keeper = new ArchiveContent(location, limiter, ct);
+                    try
+                    {
+                        if (keeper.Identity(ct, (done, total) => progress?.Report((int)(done * 100 / Math.Max(1, total)), 100,
+                            $"Verifying existing copy {location}: {done:N0}/{total:N0} bytes")) == identity)
+                        { verifiedPath = location; return keeper; }
+                    }
+                    catch { keeper.Dispose(); throw; }
+                    keeper.Dispose();
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                index.InvalidateLocation(location);
+            }
+        return null;
+    }
+
+    internal static ArchiveResult Run(string source, string destination, ISet<string> extensions,
+        IOperationProgress progress, CancellationToken ct) => Run(new ArchiveSettings
+        { Sources = [source], Destination = destination, Speed = ArchiveSpeed.Fast },
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClipsManager"), extensions, progress, ct);
+
+    internal static ArchiveResult Run(ArchiveSettings settings, string dataFolder, ISet<string> extensions,
+        IOperationProgress progress, CancellationToken ct, IArchiveClock? clock = null)
+    {
+        int copied = 0, existing = 0, pending = 0;
+        var errors = new List<string>();
+        clock ??= new ArchiveClock();
+        try
+        {
+            settings = settings.Clone();
+            settings.Validate();
+            var limiter = new IoRateLimiter(settings.Speed == ArchiveSpeed.Slow && settings.MegabytesPerSecond is { } cap
+                ? (long)cap * 1_000_000 : null, clock);
+            var archiver = new ClipArchiver(settings, dataFolder, limiter);
+            void Yield() { if (settings.Speed == ArchiveSpeed.Slow) clock.Delay(TimeSpan.FromMilliseconds(1), ct); }
+            progress.SetIndeterminate("Indexing existing archive clips...");
+            archiver.Reconcile(extensions, errors, ct, Yield, progress);
+            var schedule = new ArchiveSchedule(settings, clock);
+            foreach (string path in ArchivePaths.Videos(settings.Sources, extensions, errors, ct, Yield))
+            {
+                var before = new FileInfo(path);
+                long size = before.Length;
+                DateTime time = before.LastWriteTimeUtc;
+                clock.Delay(TimeSpan.FromSeconds(settings.SettlingSeconds), ct);
+                before.Refresh();
+                if (!before.Exists || size != before.Length || time != before.LastWriteTimeUtc) { pending++; continue; }
+                schedule.BeforeClip(ct);
+                var result = archiver.Process(path, progress, ct);
+                if (result.Outcome == ArchiveOutcome.CopiedAndVerified) copied++;
+                else if (result.Outcome == ArchiveOutcome.AlreadyArchived) existing++;
+                else errors.Add($"{path}: {result.Message}");
+            }
+            return new(copied, existing, pending, false, errors);
+        }
+        catch (OperationCanceledException) { return new(copied, existing, pending, true, errors); }
+        catch (Exception ex) { errors.Add(ex.Message); return new(copied, existing, pending, false, errors); }
     }
 }

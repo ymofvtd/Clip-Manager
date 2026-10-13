@@ -15,6 +15,8 @@ namespace VideoTrayApp
         {
             if (disposing)
             {
+                archiveWorker?.Dispose();
+                operationCoordinator.Dispose();
                 durationTracker.Dispose();
                 trayIcon?.Dispose();
             }
@@ -44,7 +46,7 @@ namespace VideoTrayApp
             btnNameTenSteps = new Button();
             btnShuffleRandom = new Button();
             btnArchive = new Button();
-            btnPresets = new Button();
+            btnSeekDuplications = new Button();
             btnWatchFolders = new Button();
             lblWatchFolders = new Label();
             btnIdentifyClip = new Button();
@@ -64,6 +66,7 @@ namespace VideoTrayApp
             pnlFolder.Dock = DockStyle.Top;
             pnlFolder.Height = 150;
             pnlFolder.Padding = new Padding(20);
+            pnlFolder.TabIndex = 0;
 
             lblFolderLabel.Text = "Working Folder (naming / shuffle)";
             lblFolderLabel.Font = new Font("Segoe UI", 10F);
@@ -81,7 +84,7 @@ namespace VideoTrayApp
             txtSelectedFolder.ReadOnly = true;
             txtSelectedFolder.Location = new Point(20, 34);
             txtSelectedFolder.Size = new Size(360, 27);
-            txtSelectedFolder.TabIndex = 1;
+            txtSelectedFolder.TabStop = false;
 
             btnBrowseFolder.Text = "Browse...";
             btnBrowseFolder.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
@@ -89,7 +92,7 @@ namespace VideoTrayApp
             btnBrowseFolder.ForeColor = Color.White;
             btnBrowseFolder.Size = new Size(90, 27);
             btnBrowseFolder.Location = new Point(390, 34);
-            btnBrowseFolder.TabIndex = 2;
+            btnBrowseFolder.TabIndex = 0;
             btnBrowseFolder.FlatStyle = FlatStyle.Flat;
             btnBrowseFolder.FlatAppearance.BorderSize = 0;
             btnBrowseFolder.Cursor = Cursors.Hand;
@@ -122,6 +125,7 @@ namespace VideoTrayApp
             btnCancelOperation.FlatAppearance.BorderSize = 0;
             btnCancelOperation.Cursor = Cursors.Hand;
             btnCancelOperation.Visible = false;
+            btnCancelOperation.TabIndex = 1;
             btnCancelOperation.Click += btnCancelOperation_Click;
 
             pnlFolder.Controls.Add(lblFolderLabel);
@@ -143,7 +147,7 @@ namespace VideoTrayApp
             btnShuffleAndName.ForeColor = Color.White;
             btnShuffleAndName.Size = new Size(150, 34);
             btnShuffleAndName.Location = new Point(20, 20);
-            btnShuffleAndName.TabIndex = 3;
+            btnShuffleAndName.TabIndex = 0;
             btnShuffleAndName.FlatStyle = FlatStyle.Flat;
             btnShuffleAndName.FlatAppearance.BorderSize = 0;
             btnShuffleAndName.Cursor = Cursors.Hand;
@@ -155,7 +159,7 @@ namespace VideoTrayApp
             btnNameTenSteps.ForeColor = Color.White;
             btnNameTenSteps.Size = new Size(130, 34);
             btnNameTenSteps.Location = new Point(180, 20);
-            btnNameTenSteps.TabIndex = 4;
+            btnNameTenSteps.TabIndex = 1;
             btnNameTenSteps.FlatStyle = FlatStyle.Flat;
             btnNameTenSteps.FlatAppearance.BorderSize = 0;
             btnNameTenSteps.Cursor = Cursors.Hand;
@@ -167,7 +171,7 @@ namespace VideoTrayApp
             btnShuffleRandom.ForeColor = Color.White;
             btnShuffleRandom.Size = new Size(140, 34);
             btnShuffleRandom.Location = new Point(320, 20);
-            btnShuffleRandom.TabIndex = 5;
+            btnShuffleRandom.TabIndex = 2;
             btnShuffleRandom.FlatStyle = FlatStyle.Flat;
             btnShuffleRandom.FlatAppearance.BorderSize = 0;
             btnShuffleRandom.Cursor = Cursors.Hand;
@@ -184,7 +188,7 @@ namespace VideoTrayApp
             btnArchive.FlatAppearance.BorderSize = 0;
             btnArchive.Cursor = Cursors.Hand;
             btnArchive.Click += btnArchive_Click;
-            toolTips.SetToolTip(btnArchive, "Choose source and destination folders, move all top-level clips, identify and recycle exact duplicates, then shuffle destination clips to random filenames.");
+            toolTips.SetToolTip(btnArchive, "Copy and verify clips recursively from multiple sources. Run once or watch continuously, at Fast or Slow speed. Right-click for presets.");
 
             btnPrepare.Text = "⚙️ Prepare Batch";
             btnPrepare.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
@@ -192,7 +196,7 @@ namespace VideoTrayApp
             btnPrepare.ForeColor = Color.White;
             btnPrepare.Size = new Size(150, 34);
             btnPrepare.Location = new Point(20, 64);
-            btnPrepare.TabIndex = 0;
+            btnPrepare.TabIndex = 3;
             btnPrepare.FlatStyle = FlatStyle.Flat;
             btnPrepare.FlatAppearance.BorderSize = 0;
             btnPrepare.Cursor = Cursors.Hand;
@@ -205,7 +209,7 @@ namespace VideoTrayApp
             btnIdentifyClip.ForeColor = Color.White;
             btnIdentifyClip.Size = new Size(150, 34);
             btnIdentifyClip.Location = new Point(180, 64);
-            btnIdentifyClip.TabIndex = 7;
+            btnIdentifyClip.TabIndex = 4;
             btnIdentifyClip.FlatStyle = FlatStyle.Flat;
             btnIdentifyClip.FlatAppearance.BorderSize = 0;
             btnIdentifyClip.Cursor = Cursors.Hand;
@@ -218,7 +222,7 @@ namespace VideoTrayApp
             btnRemoveDuplicates.ForeColor = Color.White;
             btnRemoveDuplicates.Size = new Size(150, 34);
             btnRemoveDuplicates.Location = new Point(340, 64);
-            btnRemoveDuplicates.TabIndex = 8;
+            btnRemoveDuplicates.TabIndex = 5;
             btnRemoveDuplicates.FlatStyle = FlatStyle.Flat;
             btnRemoveDuplicates.FlatAppearance.BorderSize = 0;
             btnRemoveDuplicates.Cursor = Cursors.Hand;
@@ -238,32 +242,33 @@ namespace VideoTrayApp
             btnShuffleBatches.ForeColor = Color.White;
             btnShuffleBatches.Size = new Size(150, 34);
             btnShuffleBatches.Location = new Point(340, 108);
-            btnShuffleBatches.TabIndex = 10;
+            btnShuffleBatches.TabIndex = 8;
             btnShuffleBatches.FlatStyle = FlatStyle.Flat;
             btnShuffleBatches.FlatAppearance.BorderSize = 0;
             btnShuffleBatches.Cursor = Cursors.Hand;
             btnShuffleBatches.Click += async (s, e) => await RunShuffleBatchesAsync();
             toolTips.SetToolTip(btnShuffleBatches, "Mix all archive clips, including loose root videos, into batches up to 30 minutes. No backups or duplicate deletion. Right-click for presets.");
             pnlActions.Controls.Add(btnShuffleBatches);
-            btnPresets.Text = "Presets";
-            btnPresets.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            btnPresets.BackColor = Color.FromArgb(80, 80, 85);
-            btnPresets.ForeColor = Color.White;
-            btnPresets.FlatStyle = FlatStyle.Flat;
-            btnPresets.FlatAppearance.BorderSize = 0;
-            btnPresets.Cursor = Cursors.Hand;
-            btnPresets.TabIndex = 9;
-            btnPresets.Size = new Size(130, 34);
-            btnPresets.Location = new Point(180, 108);
-            btnPresets.Click += btnPresets_Click;
-            pnlActions.Controls.Add(btnPresets);
+            btnSeekDuplications.Text = "Seek duplications";
+            btnSeekDuplications.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnSeekDuplications.BackColor = Color.FromArgb(80, 80, 85);
+            btnSeekDuplications.ForeColor = Color.White;
+            btnSeekDuplications.FlatStyle = FlatStyle.Flat;
+            btnSeekDuplications.FlatAppearance.BorderSize = 0;
+            btnSeekDuplications.Cursor = Cursors.Hand;
+            btnSeekDuplications.TabIndex = 7;
+            btnSeekDuplications.Size = new Size(150, 34);
+            btnSeekDuplications.Location = new Point(180, 108);
+            btnSeekDuplications.Click += async (_, _) => await RunSeekDuplicationsAsync();
+            toolTips.SetToolTip(btnSeekDuplications, "Compare two folders recursively; choose individual exact copies to recycle. Right-click to manage presets.");
+            pnlActions.Controls.Add(btnSeekDuplications);
             btnWatchFolders.Text = "Watch Folders...";
             btnWatchFolders.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnWatchFolders.BackColor = Color.FromArgb(80, 80, 85);
             btnWatchFolders.ForeColor = Color.White;
             btnWatchFolders.FlatStyle = FlatStyle.Flat;
             btnWatchFolders.Cursor = Cursors.Hand;
-            btnWatchFolders.TabIndex = 11;
+            btnWatchFolders.TabIndex = 9;
             btnWatchFolders.Size = new Size(150, 34);
             btnWatchFolders.Location = new Point(20, 152);
             btnWatchFolders.Click += SetFolderPath;
@@ -278,6 +283,7 @@ namespace VideoTrayApp
             // Main Content Panel
             pnlContent.BackColor = Color.FromArgb(45, 45, 48);
             pnlContent.Dock = DockStyle.Fill;
+            pnlContent.TabIndex = 1;
             pnlContent.Controls.Add(pnlActions);
 
             // Form1
@@ -304,7 +310,7 @@ namespace VideoTrayApp
         private Button btnNameTenSteps;
         private Button btnShuffleRandom;
         private Button btnArchive;
-        private Button btnPresets;
+        private Button btnSeekDuplications;
         private Button btnWatchFolders;
         private Label lblWatchFolders;
         private Button btnIdentifyClip;

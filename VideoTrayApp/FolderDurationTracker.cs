@@ -69,7 +69,7 @@ internal sealed class FolderDurationTracker : IDisposable
     private void OnChange(string root, FileSystemEventArgs e)
     {
         // Marker writes must never trigger another duration scan.
-        if (!IsMarker(e.FullPath)) Schedule(root);
+        if (!IsMarker(e.FullPath) && !e.FullPath.EndsWith(".partial", StringComparison.OrdinalIgnoreCase)) Schedule(root);
     }
 
     private void Schedule(string root)

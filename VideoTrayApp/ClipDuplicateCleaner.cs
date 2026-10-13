@@ -10,6 +10,10 @@ internal sealed record DuplicateClipResult(List<DuplicateClipGroup> Groups, List
 
 internal static class ClipDuplicateCleaner
 {
+    internal static List<NeutralDuplicateGroup> FindNeutral(IEnumerable<string> files, IOperationProgress progress,
+        CancellationToken ct, List<string> errors) => Find(files, progress, ct, errors).Groups
+        .Select(group => new NeutralDuplicateGroup(group.Identity, new[] { group.Keep }.Concat(group.Duplicates).ToList())).ToList();
+
     internal static DuplicateClipResult Find(string folder, ISet<string> extensions,
         IOperationProgress progress, CancellationToken ct)
     {
@@ -91,6 +95,16 @@ internal static class ClipDuplicateCleaner
             .Select(group => group.Key).ToHashSet();
         var candidates = paths.Where(path => sizes.TryGetValue(path, out long size)
             && repeatedSizes.Contains(size)).ToList();
+        var durations = new Dictionary<string, TimeSpan>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in candidates)
+        {
+            ct.ThrowIfCancellationRequested();
+            try { using var video = TagLib.File.Create(path); durations[path] = video.Properties.Duration; }
+            catch (Exception ex) { errors.Add($"{path}: {ex.Message}"); }
+        }
+        var repeatedDurations = candidates.Where(durations.ContainsKey).GroupBy(path => (sizes[path], durations[path]))
+            .Where(group => group.Count() > 1).SelectMany(group => group).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        candidates = candidates.Where(repeatedDurations.Contains).ToList();
         var byIdentity = new Dictionary<ClipIdentity, List<string>>();
         for (int i = 0; i < candidates.Count; i++)
         {

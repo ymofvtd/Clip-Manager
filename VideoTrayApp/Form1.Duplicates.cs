@@ -18,7 +18,7 @@ public partial class Form1
             return;
 
         SetButtonsEnabled(false);
-        BeginEmbeddedOperation("Remove duplicates");
+        await BeginEmbeddedOperationAsync("Remove duplicates");
         var progress = new EmbeddedOperationProgress(this);
         var ct = progress.CancellationToken;
         try
