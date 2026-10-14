@@ -9,11 +9,11 @@ internal static class DuplicationChecks
         string a = Directory.CreateDirectory(Path.Combine(root, "A")).FullName;
         string b = Directory.CreateDirectory(Path.Combine(root, "B")).FullName;
         string sub = Directory.CreateDirectory(Path.Combine(a, "nested")).FullName;
-        var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".avi" };
-        string first = Path.Combine(a, "first.avi"), second = Path.Combine(sub, "second.avi"), third = Path.Combine(b, "third.avi");
+        var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".mp4" };
+        string first = Path.Combine(a, "first.mp4"), second = Path.Combine(sub, "second.mp4"), third = Path.Combine(b, "third.mp4");
         write(first, 2, 1); File.Copy(first, second); File.Copy(first, third);
-        write(Path.Combine(b, "distinct.avi"), 2, 2);
-        write(Path.Combine(a, "a-only.avi"), 3, 3); File.Copy(Path.Combine(a, "a-only.avi"), Path.Combine(a, "a-only-copy.avi"));
+        write(Path.Combine(b, "distinct.mp4"), 2, 2);
+        write(Path.Combine(a, "a-only.mp4"), 3, 3); File.Copy(Path.Combine(a, "a-only.mp4"), Path.Combine(a, "a-only-copy.mp4"));
         var progress = new TestProgress();
         var scan = ClipDuplicationSeeker.Find(a, b, true, exts, progress, CancellationToken.None);
         Check(scan.Groups.Count == 1 && scan.Groups[0].Copies.Count == 3 && scan.Groups[0].Copies.Count(c => c.Side == "A") == 2,
@@ -21,7 +21,7 @@ internal static class DuplicationChecks
         var overlap = ClipDuplicationSeeker.Find(a, sub, true, exts, progress, CancellationToken.None);
         Check(overlap.Groups.Count == 1 && overlap.Groups[0].Copies.Count == 2 && overlap.Groups[0].Copies.Count(c => c.Side.StartsWith("A / B")) == 1,
             "Overlapping selections deduplicate paths and label a shared path as one copy");
-        string alias = Path.Combine(b, "hardlink.avi");
+        string alias = Path.Combine(b, "hardlink.mp4");
         if (!CreateHardLink(alias, third, IntPtr.Zero)) throw new Exception("Cannot create test hard link.");
         scan = ClipDuplicationSeeker.Find(a, b, true, exts, progress, CancellationToken.None);
         Check(scan.Groups.Single().Copies.Count(c => c.HardLink) == 2,
@@ -62,7 +62,7 @@ internal static class DuplicationChecks
         result = ClipDuplicationSeeker.Apply(live, new HashSet<string> { second }, progress, CancellationToken.None);
         Check(result.Recycled == 1 && result.Errors.Count == 0 && File.Exists(third) && !File.Exists(second),
             "Actual selected-copy recycling works while verified kept/selected handles exclude content writes");
-        string recycleTest = Path.Combine(root, "recycle-only.avi"); write(recycleTest, 2, 50);
+        string recycleTest = Path.Combine(root, "recycle-only.mp4"); write(recycleTest, 2, 50);
         RecycleBin.Recycle(recycleTest);
         Check(!File.Exists(recycleTest), "Windows IFileOperation performs a real Recycle Bin-only operation on a disposable clip");
         Exception? uiError = null;

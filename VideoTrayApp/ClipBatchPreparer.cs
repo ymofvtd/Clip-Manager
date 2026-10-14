@@ -7,6 +7,7 @@ internal static class ClipBatchPreparer
         string numberedExtension = ".mp4", Random? shuffleRandom = null,
         IReadOnlyList<string>? candidates = null)
     {
+        VideoFiles.RequireMp4("clip" + numberedExtension);
         sourceFolder = Path.GetFullPath(sourceFolder);
         destinationFolder = Path.GetFullPath(destinationFolder);
         if (!Directory.Exists(sourceFolder)) throw new DirectoryNotFoundException(sourceFolder);
@@ -22,7 +23,7 @@ internal static class ClipBatchPreparer
         if (OperationTransaction.IsActive && Directory.Exists(backupFolder))
             ActionPreset.ValidateFolder(backupFolder);
 
-        var files = candidates?.ToList() ?? Directory.EnumerateFiles(sourceFolder)
+        var files = candidates?.Where(VideoFiles.IsMp4).ToList() ?? Directory.EnumerateFiles(sourceFolder)
             .Where(path => string.Equals(Path.GetExtension(path), numberedExtension, StringComparison.OrdinalIgnoreCase)
                 && Path.GetFileNameWithoutExtension(path).All(char.IsDigit)
                 && Path.GetFileNameWithoutExtension(path).Length > 0)
@@ -45,7 +46,7 @@ internal static class ClipBatchPreparer
             ct.ThrowIfCancellationRequested();
             progress.SetIndeterminate("Preparing clips for duplicate check...");
             var existing = Directory.EnumerateFiles(destinationFolder)
-                .Where(path => videoExtensions.Contains(Path.GetExtension(path)))
+                .Where(path => VideoFiles.IsMp4(path) && videoExtensions.Contains(Path.GetExtension(path)))
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
             selected.RemoveAll(path => !File.Exists(path));
             TimeSpan totalDuration = TimeSpan.Zero;

@@ -11,7 +11,7 @@ public partial class Form1
         using var clipPicker = new OpenFileDialog
         {
             Title = "Identify clip - select a reference clip",
-            Filter = "Video files|" + string.Join(";", DefaultVideoExts.OrderBy(ext => ext).Select(ext => "*" + ext)),
+            Filter = VideoFiles.PickerFilter,
             Multiselect = false,
             CheckFileExists = true
         };

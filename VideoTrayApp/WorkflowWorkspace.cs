@@ -42,7 +42,7 @@ internal sealed class WorkflowWorkspace : UserControl
         destination = new(action == PresetAction.PrepareBatch ? "Destination parent — highest numbered c_ folder or a new batch" : "Move destination", recent: preferences.RecentPaths);
         reference = new("Reference clip — excluded from all changes", file: true, recent: preferences.RecentPaths);
         directoryB = new("Directory B — neither directory has priority", recent: preferences.RecentPaths);
-        selection.Items.AddRange(["Numbered MP4 (top level)", "All videos (top level)", "Archives (recursive, excluding Backup)"]); selection.SelectedIndex = 0;
+        selection.Items.AddRange(["Numbered MP4 (top level)", "All MP4 files (top level)", "Archives (MP4, recursive, excluding Backup)"]); selection.SelectedIndex = 0;
         identifyAction.Items.AddRange(["Inspect results only", "Move matches", "Recycle matches"]); identifyAction.SelectedIndex = 0;
         fields = DesktopTheme.Stack();
         fields.Tag = SurfaceRole.Surface;
@@ -209,7 +209,7 @@ internal sealed class WorkflowWorkspace : UserControl
                     var rename = RenamePlan.Analyze(draft.Target, Action, draft.Start, draft.Padding, draft.Prefix, draft.RandomLength, MainShell.VideoExtensions, progress, ct);
                     rows = rename.Changes.Select(c => ChangeRow(c, "Rename")).ToArray();
                     nextExecution = (p, token) => JobOutcome.Complete(rename.Execute(p, token));
-                    summary = rename.Changes.Count == 0 ? "No supported top-level videos found. Nothing to rename." : $"{rename.Changes.Count} files reviewed. Run uses this exact mapping; refresh generates a new random mapping.";
+                    summary = rename.Changes.Count == 0 ? "No top-level MP4 files found. Nothing to rename." : $"{rename.Changes.Count} files reviewed. Run uses this exact mapping; refresh generates a new random mapping.";
                     recovery = "Cancellation or failure attempts in-process rollback. Forced termination is outside this guarantee.";
                     break;
                 case PresetAction.ShuffleBatches:
@@ -368,10 +368,10 @@ internal sealed class WorkflowWorkspace : UserControl
         PresetAction.RemoveDuplicates => "Clean one folder (Remove duplicates). Includes subfolders, excludes links. Keeps the first full path alphabetically per exact-identity group. Use Compare folders for individual choices.",
         PresetAction.IdentifyClip => "Identify clip. Search recursively for exact SHA-256 content and duration matches. Inspect first; choose Move or Recycle explicitly. Reference clip stays untouched.",
         PresetAction.PrepareBatch => "Prepare Batch. Randomly select, check exact duplicates and refill, back up final clips, then move them shortest to longest. Analyze resolves the c_ starter folder or exact new batch without changing files.",
-        PresetAction.ShuffleBatches => "Shuffle Batches. Pool recursive archive videos, excluding Backup and links, pack intact clips into duration-limited batches and number shortest to longest. No duplicate cleanup or backups.",
-        PresetAction.NameByTens => "Name by 10s. Numbering advances by ten (0, 10, 20…). This is a numbering step, not a duration filter. Video extensions are preserved.",
-        PresetAction.ShuffleAndName => "Shuffle & Name. Randomize clips, then number in steps of ten with optional padding and prefix. Video extensions are preserved.",
-        _ => "Shuffle Random. Rename clips using a fixed reviewed random mapping, preserving video extensions. Refresh preview explicitly to generate another mapping."
+        PresetAction.ShuffleBatches => "Shuffle Batches. Pool recursive archive MP4 files, excluding Backup and links, pack intact clips into duration-limited batches and number shortest to longest. No duplicate cleanup or backups.",
+        PresetAction.NameByTens => "Name by 10s. Numbering advances by ten (0, 10, 20…). This is a numbering step, not a duration filter. MP4 extensions are preserved.",
+        PresetAction.ShuffleAndName => "Shuffle & Name. Randomize clips, then number in steps of ten with optional padding and prefix. MP4 extensions are preserved.",
+        _ => "Shuffle Random. Rename clips using a fixed reviewed random mapping, preserving MP4 extensions. Refresh preview explicitly to generate another mapping."
     };
 }
 

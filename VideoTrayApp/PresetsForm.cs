@@ -209,7 +209,7 @@ internal sealed class PresetEditorForm : Form
             var values = Enum.GetValues<T>();
             var control = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = label };
             control.Items.AddRange(values.Select(v => (object)(v.ToString() switch
-            { "NumberedMp4" => "Numbered MP4 (top level)", "AllVideos" => "All videos (top level)", "Archives" => "Archives (recursive)", "Recycle" => "Send to Recycle Bin", _ => v.ToString() })).ToArray());
+            { "NumberedMp4" => "Numbered MP4 (top level)", "AllVideos" => "All MP4 files (top level)", "Archives" => "Archives (MP4, recursive)", "Recycle" => "Send to Recycle Bin", _ => v.ToString() })).ToArray());
             control.SelectedIndex = Array.IndexOf(values, value);
             Add(label, control);
             saveValues.Add(() => setter(values[control.SelectedIndex]));
@@ -255,7 +255,7 @@ internal sealed class PresetEditorForm : Form
             Add("Batch destination", new Label { AutoSize = true, Text = "Automatically use the highest numbered c_ folder\nin the destination. If none exists, create a new folder.\nLeave the name blank for batch_1, batch_2, etc.\nThe c_ folder does not need to exist when you save." });
             Number("Duration (minutes)", preset.DurationMinutes, 1, 10080, v => preset.DurationMinutes = v);
             Choice("Select clips", preset.Selection, v => preset.Selection = v);
-            Add("Selection help", new Label { AutoSize = true, Text = "Numbered MP4: numbered top-level MP4 files.\nAll videos: all top-level supported files.\nArchives: videos in target and subfolders, excluding Backup.\nEach mode uses a random order." });
+            Add("Selection help", new Label { AutoSize = true, Text = "Numbered MP4: numbered top-level MP4 files.\nAll MP4 files: all top-level MP4 files.\nArchives: MP4 files in target and subfolders, excluding Backup.\nEach mode uses a random order." });
             Add("Batch naming", new Label { AutoSize = true, Text = "New clips: 1, 2, 3, ... from shortest to longest.\nExisting filenames stay unchanged; occupied numbers are skipped." });
         }
         if (preset.Action == PresetAction.ShuffleBatches)

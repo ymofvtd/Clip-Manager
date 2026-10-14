@@ -43,6 +43,7 @@ internal sealed class ClipArchiver
         try
         {
             ct.ThrowIfCancellationRequested();
+            VideoFiles.RequireMp4(source);
             ActionPreset.ValidateFolder(settings.Destination);
             ArchivePaths.RejectLinks(source);
             DateTime stamp = File.GetLastWriteTimeUtc(source);

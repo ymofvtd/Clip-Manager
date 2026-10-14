@@ -283,7 +283,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
 
     internal void Enqueue(string path, bool debounce)
     {
-        if (!extensions.Contains(Path.GetExtension(path))) { if (Directory.Exists(path)) RequestReconciliation(); return; }
+        if (!VideoFiles.IsMp4(path) || !extensions.Contains(Path.GetExtension(path))) { if (Directory.Exists(path)) RequestReconciliation(); return; }
         lock (gate)
         {
             if (queue.Count >= QueueCapacity && !queue.ContainsKey(path)) { reconcileRequested = true; return; }

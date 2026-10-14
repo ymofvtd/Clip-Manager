@@ -100,6 +100,7 @@ internal sealed class ActionPreset
             throw new ArgumentException("Preset numeric settings are out of range.");
         if (Prefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             throw new ArgumentException("Prefix contains invalid filename characters.");
+        if (Action == PresetAction.IdentifyClip) VideoFiles.RequireMp4(ReferenceClip);
         if (Action == PresetAction.IdentifyClip && !File.Exists(ReferenceClip))
             throw new FileNotFoundException("The reference clip no longer exists.", ReferenceClip);
     }
@@ -114,6 +115,7 @@ internal sealed class ActionPreset
             throw new ArgumentException("Preset numeric settings are out of range.");
         if (Prefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) throw new ArgumentException("Invalid filename prefix.");
         BatchDestinationResolver.ValidateName(BatchFolderName);
+        if (Action == PresetAction.IdentifyClip) VideoFiles.RequireMp4(ReferenceClip);
         foreach (string path in new[] { Target, Destination, ReferenceClip, DirectoryB }.Concat(ArchiveSources))
             if (path.Length > 0 && !Path.IsPathFullyQualified(path)) throw new ArgumentException("Use a full path: " + path);
         if (ArchiveIntervalSeconds is < 0 or > 86400 || ArchiveSettlingSeconds is < 0 or > 3600 || ArchiveMegabytesPerSecond is < 1 or > 10000)

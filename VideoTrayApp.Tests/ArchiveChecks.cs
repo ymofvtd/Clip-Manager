@@ -15,24 +15,24 @@ internal static class ArchiveChecks
         Check(defaults.Speed == ArchiveSpeed.Slow && !defaults.WatchContinuously && defaults.IntervalSeconds == 120
             && defaults.MegabytesPerSecond == 20 && defaults.SettlingSeconds == 10 && defaults.ReconcileSeconds == 300,
             "Initial Archive defaults are Slow/run-once with separate settling, scheduling, I/O and reconciliation controls");
-        var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".avi" };
+        var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".mp4" };
         var settings = new ArchiveSettings { Sources = [source, source + Path.DirectorySeparatorChar, nested, second], Destination = destination, Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 };
         Check(ArchivePaths.Contains(Path.GetPathRoot(source)!, destination), "Containment validation correctly handles a drive root with a trailing separator");
-        write(Path.Combine(source, "same-name.avi"), 2, 1);
-        write(Path.Combine(nested, "same-name.avi"), 120, 2);
-        File.Copy(Path.Combine(source, "same-name.avi"), Path.Combine(second, "duplicate.avi"));
+        write(Path.Combine(source, "same-name.mp4"), 2, 1);
+        write(Path.Combine(nested, "same-name.mp4"), 120, 2);
+        File.Copy(Path.Combine(source, "same-name.mp4"), Path.Combine(second, "duplicate.mp4"));
         string batch = Directory.CreateDirectory(Path.Combine(destination, "batch_0001")).FullName;
-        File.Copy(Path.Combine(nested, "same-name.avi"), Path.Combine(batch, "0001.avi"));
+        File.Copy(Path.Combine(nested, "same-name.mp4"), Path.Combine(batch, "0001.mp4"));
         File.WriteAllText(Path.Combine(source, "notes.txt"), "preserve notes");
         var before = Snapshot(source).Concat(Snapshot(second)).ToArray();
-        string existing = Path.Combine(batch, "0001.avi");
+        string existing = Path.Combine(batch, "0001.mp4");
         byte[] existingBytes = File.ReadAllBytes(existing);
         var result = ClipArchiver.Run(settings, data, exts, new TestProgress(), CancellationToken.None);
         Check(result.Copied == 1 && result.AlreadyArchived == 2 && result.Errors.Count == 0,
             "Recursive overlapping sources are deduplicated; existing shuffled archives and cross-root identities are reused");
         Check(before.SequenceEqual(Snapshot(source).Concat(Snapshot(second))) && File.ReadAllBytes(existing).SequenceEqual(existingBytes),
             "Archive leaves every source path/byte and existing destination untouched");
-        var files = Directory.GetFiles(destination, "*.avi", SearchOption.AllDirectories);
+        var files = Directory.GetFiles(destination, "*.mp4", SearchOption.AllDirectories);
         Check(files.Length == 2 && files.Any(p => Path.GetFileNameWithoutExtension(p).Length == 64),
             "Same filenames with different content create distinct hash-named copies without renaming existing clips");
         int duplicateCopyStarts = 0;
@@ -45,7 +45,7 @@ internal static class ArchiveChecks
         var indexPath = ArchiveIndex.IndexPath(data, destination);
         var index = ArchiveIndex.Load(indexPath, destination);
         Check(index.Entries.Sum(e => e.Sources.Count) == 4, "Index retains original names, full paths and every overlapping source-root context");
-        string shuffled = Path.Combine(batch, "renamed.avi");
+        string shuffled = Path.Combine(batch, "renamed.mp4");
         File.Move(files.Single(p => Path.GetDirectoryName(p) == destination), shuffled);
         again = ClipArchiver.Run(settings, data, exts, new TestProgress(), CancellationToken.None);
         Check(again.Copied == 0, "Recursive reconciliation rediscovers moved/renamed archive copies");
@@ -63,40 +63,40 @@ internal static class ArchiveChecks
         string isolated = Directory.CreateDirectory(Path.Combine(root, "isolated")).FullName;
         string isolatedDest = Directory.CreateDirectory(Path.Combine(root, "isolated-dest")).FullName;
         settings = new() { Sources = [isolated], Destination = isolatedDest, Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 };
-        string first = Path.Combine(isolated, "first.avi"), next = Path.Combine(isolated, "second.avi");
+        string first = Path.Combine(isolated, "first.mp4"), next = Path.Combine(isolated, "second.mp4");
         write(first, 2, 31); write(next, 2, 32);
         using var cancel = new CancellationTokenSource();
-        result = ClipArchiver.Run(settings, data, exts, new TestProgress { OnMessage = m => { if (m == "Copying second.avi...") cancel.Cancel(); } }, cancel.Token);
+        result = ClipArchiver.Run(settings, data, exts, new TestProgress { OnMessage = m => { if (m == "Copying second.mp4...") cancel.Cancel(); } }, cancel.Token);
         Check(result.Cancelled && result.Copied == 1 && File.Exists(first) && File.Exists(next)
-            && Directory.GetFiles(isolatedDest, "*.avi").Length == 1 && Directory.GetFiles(isolatedDest, "*.partial").Length == 0,
+            && Directory.GetFiles(isolatedDest, "*.mp4").Length == 1 && Directory.GetFiles(isolatedDest, "*.partial").Length == 0,
             "Cancellation retains completed verified copies and removes only owned incomplete files");
         using (var transaction = new OperationTransaction())
         {
             result = ClipArchiver.Run(settings, data, exts, new TestProgress(), CancellationToken.None);
             transaction.Rollback();
         }
-        Check(result.Copied == 1 && Directory.GetFiles(isolatedDest, "*.avi").Length == 2,
+        Check(result.Copied == 1 && Directory.GetFiles(isolatedDest, "*.mp4").Length == 2,
             "Archive completion is independent of whole-run preset rollback");
-        string lockClip = Path.Combine(isolated, "locked.avi"); write(lockClip, 2, 33);
+        string lockClip = Path.Combine(isolated, "locked.mp4"); write(lockClip, 2, 33);
         using (var locked = new FileStream(lockClip, FileMode.Open, FileAccess.Write, FileShare.Read))
         {
             result = ClipArchiver.Run(settings, data, exts, new TestProgress(), CancellationToken.None);
             Check(result.Errors.Any(e => e.Contains("locked")) && File.Exists(lockClip), "Write-open sources cannot be read/copied as protected clips");
         }
         using var verifyCancel = new CancellationTokenSource();
-        result = ClipArchiver.Run(settings, data, exts, new TestProgress { OnMessage = m => { if (m == "Verifying locked.avi...") verifyCancel.Cancel(); } }, verifyCancel.Token);
-        Check(result.Cancelled && Directory.GetFiles(isolatedDest, "*.avi").Length == 2 && Directory.GetFiles(isolatedDest, "*.partial").Length == 0,
+        result = ClipArchiver.Run(settings, data, exts, new TestProgress { OnMessage = m => { if (m == "Verifying locked.mp4...") verifyCancel.Cancel(); } }, verifyCancel.Token);
+        Check(result.Cancelled && Directory.GetFiles(isolatedDest, "*.mp4").Length == 2 && Directory.GetFiles(isolatedDest, "*.partial").Length == 0,
             "Cancellation during read-back verification creates no completed entry");
         Check(!ArchiveIndex.Load(ArchiveIndex.IndexPath(data, isolatedDest), isolatedDest).SourceReceipts.ContainsKey(lockClip),
             "Interrupted copy verification never saves a source receipt that could skip recovery on restart");
         result = ClipArchiver.Run(settings, data, exts, new TestProgress { OnMessage = m =>
         {
-            if (m == "Verifying locked.avi...")
+            if (m == "Verifying locked.mp4...")
                 File.WriteAllBytes(Directory.GetFiles(isolatedDest, "*.partial").Single(), [0, 1]);
         } }, CancellationToken.None);
-        Check(result.Errors.Count > 0 && File.Exists(lockClip) && Directory.GetFiles(isolatedDest, "*.avi").Length == 2,
+        Check(result.Errors.Count > 0 && File.Exists(lockClip) && Directory.GetFiles(isolatedDest, "*.mp4").Length == 2,
             "A corrupted temporary copy fails verification without affecting its source");
-        string target = Path.Combine(isolatedDest, ClipIdentifier.ReadIdentity(lockClip, CancellationToken.None).Hash.ToLowerInvariant() + ".avi");
+        string target = Path.Combine(isolatedDest, ClipIdentifier.ReadIdentity(lockClip, CancellationToken.None).Hash.ToLowerInvariant() + ".mp4");
         write(target, 3, 99);
         byte[] collision = File.ReadAllBytes(target);
         result = ClipArchiver.Run(settings, data, exts, new TestProgress(), CancellationToken.None);
@@ -117,14 +117,14 @@ internal static class ArchiveChecks
         index.RecoverPartials(indexPath);
         Check(!File.Exists(owned) && File.Exists(foreign), "Recovery removes only exact temporary paths recorded by this archiver");
         FileStream? blockedSave = null;
-        string publishedTarget = Path.Combine(isolatedDest, ClipIdentifier.ReadIdentity(lockClip, CancellationToken.None).Hash.ToLowerInvariant() + ".avi");
+        string publishedTarget = Path.Combine(isolatedDest, ClipIdentifier.ReadIdentity(lockClip, CancellationToken.None).Hash.ToLowerInvariant() + ".mp4");
         result = ClipArchiver.Run(settings, data, exts, new TestProgress { OnMessage = message =>
         {
             if (message == $"Published verified copy: {publishedTarget}" && blockedSave is null)
                 blockedSave = new FileStream(indexPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         } }, CancellationToken.None);
         blockedSave?.Dispose();
-        Check(result.Errors.Count > 0 && Directory.GetFiles(isolatedDest, "*.avi").Length == 3,
+        Check(result.Errors.Count > 0 && Directory.GetFiles(isolatedDest, "*.mp4").Length == 3,
             "Index save failure after publication retains finalized content");
         result = ClipArchiver.Run(settings, data, exts, new TestProgress(), CancellationToken.None);
         Check(result.Copied == 0 && result.Errors.Count == 0, "A failed index save recovers through recursive content reconciliation without duplicate copies");
@@ -145,7 +145,7 @@ internal static class ArchiveChecks
     {
         string source = Directory.CreateDirectory(Path.Combine(root, "crash-source")).FullName;
         string destination = Directory.CreateDirectory(Path.Combine(root, "crash-dest")).FullName;
-        write(Path.Combine(source, "clip.avi"), 2, 55);
+        write(Path.Combine(source, "clip.mp4"), 2, 55);
         var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
         if (string.Equals(Path.GetFileNameWithoutExtension(Environment.ProcessPath), "dotnet", StringComparison.OrdinalIgnoreCase))
             start.ArgumentList.Add(typeof(ArchiveChecks).Assembly.Location);
@@ -154,7 +154,7 @@ internal static class ArchiveChecks
         if (!child.WaitForExit(15000)) { child.Kill(); throw new Exception("Crash fixture timed out."); }
         var settings = new ArchiveSettings { Sources = [source], Destination = destination, Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 };
         var result = ClipArchiver.Run(settings, data, exts, new TestProgress(), CancellationToken.None);
-        Check(result.Copied == 0 && result.AlreadyArchived == 1 && Directory.GetFiles(destination, "*.avi").Length == 1,
+        Check(result.Copied == 0 && result.AlreadyArchived == 1 && Directory.GetFiles(destination, "*.mp4").Length == 1,
             "Forced termination between publication and index save recovers finalized content without loss or extra copies");
     }
     private static void RunTiming()
@@ -180,8 +180,8 @@ internal static class ArchiveChecks
     {
         string source = Directory.CreateDirectory(Path.Combine(root, "cached-source")).FullName;
         string destination = Directory.CreateDirectory(Path.Combine(root, "cached-dest")).FullName;
-        string clip = Path.Combine(source, "clip.avi"); write(clip, 2, 61);
-        string stored = Path.Combine(destination, "stored.avi"); File.Copy(clip, stored);
+        string clip = Path.Combine(source, "clip.mp4"); write(clip, 2, 61);
+        string stored = Path.Combine(destination, "stored.mp4"); File.Copy(clip, stored);
         var settings = new ArchiveSettings { Sources = [source], Destination = destination, Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 };
         var limiter = new IoRateLimiter(null, new ArchiveClock());
         var archiver = new ClipArchiver(settings, Path.Combine(root, "cached-settings"), limiter);
@@ -189,7 +189,7 @@ internal static class ArchiveChecks
         DateTime timestamp = File.GetLastWriteTimeUtc(stored); write(stored, 2, 62); File.SetLastWriteTimeUtc(stored, timestamp);
         archiver.Reconcile(extensions, [], CancellationToken.None);
         var result = archiver.Process(clip, new TestProgress(), CancellationToken.None);
-        Check(result.Outcome == ArchiveOutcome.CopiedAndVerified && Directory.GetFiles(destination, "*.avi").Length == 2,
+        Check(result.Outcome == ArchiveOutcome.CopiedAndVerified && Directory.GetFiles(destination, "*.mp4").Length == 2,
             "Same-size/time cached archive locations are only hints; actual verification detects corruption and protects the source with a fresh copy");
         archiver.Reconcile(extensions, [], CancellationToken.None);
         result = archiver.Process(clip, new TestProgress(), CancellationToken.None);
@@ -200,7 +200,7 @@ internal static class ArchiveChecks
         string source = Directory.CreateDirectory(Path.Combine(root, "persistent-source")).FullName;
         string destination = Directory.CreateDirectory(Path.Combine(root, "persistent-dest")).FullName;
         string data = Path.Combine(root, "persistent-settings");
-        string clip = Path.Combine(source, "clip.avi"); write(clip, 2, 63);
+        string clip = Path.Combine(source, "clip.mp4"); write(clip, 2, 63);
         var settings = new ArchiveSettings { Sources = [source], Destination = destination, Speed = ArchiveSpeed.Fast,
             WatchContinuously = true, SettlingSeconds = 0, ReconcileSeconds = 1 };
         var limiter = new IoRateLimiter(null, new ArchiveClock());
@@ -208,7 +208,7 @@ internal static class ArchiveChecks
         archiver.Reconcile(extensions, [], CancellationToken.None);
         Check(archiver.Process(clip, new TestProgress(), CancellationToken.None).Outcome == ArchiveOutcome.CopiedAndVerified,
             "Persistent cache starts only after a successful protected copy and full read-back verification");
-        string stored = Directory.GetFiles(destination, "*.avi").Single();
+        string stored = Directory.GetFiles(destination, "*.mp4").Single();
         limiter = new IoRateLimiter(null, new ArchiveClock());
         archiver = new ClipArchiver(settings, data, limiter);
         archiver.Reconcile(extensions, [], CancellationToken.None);
@@ -224,7 +224,7 @@ internal static class ArchiveChecks
             Thread.Sleep(1400);
             Check(worker.Status.Copied == 0 && worker.Status.AlreadyArchived == 0 && worker.Status.Queued == 0,
                 "Watch restart and periodic reconciliation do not requeue previously verified unchanged sources");
-            write(Path.Combine(source, "new.avi"), 3, 64);
+            write(Path.Combine(source, "new.mp4"), 3, 64);
             Wait(() => worker.Status.Copied == 1, 10000);
             Check(worker.Status.AlreadyArchived == 0, "A new arrival is copied without reverifying the historical source queue");
             worker.StopAsync().GetAwaiter().GetResult();
@@ -256,10 +256,10 @@ internal static class ArchiveChecks
         Check(!archiver.IsUnchangedVerifiedSource(clip, CancellationToken.None)
             && archiver.Process(clip, new TestProgress(), CancellationToken.None).Outcome == ArchiveOutcome.CopiedAndVerified,
             "Missing archived content invalidates saved protection and is copied again from the source");
-        string shuffled = Path.Combine(destination, "renamed.avi"); File.Move(stored, shuffled);
+        string shuffled = Path.Combine(destination, "renamed.mp4"); File.Move(stored, shuffled);
         archiver.Reconcile(extensions, [], CancellationToken.None);
         Check(archiver.IsUnchangedVerifiedSource(clip, CancellationToken.None)
-            && Directory.GetFiles(destination, "*.avi").Length == 2,
+            && Directory.GetFiles(destination, "*.mp4").Length == 2,
             "Reconciliation reconnects a source receipt to a verified moved archive location without duplicating it");
         limiter = new IoRateLimiter(null, new ArchiveClock());
         archiver = new ClipArchiver(settings, data, limiter);
@@ -271,7 +271,7 @@ internal static class ArchiveChecks
         string indexPath = ArchiveIndex.IndexPath(data, destination);
         var cached = ArchiveIndex.Load(indexPath, destination);
         int hintCount = cached.LocationHints.Count;
-        string uncached = Path.Combine(destination, "uncached.avi"); write(uncached, 4, 67);
+        string uncached = Path.Combine(destination, "uncached.mp4"); write(uncached, 4, 67);
         using var cancelled = new CancellationTokenSource();
         bool interrupted = false;
         try
@@ -301,7 +301,7 @@ internal static class ArchiveChecks
         string source = Directory.CreateDirectory(Path.Combine(root, "routine-source")).FullName;
         string destination = Directory.CreateDirectory(Path.Combine(root, "routine-dest")).FullName;
         string data = Path.Combine(root, "routine-settings");
-        for (int i = 0; i < 32; i++) write(Path.Combine(source, $"clip-{i}.avi"), (uint)i + 1, (byte)i);
+        for (int i = 0; i < 32; i++) write(Path.Combine(source, $"clip-{i}.mp4"), (uint)i + 1, (byte)i);
         var settings = new ArchiveSettings { Sources = [source], Destination = destination,
             Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 };
         var result = ClipArchiver.Run(settings, data, extensions, new TestProgress(), CancellationToken.None);
@@ -334,7 +334,7 @@ internal static class ArchiveChecks
                 "Desktop Run once skips cached history instead of processing thousands of already-archived jobs");
         }
 
-        string clip = Path.Combine(source, "clip-0.avi");
+        string clip = Path.Combine(source, "clip-0.mp4");
         var index = ArchiveIndex.Load(indexPath, destination);
         string stored = index.FindEntry(index.SourceReceipts[clip].Identity)!.Locations.Single();
         File.Delete(stored);
@@ -361,7 +361,7 @@ internal static class ArchiveChecks
 
         settings.WatchContinuously = false; settings.VerifyExistingContent = false;
         var archiver = new ClipArchiver(settings, data, new IoRateLimiter(null, new ArchiveClock()));
-        string renamed = Path.Combine(destination, "renamed.avi"); File.Move(stored, renamed);
+        string renamed = Path.Combine(destination, "renamed.mp4"); File.Move(stored, renamed);
         bool saveFailed = false;
         using (var lockedIndex = new FileStream(indexPath, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
@@ -377,14 +377,15 @@ internal static class ArchiveChecks
     {
         string source = Directory.CreateDirectory(Path.Combine(root, "extension-source")).FullName;
         string dest = Directory.CreateDirectory(Path.Combine(root, "extension-dest")).FullName;
-        string path = Path.Combine(source, "clip.avi"); write(path, 2, 72);
-        // RIFF containers can be parsed under either extension. The test extension set explicitly includes both.
+        string path = Path.Combine(source, "clip.mp4"); write(path, 2, 72);
+        // An old archive copy with another extension cannot satisfy an MP4-only run.
         File.Copy(path, Path.Combine(dest, "same-content.wav"));
-        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".avi", ".wav" };
+        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".mp4", ".wav" };
         var settings = new ArchiveSettings { Sources = [source], Destination = dest, Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 };
         var result = ClipArchiver.Run(settings, data, extensions, new TestProgress(), CancellationToken.None);
-        Check(result.Copied == 0 && result.AlreadyArchived == 1 && result.Errors.Count == 0,
-            "Identical content under another recognized extension reuses the existing archive copy");
+        Check(result.Copied == 1 && result.AlreadyArchived == 0 && result.Errors.Count == 0
+            && File.ReadAllBytes(Path.Combine(dest, "same-content.wav")).SequenceEqual(File.ReadAllBytes(path)),
+            "Archive ignores non-MP4 copies even when an older extension set includes them, and preserves their content");
         string link = Path.Combine(root, "linked-root");
         var command = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         command.ArgumentList.Add("/c"); command.ArgumentList.Add("mklink"); command.ArgumentList.Add("/J"); command.ArgumentList.Add(link); command.ArgumentList.Add(source);
@@ -405,24 +406,24 @@ internal static class ArchiveChecks
     {
         string source = Directory.CreateDirectory(Path.Combine(root, "interrupt-source")).FullName;
         string destination = Directory.CreateDirectory(Path.Combine(root, "interrupt-dest")).FullName;
-        string clip = Path.Combine(source, "large.avi"); write(clip, 2, 89);
+        string clip = Path.Combine(source, "large.mp4"); write(clip, 2, 89);
         using (var stream = new FileStream(clip, FileMode.Open, FileAccess.Write))
         using (var writer = new BinaryWriter(stream))
         {
             stream.Position = stream.Length;
-            writer.Write(System.Text.Encoding.ASCII.GetBytes("JUNK")); writer.Write(2 * 1024 * 1024);
+            writer.Write(System.Net.IPAddress.HostToNetworkOrder(8 + 2 * 1024 * 1024));
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("free"));
             writer.Write(new byte[2 * 1024 * 1024]);
-            stream.Position = 4; writer.Write((uint)(stream.Length - 8));
         }
         using var coordinator = new OperationCoordinator();
         using var worker = new ArchiveWorker(coordinator, extensions, Path.Combine(root, "interrupt-settings"));
         worker.Start(new ArchiveSettings { Sources = [source], Destination = destination, Speed = ArchiveSpeed.Slow,
             IntervalSeconds = 0, MegabytesPerSecond = 1, SettlingSeconds = 0 });
-        Wait(() => worker.Status.Current.StartsWith("Copying large.avi:") && worker.Status.Percent > 0, 15000);
+        Wait(() => worker.Status.Current.StartsWith("Copying large.mp4:") && worker.Status.Percent > 0, 15000);
         var timer = Stopwatch.StartNew();
         using (var foreground = coordinator.ForegroundAsync().GetAwaiter().GetResult())
         {
-            Check(timer.Elapsed < TimeSpan.FromSeconds(2) && Directory.GetFiles(destination, "*.avi").Length == 0
+            Check(timer.Elapsed < TimeSpan.FromSeconds(2) && Directory.GetFiles(destination, "*.mp4").Length == 0
                 && Directory.GetFiles(destination, "*.partial").Length == 0 && File.Exists(clip),
                 "Foreground priority interrupts an incomplete throttled copy at a chunk boundary and removes only its partial");
         }
@@ -438,34 +439,34 @@ internal static class ArchiveChecks
         worker.Start(new ArchiveSettings { Sources = [source], Destination = dest, Speed = ArchiveSpeed.Fast,
             WatchContinuously = true, SettlingSeconds = 0, ReconcileSeconds = 1 });
         Wait(() => worker.Status.Warning.Contains("Source scan incomplete"), 10000);
-        Directory.CreateDirectory(source); write(Path.Combine(source, "returned.avi"), 2, 91);
+        Directory.CreateDirectory(source); write(Path.Combine(source, "returned.mp4"), 2, 91);
         worker.RequestReconciliation();
         Wait(() => worker.Status.Copied == 1, 10000);
         Check(true, "Unavailable source roots remain configured and register recursive watchers when they return");
         string offline = dest + "-offline"; Directory.Move(dest, offline);
-        write(Path.Combine(source, "queued.avi"), 2, 92);
-        worker.Enqueue(Path.Combine(source, "queued.avi"), true);
+        write(Path.Combine(source, "queued.mp4"), 2, 92);
+        worker.Enqueue(Path.Combine(source, "queued.mp4"), true);
         Wait(() => worker.Status.Warning.Contains("Archive suspended"), 10000);
         Check(worker.Status.Queued > 0 && worker.Running, "An unavailable destination suspends copying without discarding queued sources");
         Directory.Move(offline, dest); worker.RequestReconciliation();
         Wait(() => worker.Status.Copied == 2, 15000);
         worker.Pause();
-        for (int i = 0; i < ArchiveWorker.QueueCapacity + 100; i++) worker.Enqueue(Path.Combine(source, "event-" + i + ".avi"), true);
-        for (int i = 0; i < 100; i++) worker.Enqueue(Path.Combine(source, "event-0.avi"), true);
+        for (int i = 0; i < ArchiveWorker.QueueCapacity + 100; i++) worker.Enqueue(Path.Combine(source, "event-" + i + ".mp4"), true);
+        for (int i = 0; i < 100; i++) worker.Enqueue(Path.Combine(source, "event-0.mp4"), true);
         Check(worker.Status.Queued == ArchiveWorker.QueueCapacity,
             "Event storms remain bounded at 4,096 paths and repeated events collapse into one pending path");
-        string missed = Path.Combine(source, "overflow-arrival.avi"); write(missed, 2, 93); worker.Enqueue(missed, true);
+        string missed = Path.Combine(source, "overflow-arrival.mp4"); write(missed, 2, 93); worker.Enqueue(missed, true);
         worker.Resume();
         Wait(() => worker.Status.Copied == 3, 15000);
         Check(File.Exists(missed), "Reconciliation recovers arrivals dropped when the event queue overflows");
         worker.StopAsync().GetAwaiter().GetResult();
         // Disk-full classification is injected without exhausting a real disk.
         var settings = new ArchiveSettings { Sources = [source], Destination = dest, Speed = ArchiveSpeed.Fast };
-        string full = Path.Combine(source, "full.avi"); write(full, 2, 94);
+        string full = Path.Combine(source, "full.mp4"); write(full, 2, 94);
         var archiver = new ClipArchiver(settings, Path.Combine(root, "full-settings"), new IoRateLimiter(null, new ArchiveClock()));
         var result = archiver.Process(full, new TestProgress { OnMessage = m =>
         {
-            if (m == "Copying full.avi...") throw new IOException("Injected disk full", unchecked((int)0x80070070));
+            if (m == "Copying full.mp4...") throw new IOException("Injected disk full", unchecked((int)0x80070070));
         } }, CancellationToken.None);
         Check(result.DestinationUnavailable && File.Exists(full) && Directory.GetFiles(dest, "*.partial").Length == 0,
             "Disk-full errors signal destination suspension and leave source content and completed archive copies intact");
@@ -480,32 +481,32 @@ internal static class ArchiveChecks
             Speed = ArchiveSpeed.Fast, SettlingSeconds = 1, ReconcileSeconds = 2 };
         worker.Start(settings);
         string nested = Directory.CreateDirectory(Path.Combine(source, "new-subfolder")).FullName;
-        string clip = Path.Combine(nested, "growing.avi");
+        string clip = Path.Combine(nested, "growing.mp4");
         write(clip, 2, 81);
         using (var growing = new FileStream(clip, FileMode.Open, FileAccess.Write, FileShare.Read))
         {
             Thread.Sleep(1300);
-            Check(Directory.GetFiles(dest, "*.avi").Length == 0, "Watcher leaves write-open growing clips pending");
+            Check(Directory.GetFiles(dest, "*.mp4").Length == 0, "Watcher leaves write-open growing clips pending");
         }
-        Wait(() => Directory.GetFiles(dest, "*.avi").Length == 1 && worker.Status.LastSuccess is not null, 15000);
+        Wait(() => Directory.GetFiles(dest, "*.mp4").Length == 1 && worker.Status.LastSuccess is not null, 15000);
         Check(worker.Status.LastSuccess is not null && File.Exists(clip), "Recursive watcher protects new subfolder clips after settling without changing sources");
         worker.Pause();
-        string next = Path.Combine(source, "paused.avi"); write(next, 2, 82);
+        string next = Path.Combine(source, "paused.mp4"); write(next, 2, 82);
         Thread.Sleep(1300);
-        Check(Directory.GetFiles(dest, "*.avi").Length == 1, "Pause suspends content work while watcher subscriptions retain arrivals");
+        Check(Directory.GetFiles(dest, "*.mp4").Length == 1, "Pause suspends content work while watcher subscriptions retain arrivals");
         worker.Resume();
-        Wait(() => Directory.GetFiles(dest, "*.avi").Length == 2, 15000);
+        Wait(() => Directory.GetFiles(dest, "*.mp4").Length == 2, 15000);
         using (var foreground = coordinator.ForegroundAsync().GetAwaiter().GetResult())
         {
-            write(Path.Combine(source, "foreground.avi"), 2, 83);
+            write(Path.Combine(source, "foreground.mp4"), 2, 83);
             Thread.Sleep(1300);
-            Check(Directory.GetFiles(dest, "*.avi").Length == 2, "Foreground operations suspend background I/O while the watcher stays subscribed");
+            Check(Directory.GetFiles(dest, "*.mp4").Length == 2, "Foreground operations suspend background I/O while the watcher stays subscribed");
         }
         worker.RequestReconciliation();
-        Wait(() => Directory.GetFiles(dest, "*.avi").Length == 3, 15000);
-        string missing = Directory.GetFiles(dest, "*.avi").First(); File.Delete(missing);
+        Wait(() => Directory.GetFiles(dest, "*.mp4").Length == 3, 15000);
+        string missing = Directory.GetFiles(dest, "*.mp4").First(); File.Delete(missing);
         worker.RequestReconciliation();
-        Wait(() => Directory.GetFiles(dest, "*.avi").Length == 3, 15000);
+        Wait(() => Directory.GetFiles(dest, "*.mp4").Length == 3, 15000);
         Check(true, "Periodic/requeued reconciliation resumes copying and recreates a vanished archive copy");
         worker.StopAsync().GetAwaiter().GetResult();
         Check(!worker.Running && Directory.GetFiles(dest, "*.partial").Length == 0, "Stop shuts down watchers safely and retains verified clips");
@@ -525,14 +526,14 @@ internal static class ArchiveChecks
     {
         var index = new ArchiveIndex { Destination = destination };
         for (int i = 0; i < 10000; i++) index.Entries.Add(new ArchiveEntry { Identity = new(i, TimeSpan.FromSeconds(i + 1), i.ToString("X64")),
-            Locations = [Path.Combine(destination, i + ".avi")], Sources = [new("C:\\Source\\" + i + ".avi", i + ".avi", "C:\\Source", "Source")] });
+            Locations = [Path.Combine(destination, i + ".mp4")], Sources = [new("C:\\Source\\" + i + ".mp4", i + ".mp4", "C:\\Source", "Source")] });
         var timer = Stopwatch.StartNew(); string path = Path.Combine(data, "benchmark.json"); index.Save(path); timer.Stop();
         Console.WriteLine($"MEASURE: 10,000-entry JSON index: {new FileInfo(path).Length:N0} bytes, atomic save {timer.ElapsedMilliseconds} ms.");
     }
     private static void MeasureLibrary(string root, Action<string, uint, byte> write, ISet<string> extensions)
     {
         string destination = Directory.CreateDirectory(Path.Combine(root, "library-index")).FullName;
-        for (int i = 0; i < 1000; i++) write(Path.Combine(destination, i + ".avi"), (uint)i + 1, (byte)(i % 255));
+        for (int i = 0; i < 1000; i++) write(Path.Combine(destination, i + ".mp4"), (uint)i + 1, (byte)(i % 255));
         var limiter = new IoRateLimiter(null, new ArchiveClock());
         var index = new ArchiveIndex { Destination = destination };
         var timer = Stopwatch.StartNew(); index.Refresh(extensions, limiter, [], CancellationToken.None); timer.Stop();
@@ -549,12 +550,14 @@ internal static class ArchiveChecks
         Console.WriteLine($"MEASURE: 1,000 generated clips: initial content indexing {fullScan} ms; metadata reconciliation {timer.ElapsedMilliseconds} ms.");
         string source = Directory.CreateDirectory(Path.Combine(root, "throughput-source")).FullName;
         string output = Directory.CreateDirectory(Path.Combine(root, "throughput-dest")).FullName;
-        string clip = Path.Combine(source, "throughput.avi"); write(clip, 2, 102);
+        string clip = Path.Combine(source, "throughput.mp4"); write(clip, 2, 102);
         using (var stream = new FileStream(clip, FileMode.Open, FileAccess.Write))
         using (var writer = new BinaryWriter(stream))
         {
-            stream.Position = stream.Length; writer.Write(System.Text.Encoding.ASCII.GetBytes("JUNK")); writer.Write(2 * 1024 * 1024);
-            writer.Write(new byte[2 * 1024 * 1024]); stream.Position = 4; writer.Write((uint)(stream.Length - 8));
+            stream.Position = stream.Length;
+            writer.Write(System.Net.IPAddress.HostToNetworkOrder(8 + 2 * 1024 * 1024));
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("free"));
+            writer.Write(new byte[2 * 1024 * 1024]);
         }
         var settings = new ArchiveSettings { Sources = [source], Destination = output };
         limiter = new IoRateLimiter(20_000_000, new ArchiveClock());

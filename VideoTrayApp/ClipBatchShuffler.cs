@@ -99,7 +99,7 @@ internal static class ClipBatchShuffler
             foreach (string file in Directory.EnumerateFiles(folder))
             {
                 ct.ThrowIfCancellationRequested();
-                if (extensions.Contains(Path.GetExtension(file))
+                if (VideoFiles.IsMp4(file) && extensions.Contains(Path.GetExtension(file))
                     && (File.GetAttributes(file) & FileAttributes.ReparsePoint) == 0) paths.Add(file);
             }
             foreach (string child in Directory.EnumerateDirectories(folder).Order(StringComparer.OrdinalIgnoreCase))

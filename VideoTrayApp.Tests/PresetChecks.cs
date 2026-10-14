@@ -9,7 +9,7 @@ internal static class PresetChecks
         string source = Directory.CreateDirectory(Path.Combine(root, "source")).FullName;
         string destination = Directory.CreateDirectory(Path.Combine(root, "destination")).FullName;
         var progress = new TestProgress();
-        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".avi" };
+        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".mp4" };
         var store = new PresetStore();
         string config = Path.Combine(root, "presets.json");
         var preset = new ActionPreset { Action = PresetAction.PrepareBatch, Name = "Random 30m archives", UseWorkingFolder = false,
@@ -41,8 +41,8 @@ internal static class PresetChecks
         RunWindowChecks(preset, config, source);
         RunBatchDestinationChecks(root, writeVideo);
 
-        string first = Path.Combine(source, "first.avi");
-        string second = Path.Combine(source, "second.avi");
+        string first = Path.Combine(source, "first.mp4");
+        string second = Path.Combine(source, "second.mp4");
         writeVideo(first, 2, 51);
         writeVideo(second, 2, 52);
         var before = Snapshot(source, destination);
@@ -54,7 +54,7 @@ internal static class PresetChecks
             OperationTransaction.Move(temp, second);
             OperationTransaction.Recycle(first);
             OperationTransaction.CreateDirectory(Path.Combine(source, "Backup"));
-            OperationTransaction.Copy(second, Path.Combine(source, "Backup", "first.avi"));
+            OperationTransaction.Copy(second, Path.Combine(source, "Backup", "first.mp4"));
             tx.Rollback();
         }
         Check(before.SequenceEqual(Snapshot(source, destination)), "Rollback restores two-pass names, staged deletions, backups and newly created folders");
@@ -66,9 +66,9 @@ internal static class PresetChecks
         Check(before.SequenceEqual(Snapshot(source, destination)), "A failed backup copy never deletes an existing collision");
 
         string blockedRoot = Directory.CreateDirectory(Path.Combine(root, "blocked-rollback")).FullName;
-        string blockedOriginal = Path.Combine(blockedRoot, "original.avi");
-        string movedOriginal = Path.Combine(blockedRoot, "moved.avi");
-        string retainedBackup = Path.Combine(blockedRoot, "backup.avi");
+        string blockedOriginal = Path.Combine(blockedRoot, "original.mp4");
+        string movedOriginal = Path.Combine(blockedRoot, "moved.mp4");
+        string retainedBackup = Path.Combine(blockedRoot, "backup.mp4");
         writeVideo(blockedOriginal, 2, 53);
         using (var tx = new OperationTransaction())
         {
@@ -112,29 +112,29 @@ internal static class PresetChecks
 
         string batchSource = Directory.CreateDirectory(Path.Combine(root, "batch-source")).FullName;
         string batchDest = Directory.CreateDirectory(Path.Combine(root, "batch-dest")).FullName;
-        writeVideo(Path.Combine(batchSource, "10.avi"), 2, 61);
-        File.Copy(Path.Combine(batchSource, "10.avi"), Path.Combine(batchDest, "keeper.avi"));
-        writeVideo(Path.Combine(batchSource, "20.avi"), 2, 62);
-        writeVideo(Path.Combine(batchSource, "30.avi"), 2, 63);
+        writeVideo(Path.Combine(batchSource, "10.mp4"), 2, 61);
+        File.Copy(Path.Combine(batchSource, "10.mp4"), Path.Combine(batchDest, "keeper.mp4"));
+        writeVideo(Path.Combine(batchSource, "20.mp4"), 2, 62);
+        writeVideo(Path.Combine(batchSource, "30.mp4"), 2, 63);
         var batchBefore = Snapshot(batchSource, batchDest);
         using (var tx = new OperationTransaction())
         {
             ExpectFailure(() => ClipBatchPreparer.Prepare(batchSource, batchDest, TimeSpan.FromSeconds(10), extensions,
-                new TestProgress { OnMessage = message => { if (message == "Moving 30.avi...") throw new IOException("Injected move failure"); } },
-                CancellationToken.None, ".avi", new PreserveOrderRandom()));
+                new TestProgress { OnMessage = message => { if (message == "Moving 30.mp4...") throw new IOException("Injected move failure"); } },
+                CancellationToken.None, ".mp4", new PreserveOrderRandom()));
             tx.Rollback();
         }
         Check(batchBefore.SequenceEqual(Snapshot(batchSource, batchDest)), "Batch failure restores removed duplicates, earlier moves, backups and original filenames");
 
         string archiveChild = Directory.CreateDirectory(Path.Combine(batchSource, "archive")).FullName;
-        writeVideo(Path.Combine(archiveChild, "20.avi"), 2, 64);
+        writeVideo(Path.Combine(archiveChild, "20.mp4"), 2, 64);
         using (var tx = new OperationTransaction())
         {
             ClipBatchPreparer.Prepare(batchSource, batchDest, TimeSpan.FromSeconds(20), extensions, progress,
-                CancellationToken.None, candidates: [Path.Combine(batchSource, "20.avi"), Path.Combine(archiveChild, "20.avi")]);
+                CancellationToken.None, candidates: [Path.Combine(batchSource, "20.mp4"), Path.Combine(archiveChild, "20.mp4")]);
             tx.Commit(CancellationToken.None);
         }
-        Check(File.Exists(Path.Combine(batchDest, "1.avi")) && File.Exists(Path.Combine(batchDest, "2.avi"))
+        Check(File.Exists(Path.Combine(batchDest, "1.mp4")) && File.Exists(Path.Combine(batchDest, "2.mp4"))
             && Directory.GetFiles(Path.Combine(batchSource, "Backup")).Length == 2,
             "Archive batch candidates with colliding filenames are moved and backed up without overwriting");
 
@@ -203,17 +203,17 @@ internal static class PresetChecks
             "c_ folders are ranked numerically rather than alphabetically");
         Directory.Delete(Path.Combine(parent, "c_100"));
 
-        writeVideo(Path.Combine(current, "starter.avi"), 2, 71);
-        writeVideo(Path.Combine(parent, "10.avi"), 2, 72);
-        writeVideo(Path.Combine(parent, "20.avi"), 2, 73);
-        string starterHash = ClipIdentifier.ReadIdentity(Path.Combine(current, "starter.avi"), CancellationToken.None).Hash;
+        writeVideo(Path.Combine(current, "starter.mp4"), 2, 71);
+        writeVideo(Path.Combine(parent, "10.mp4"), 2, 72);
+        writeVideo(Path.Combine(parent, "20.mp4"), 2, 73);
+        string starterHash = ClipIdentifier.ReadIdentity(Path.Combine(current, "starter.mp4"), CancellationToken.None).Hash;
         var before = Snapshot(parent);
-        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".avi" };
+        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".mp4" };
         using (var tx = new OperationTransaction())
         {
             ExpectFailure(() => ClipBatchPreparer.Prepare(parent, reused.Path, TimeSpan.FromSeconds(6), extensions,
-                new TestProgress { OnMessage = message => { if (message == "Moving 20.avi...") throw new IOException("Injected refill failure"); } },
-                CancellationToken.None, ".avi", new PreserveOrderRandom()));
+                new TestProgress { OnMessage = message => { if (message == "Moving 20.mp4...") throw new IOException("Injected refill failure"); } },
+                CancellationToken.None, ".mp4", new PreserveOrderRandom()));
             tx.Rollback();
         }
         Check(before.SequenceEqual(Snapshot(parent)), "Failed refill of an existing c_ folder restores starter clips, source files and backups");
@@ -221,11 +221,11 @@ internal static class PresetChecks
         {
             reused.Validate(parent, preset.Destination);
             ClipBatchPreparer.Prepare(parent, reused.Path, TimeSpan.FromSeconds(6), extensions,
-                new TestProgress(), CancellationToken.None, ".avi", new PreserveOrderRandom());
+                new TestProgress(), CancellationToken.None, ".mp4", new PreserveOrderRandom());
             tx.Commit(CancellationToken.None);
         }
-        Check(Directory.GetFiles(current, "*.avi").Length == 3
-            && ClipIdentifier.ReadIdentity(Path.Combine(current, "starter.avi"), CancellationToken.None).Hash == starterHash
+        Check(Directory.GetFiles(current, "*.mp4").Length == 3
+            && ClipIdentifier.ReadIdentity(Path.Combine(current, "starter.mp4"), CancellationToken.None).Hash == starterHash
             && !Directory.Exists(fallback.Path),
             "Prepare Batch refills the chosen c_ folder to the requested total duration while preserving starter clips");
 

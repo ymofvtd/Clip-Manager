@@ -5,11 +5,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>2.1.18</Version>
+    <Version>2.1.19</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
     <Compile Include="../VideoTrayApp/ClipIdentifier.cs" Link="ClipIdentifier.cs" />
+    <Compile Include="../VideoTrayApp/VideoFiles.cs" Link="VideoFiles.cs" />
     <Compile Include="../VideoTrayApp/ClipDuplicateCleaner.cs" Link="ClipDuplicateCleaner.cs" />
     <Compile Include="../VideoTrayApp/ClipArchiver.cs" Link="ClipArchiver.cs" />
     <Compile Include="../VideoTrayApp/ArchiveSettings.cs" Link="ArchiveSettings.cs" />

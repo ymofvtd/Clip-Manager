@@ -16,7 +16,7 @@ internal static class MainWindowChecks
                 string destination = Directory.CreateDirectory(Path.Combine(parent, "main-ui-archive")).FullName;
                 WatchFolderSettings.Save(data, []);
                 File.WriteAllText(Path.Combine(data, "working_folder.txt"), source);
-                write(Path.Combine(source, "startup.avi"), 2, 90);
+                write(Path.Combine(source, "startup.mp4"), 2, 90);
                 new ArchiveSettings { Sources = [source], Destination = destination, WatchContinuously = true,
                     Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 }.Save(data);
                 using var form = new Form1(data, registerStartup: false);

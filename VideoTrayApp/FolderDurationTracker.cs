@@ -143,7 +143,7 @@ internal sealed class FolderDurationTracker : IDisposable
             var folder = new DirectoryInfo(path);
             TimeSpan total = TimeSpan.Zero;
             bool complete = true;
-            foreach (var file in folder.EnumerateFiles().Where(file => videoExtensions.Contains(file.Extension)))
+            foreach (var file in folder.EnumerateFiles().Where(file => VideoFiles.IsMp4(file.FullName) && videoExtensions.Contains(file.Extension)))
             {
                 try
                 {

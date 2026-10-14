@@ -38,7 +38,7 @@ internal sealed record RenamePlan(ReadOnlyCollection<PlannedChange> Changes)
         ActionPreset.ValidateFolder(folder); random ??= Random.Shared;
         if (start < 0 || padding is < 0 or > 64 || length is < 4 or > 64) throw new ArgumentException("Invalid numbering or random-name settings.");
         if (prefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) throw new ArgumentException("Prefix contains an invalid filename character.");
-        var paths = Directory.EnumerateFiles(folder).Where(p => !Path.GetFileName(p).StartsWith('.') && extensions.Contains(Path.GetExtension(p)))
+        var paths = Directory.EnumerateFiles(folder).Where(p => !Path.GetFileName(p).StartsWith('.') && VideoFiles.IsMp4(p) && extensions.Contains(Path.GetExtension(p)))
             .Order(StringComparer.OrdinalIgnoreCase).ToList();
         if (mode == PresetAction.NameByTens) paths.Sort((a, b) => NaturalCompare(Path.GetFileName(a), Path.GetFileName(b)));
         if (mode != PresetAction.NameByTens)
@@ -130,7 +130,7 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
         if (errors.Count > 0) throw new IOException("Batch scan incomplete." + ClipIdentifier.FormatErrors(errors));
         random ??= Random.Shared;
         for (int i = candidates.Count - 1; i > 0; i--) { int j = random.Next(i + 1); (candidates[i], candidates[j]) = (candidates[j], candidates[i]); }
-        var starters = batch.Create ? [] : Directory.EnumerateFiles(batch.Path).Where(p => extensions.Contains(Path.GetExtension(p))).Order(StringComparer.OrdinalIgnoreCase).ToList();
+        var starters = batch.Create ? [] : Directory.EnumerateFiles(batch.Path).Where(p => VideoFiles.IsMp4(p) && extensions.Contains(Path.GetExtension(p))).Order(StringComparer.OrdinalIgnoreCase).ToList();
         var guards = new Dictionary<string, PlannedFile>(StringComparer.OrdinalIgnoreCase);
         var durations = new Dictionary<string, TimeSpan>(StringComparer.OrdinalIgnoreCase);
         TimeSpan Duration(string path)
@@ -181,7 +181,7 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
     {
         Batch.Validate(Source, Parent);
         if (!Batch.Create && !StarterPaths.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(
-            Directory.EnumerateFiles(Batch.Path).Where(p => Extensions.Contains(Path.GetExtension(p), StringComparer.OrdinalIgnoreCase))))
+            Directory.EnumerateFiles(Batch.Path).Where(p => VideoFiles.IsMp4(p) && Extensions.Contains(Path.GetExtension(p), StringComparer.OrdinalIgnoreCase))))
             throw new IOException("The reviewed starter folder's videos changed. Analyze again before preparing the batch: " + Batch.Path);
         foreach (var guard in Guards) guard.Verify(ct);
         foreach (var change in Changes)

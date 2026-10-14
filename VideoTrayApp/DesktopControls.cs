@@ -295,7 +295,7 @@ internal sealed class PathPicker : UserControl
         {
             if (file)
             {
-                using var picker = new OpenFileDialog { Title = role, CheckFileExists = true };
+                using var picker = new OpenFileDialog { Title = role, CheckFileExists = true, Filter = VideoFiles.PickerFilter };
                 if (picker.ShowDialog(FindForm()) == DialogResult.OK) Value = picker.FileName;
             }
             else
@@ -313,7 +313,8 @@ internal sealed class PathPicker : UserControl
         if (menu.Items.Count > 0) input.ContextMenuStrip = menu; else menu.Dispose();
         input.TextChanged += (_, _) =>
         {
-            validation.Text = Value.Length == 0 ? "Choose a path or paste one here." : "Availability is checked when you analyze or start.";
+            validation.Text = Value.Length == 0 ? "Choose a path or paste one here."
+                : file && !VideoFiles.IsMp4(Value) ? "Choose an .mp4 clip." : "Availability is checked when you analyze or start.";
             ValueChanged?.Invoke(this, EventArgs.Empty);
         };
         DragEnter += (_, e) => { if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) e.Effect = DragDropEffects.Copy; };
@@ -321,6 +322,7 @@ internal sealed class PathPicker : UserControl
         {
             if (e.Data?.GetData(DataFormats.FileDrop) is not string[] paths || paths.Length != 1)
             { validation.Text = "Drop exactly one " + (file ? "file." : "folder."); return; }
+            if (file && !VideoFiles.IsMp4(paths[0])) { validation.Text = "Choose an .mp4 clip."; return; }
             if (file ? File.Exists(paths[0]) : Directory.Exists(paths[0])) Value = paths[0];
             else validation.Text = "This picker requires a " + (file ? "file." : "folder.");
         };

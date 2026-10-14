@@ -32,6 +32,7 @@ internal static class ClipIdentifier
     internal static ClipSearchResult Find(string referencePath, string folder,
         ISet<string> extensions, IOperationProgress progress, CancellationToken ct)
     {
+        VideoFiles.RequireMp4(referencePath);
         progress.SetIndeterminate("Reading reference clip hash and duration...");
         var reference = ReadIdentity(referencePath, ct);
         var matches = new List<string>();
@@ -63,7 +64,7 @@ internal static class ClipIdentifier
             foreach (string path in files)
             {
                 ct.ThrowIfCancellationRequested();
-                if (!extensions.Contains(Path.GetExtension(path)) || SamePath(path, referencePath))
+                if (!VideoFiles.IsMp4(path) || !extensions.Contains(Path.GetExtension(path)) || SamePath(path, referencePath))
                     continue;
                 progress.SetIndeterminate($"Scanned {++scanned} clips: {Path.GetFileName(path)}");
                 try
@@ -94,6 +95,7 @@ internal static class ClipIdentifier
     internal static string Apply(ClipSearchResult result, string referencePath, string? destination,
         IOperationProgress progress, CancellationToken ct)
     {
+        VideoFiles.RequireMp4(referencePath);
         int completed = 0, skipped = 0;
         var errors = new List<string>();
         bool cancelled = false;
@@ -104,7 +106,7 @@ internal static class ClipIdentifier
             {
                 ct.ThrowIfCancellationRequested();
                 progress.Report(i, result.Matches.Count, $"Verifying {Path.GetFileName(path)}...");
-                if (SamePath(path, referencePath)
+                if (!VideoFiles.IsMp4(path) || SamePath(path, referencePath)
                     || (destination is not null && SamePath(Path.GetDirectoryName(path)!, destination)))
                 {
                     skipped++;

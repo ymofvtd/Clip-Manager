@@ -4,8 +4,7 @@ namespace VideoTrayApp;
 
 internal sealed partial class MainShell : Form
 {
-    internal static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
-    { ".mp4", ".mov", ".m4v", ".mxf", ".avi", ".mkv", ".wmv", ".mts", ".m2ts", ".mpg", ".mpeg", ".3gp", ".flv", ".webm" };
+    internal static readonly HashSet<string> VideoExtensions = VideoFiles.CreateExtensions();
     private readonly string dataFolder;
     private readonly UiPreferences preferences;
     private readonly ActivityHistory history;
@@ -314,7 +313,7 @@ internal sealed partial class MainShell : Form
                     token.ThrowIfCancellationRequested();
                     if (VideoExtensions.Contains(Path.GetExtension(file)) && (File.GetAttributes(file) & FileAttributes.ReparsePoint) == 0) count++;
                 }
-                return $"{count:N0} top-level videos; summary refreshed {DateTime.Now:g}.";
+                return $"{count:N0} top-level MP4 files; summary refreshed {DateTime.Now:g}.";
             }, token);
             await UiThread.Switch(this);
             if (!token.IsCancellationRequested && !IsDisposed) { workingSummary = summary; RefreshPresentation(); }

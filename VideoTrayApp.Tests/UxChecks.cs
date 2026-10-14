@@ -17,9 +17,9 @@ internal static class UxChecks
         string data = Directory.CreateDirectory(Path.Combine(parent, "ux-data")).FullName;
         string destination = Directory.CreateDirectory(Path.Combine(parent, "ux-destination")).FullName;
         var progress = new TestProgress();
-        write(Path.Combine(source, "original-a.avi"), 2, 10); write(Path.Combine(source, "original-b.avi"), 3, 20);
+        write(Path.Combine(source, "original-a.mp4"), 2, 10); write(Path.Combine(source, "original-b.mp4"), 3, 20);
         var original = Snapshot(source);
-        string scannedPath = Path.Combine(source, "original-a.avi");
+        string scannedPath = Path.Combine(source, "original-a.mp4");
         var scannedIdentity = ClipIdentifier.ReadIdentity(scannedPath, CancellationToken.None);
         string matchingReplacement = scannedPath + ".replacement"; File.Copy(scannedPath, matchingReplacement);
         var scannedGuard = PlannedFile.ReadExpected(scannedPath, scannedIdentity, CancellationToken.None);
@@ -50,28 +50,28 @@ internal static class UxChecks
             Check(cancelled && original.SequenceEqual(Snapshot(source)), "Cancelling a staged rename restores every original path and byte");
         }
         string batches = Directory.CreateDirectory(Path.Combine(parent, "ux-batches")).FullName;
-        for (int i = 0; i < 5; i++) write(Path.Combine(batches, $"clip-{i}.avi"), (uint)(i + 1), (byte)(30 + i));
+        for (int i = 0; i < 5; i++) write(Path.Combine(batches, $"clip-{i}.mp4"), (uint)(i + 1), (byte)(30 + i));
         original = Snapshot(batches);
         var shuffle = ClipBatchShuffler.Analyze(batches, TimeSpan.FromSeconds(5), MainShell.VideoExtensions, progress, CancellationToken.None, new Random(11));
         Check(original.SequenceEqual(Snapshot(batches)) && Directory.GetDirectories(batches).Length == 0, "Shuffle Batches analysis neither moves clips nor creates folders");
         ClipBatchShuffler.Execute(shuffle, progress, CancellationToken.None);
         Check(shuffle.Changes.All(c => File.Exists(c.Destination)), "Shuffle Batches executes the exact reviewed folders and filenames");
         string prepareSource = Directory.CreateDirectory(Path.Combine(parent, "ux-prepare-source")).FullName;
-        write(Path.Combine(prepareSource, "1.mp4.avi"), 3, 44); write(Path.Combine(prepareSource, "2.avi"), 4, 45);
+        write(Path.Combine(prepareSource, "unnumbered.mp4"), 3, 44); write(Path.Combine(prepareSource, "2.mp4"), 4, 45);
         string starter = Directory.CreateDirectory(Path.Combine(destination, "c_10")).FullName;
-        write(Path.Combine(starter, "starter.avi"), 2, 44); // different duration/content: keep it
+        write(Path.Combine(starter, "starter.mp4"), 2, 44); // different duration/content: keep it
         var draft = new ActionPreset { Action = PresetAction.PrepareBatch, Target = prepareSource, UseWorkingFolder = false, Destination = destination, Selection = BatchSelection.AllVideos, DurationMinutes = 1 };
         original = Snapshot(prepareSource);
         var prepare = PrepareBatchPlan.Analyze(draft, prepareSource, MainShell.VideoExtensions, progress, CancellationToken.None, new Random(4));
         Check(original.SequenceEqual(Snapshot(prepareSource)) && !Directory.Exists(Path.Combine(prepareSource, "Backup")) && prepare.Batch.Path == starter,
             "Prepare Batch analysis resolves the starter folder without making backups or moving files");
-        string arrival = Path.Combine(starter, "new-arrival.avi"); write(arrival, 1, 46);
+        string arrival = Path.Combine(starter, "new-arrival.mp4"); write(arrival, 1, 46);
         original = Snapshot(prepareSource); rejected = false;
         try { prepare.Execute(progress, CancellationToken.None); } catch (IOException) { rejected = true; }
         Check(rejected && original.SequenceEqual(Snapshot(prepareSource)), "A new starter video invalidates the reviewed batch before recycling, backing up or moving files");
         File.Delete(arrival);
         prepare.Execute(progress, CancellationToken.None);
-        Check(prepare.Changes.All(c => File.Exists(c.Destination) && File.Exists(c.Backup)) && File.Exists(Path.Combine(starter, "starter.avi")), "Prepare Batch executes reviewed moves/backups and preserves starter filenames");
+        Check(prepare.Changes.All(c => File.Exists(c.Destination) && File.Exists(c.Backup)) && File.Exists(Path.Combine(starter, "starter.mp4")), "Prepare Batch executes reviewed moves/backups and preserves starter filenames");
         var offline = new ActionPreset { Target = @"Z:\unavailable", UseWorkingFolder = false, Action = PresetAction.ShuffleRandom };
         offline.ValidateForSave();
         Check(offline.Target == @"Z:\unavailable", "Preset editing accepts an unavailable absolute path without changing execution-time validation");
@@ -121,7 +121,7 @@ internal static class UxChecks
                 WatchFolderSettings.Save(data, []);
                 using (var old = new Form1(data, false)) { old.Show(); Application.DoEvents(); old.Hide(); }
                 string trackedFolder = Directory.CreateDirectory(Path.Combine(data, "duration-library")).FullName;
-                foreach (string clip in Directory.EnumerateFiles(source, "*.avi")) File.Copy(clip, Path.Combine(trackedFolder, Path.GetFileName(clip)));
+                foreach (string clip in Directory.EnumerateFiles(source, "*.mp4")) File.Copy(clip, Path.Combine(trackedFolder, Path.GetFileName(clip)));
                 WatchFolderSettings.Save(data, [trackedFolder, Path.Combine(data, "unavailable-tracking")]);
                 string archiveDestination = Directory.CreateDirectory(Path.Combine(data, "continuous-archive")).FullName;
                 new ArchiveSettings { Sources = [source], Destination = archiveDestination, Speed = ArchiveSpeed.Fast,
@@ -163,9 +163,9 @@ internal static class UxChecks
                 foreach (var action in Enum.GetValues<PresetAction>().Where(a => a != PresetAction.Archive)) shell.OpenTool(action);
                 Check(Enum.GetValues<PresetAction>().All(a => a == PresetAction.Archive || Descendants(shell).OfType<WorkflowWorkspace>().Any(w => w.Action == a)), "All nine actions remain reachable through integrated workspaces");
                 string comparison = Directory.CreateDirectory(Path.Combine(data, "comparison")).FullName;
-                string reference = Directory.GetFiles(source, "*.avi")[0];
-                File.Copy(reference, Path.Combine(comparison, "other-copy.avi"));
-                File.Copy(reference, Path.Combine(source, "duplicate.avi"));
+                string reference = Directory.GetFiles(source, "*.mp4")[0];
+                File.Copy(reference, Path.Combine(comparison, "other-copy.mp4"));
+                File.Copy(reference, Path.Combine(source, "duplicate.mp4"));
                 var snapshot = Snapshot(source);
                 var toolDraft = new ActionPreset { Target = source, UseWorkingFolder = false, Destination = comparison, DirectoryB = comparison,
                     ReferenceClip = reference, Selection = BatchSelection.AllVideos, DurationMinutes = 1, Start = 100, Padding = 4 };
@@ -259,7 +259,7 @@ internal static class UxChecks
                     editor.Show(); Application.DoEvents(); Capture(editor, Path.Combine(images, "preset-" + action.ToString().ToLowerInvariant() + ".png"));
                 }
                 using (var confirmation = new ReviewConfirmation("Recycle fixture", comparison,
-                    [new("fixture", "1", "Recycle", reference, "Keeper: " + Path.Combine(comparison, "other-copy.avi"), "A / batch_0001", "0h 00m 02s", "0.1 MB", Bytes: 100000)], "Cancellation retains earlier successful recycling."))
+                    [new("fixture", "1", "Recycle", reference, "Keeper: " + Path.Combine(comparison, "other-copy.mp4"), "A / batch_0001", "0h 00m 02s", "0.1 MB", Bytes: 100000)], "Cancellation retains earlier successful recycling."))
                 { confirmation.Show(); Application.DoEvents(); Capture(confirmation, Path.Combine(images, "exact-confirmation.png")); }
                 using var viewer = new Form { ClientSize = new Size(1000, 650), Font = shell.Font };
                 var grid = new FileContextList { Dock = DockStyle.Fill };
@@ -351,7 +351,7 @@ internal static class UxChecks
     private static void TransactionOwnership(string parent)
     {
         string folder = Directory.CreateDirectory(Path.Combine(parent, "ux-ownership")).FullName;
-        string original = Path.Combine(folder, "original.avi"); File.WriteAllText(original, "owned fixture");
+        string original = Path.Combine(folder, "original.mp4"); File.WriteAllText(original, "owned fixture");
         using (var transaction = new OperationTransaction())
         {
             OperationTransaction.Recycle(original);

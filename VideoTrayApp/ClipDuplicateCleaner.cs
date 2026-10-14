@@ -44,7 +44,7 @@ internal static class ClipDuplicateCleaner
                             folders.Push(path);
                             continue;
                         }
-                        if (!extensions.Contains(Path.GetExtension(path)))
+                        if (!VideoFiles.IsMp4(path) || !extensions.Contains(Path.GetExtension(path)))
                             continue;
                         long size = new FileInfo(path).Length;
                         if (!bySize.TryGetValue(size, out var paths))
@@ -75,7 +75,7 @@ internal static class ClipDuplicateCleaner
         CancellationToken ct, List<string>? errors = null)
     {
         errors ??= [];
-        var paths = files.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var paths = files.Where(VideoFiles.IsMp4).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var sizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in paths)
         {

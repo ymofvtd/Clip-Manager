@@ -21,12 +21,7 @@ namespace VideoTrayApp
         private readonly string settingsFolder;
         private readonly string legacySettingsFolder;
 
-        // Common video extensions used by original Python scripts
-        private static readonly HashSet<string> DefaultVideoExts = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ".mp4", ".mov", ".m4v", ".mxf", ".avi", ".mkv", ".wmv",
-            ".mts", ".m2ts", ".mpg", ".mpeg", ".3gp", ".flv", ".webm"
-        };
+        private static readonly HashSet<string> DefaultVideoExts = VideoFiles.CreateExtensions();
 
         public Form1() : this(null, registerStartup: true) { }
 

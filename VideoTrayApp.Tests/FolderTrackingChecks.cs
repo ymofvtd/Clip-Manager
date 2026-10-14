@@ -3,7 +3,7 @@ using VideoTrayApp;
 
 internal static class FolderTrackingChecks
 {
-    public static void Run(string testRoot, Action<string, uint, byte> writeAvi)
+    public static void Run(string testRoot, Action<string, uint, byte> writeMp4)
     {
         string root = Directory.CreateDirectory(Path.Combine(testRoot, "tracking")).FullName;
         string first = Directory.CreateDirectory(Path.Combine(root, "first")).FullName;
@@ -28,16 +28,16 @@ internal static class FolderTrackingChecks
             "Saving an empty list disables tracking without restoring legacy settings");
         RunWindowChecks([first, second, unavailable]);
 
-        string firstClip = Path.Combine(first, "one.AVI");
-        string secondClip = Path.Combine(second, "two.avi");
-        writeAvi(firstClip, 2, 1);
-        writeAvi(secondClip, 3, 2);
-        writeAvi(Path.Combine(child, "child.avi"), 4, 3);
-        writeAvi(Path.Combine(deep, "deep.avi"), 5, 4);
+        string firstClip = Path.Combine(first, "one.MP4");
+        string secondClip = Path.Combine(second, "two.mp4");
+        writeMp4(firstClip, 2, 1);
+        writeMp4(secondClip, 3, 2);
+        writeMp4(Path.Combine(child, "child.mp4"), 4, 3);
+        writeMp4(Path.Combine(deep, "deep.mp4"), 5, 4);
         File.WriteAllText(Path.Combine(first, "notes.txt"), "Keep my notes");
         File.WriteAllText(Path.Combine(first, "99M9S.txt"), "stale marker");
 
-        using (var tracker = new FolderDurationTracker([".avi"]))
+        using (var tracker = new FolderDurationTracker([".mp4"]))
         {
             tracker.SetFolders([unavailable, first, second, first]);
             WaitFor(() => HasMarker(first, "0M2S.txt") && HasMarker(second, "0M3S.txt")
@@ -49,21 +49,21 @@ internal static class FolderTrackingChecks
             Check(File.ReadAllText(Path.Combine(first, "notes.txt")) == "Keep my notes"
                 && !File.Exists(Path.Combine(first, "99M9S.txt")), "Duration refresh preserves notes and replaces only old markers");
 
-            writeAvi(firstClip, 6, 5);
+            writeMp4(firstClip, 6, 5);
             WaitFor(() => HasMarker(first, "0M6S.txt"), "Changing a clip duration in place refreshes its folder");
-            string added = Path.Combine(second, "added.avi");
-            writeAvi(added, 7, 6);
+            string added = Path.Combine(second, "added.mp4");
+            writeMp4(added, 7, 6);
             WaitFor(() => HasMarker(second, "0M10S.txt"), "Creating clips in another watched root refreshes its total");
             string renamed = Path.Combine(second, "added.txt");
             File.Move(added, renamed);
             WaitFor(() => HasMarker(second, "0M3S.txt"), "Renaming a video to a non-video extension removes its duration");
-            File.Move(secondClip, Path.Combine(first, "moved.avi"));
+            File.Move(secondClip, Path.Combine(first, "moved.mp4"));
             WaitFor(() => HasMarker(first, "0M9S.txt") && !Directory.GetFiles(second, "*M*S.txt").Any(),
                 "Moving clips between roots updates both totals and clears empty-folder markers");
 
             tracker.Pause();
-            writeAvi(firstClip, 10, 7);
-            writeAvi(secondClip, 8, 8);
+            writeMp4(firstClip, 10, 7);
+            writeMp4(secondClip, 8, 8);
             Thread.Sleep(900);
             Check(HasMarker(first, "0M9S.txt") && !File.Exists(Path.Combine(second, "0M8S.txt")),
                 "Pausing prevents marker changes in every watched folder");
@@ -78,30 +78,30 @@ internal static class FolderTrackingChecks
                 "Overlapping roots each get their own complete total without counting any folder twice");
 
             string outside = Directory.CreateDirectory(Path.Combine(root, "incoming")).FullName;
-            writeAvi(Path.Combine(outside, "incoming.avi"), 11, 9);
+            writeMp4(Path.Combine(outside, "incoming.mp4"), 11, 9);
             string incoming = Path.Combine(second, "incoming");
             Directory.Move(outside, incoming);
             WaitFor(() => HasMarker(incoming, "0M11S.txt"), "Moving a populated subfolder into a watched root updates its duration");
 
             tracker.SetFolders([first]);
-            writeAvi(secondClip, 12, 10);
-            writeAvi(firstClip, 14, 11);
+            writeMp4(secondClip, 12, 10);
+            writeMp4(firstClip, 14, 11);
             WaitFor(() => HasMarker(first, "0M17S.txt"), "Remaining watched folders continue updating after removal");
             Check(HasMarker(second, "0M8S.txt"), "Removed roots stop updating their markers");
             tracker.SetFolders([]);
             Check(tracker.Totals.Count == 0, "Removing all roots clears cached sidebar totals");
-            writeAvi(firstClip, 18, 12);
+            writeMp4(firstClip, 18, 12);
             Thread.Sleep(900);
             Check(HasMarker(first, "0M17S.txt"), "Removing all roots stops duration tracking");
         }
 
         WatchFolderSettings.Save(appData, [first, second, unavailable]);
-        using var restarted = new FolderDurationTracker([".avi"]);
+        using var restarted = new FolderDurationTracker([".mp4"]);
         restarted.SetFolders(WatchFolderSettings.Load(appData, legacy));
         WaitFor(() => HasMarker(first, "0M21S.txt") && HasMarker(second, "0M12S.txt"),
             "Restart restores multiple saved folders and refreshes their durations");
         Directory.CreateDirectory(unavailable);
-        writeAvi(Path.Combine(unavailable, "reconnected.avi"), 20, 13);
+        writeMp4(Path.Combine(unavailable, "reconnected.mp4"), 20, 13);
         restarted.Resume();
         WaitFor(() => HasMarker(unavailable, "0M20S.txt"), "Unavailable saved folders are retried on resume");
     }

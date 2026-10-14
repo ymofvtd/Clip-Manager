@@ -111,7 +111,7 @@ internal static class ArchivePaths
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { errors.Add($"{path}: {ex.Message}"); continue; }
                     if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
                     if ((attributes & FileAttributes.Directory) != 0) { if (recursive) folders.Push(path); }
-                    else if (extensions.Contains(Path.GetExtension(path))) yield return path;
+                    else if (VideoFiles.IsMp4(path) && extensions.Contains(Path.GetExtension(path))) yield return path;
                 }
             }
         }
