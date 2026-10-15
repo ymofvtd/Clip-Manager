@@ -396,7 +396,9 @@ internal sealed class FileContextList : UserControl
         {
             Table.Columns.Add(new DataGridViewTextBoxColumn { Name = "Created", HeaderText = "Created (local)", Width = 175, SortMode = DataGridViewColumnSortMode.Programmatic });
             Table.Columns[8].DisplayIndex = 3;
-            foreach (int column in new[] { 0, 1, 5, 7 }) Table.Columns[column].Visible = false;
+            foreach (int column in new[] { 0, 5, 7 }) Table.Columns[column].Visible = false;
+            Table.Columns[1].HeaderText = "Select";
+            Table.Columns[1].Width = 85;
             Table.Columns[4].HeaderText = "Date source";
             Table.Columns[3].HeaderText = "Folder";
             Table.AccessibleName = "Clip creation date results";
@@ -405,7 +407,7 @@ internal sealed class FileContextList : UserControl
         {
             if (e.RowIndex < 0 || e.RowIndex >= visible.Count) return;
             var row = visible[e.RowIndex];
-            e.Value = e.ColumnIndex switch { 0 => row.Group, 1 => row.Selectable ? SelectedKeys.Contains(row.Key) ? "Recycle" : "Keep" : row.Action,
+            e.Value = e.ColumnIndex switch { 0 => row.Group, 1 => row.Selectable ? lookup ? SelectedKeys.Contains(row.Key) ? "Selected" : "—" : SelectedKeys.Contains(row.Key) ? "Recycle" : "Keep" : row.Action,
                 2 => Path.GetFileName(row.Path), 3 => row.Context, 4 => row.Proposed, 5 => row.Duration, 6 => row.Size,
                 8 => row.Created?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "Unknown", _ => row.Modified?.ToLocalTime().ToString("g") ?? "" };
         };
@@ -416,7 +418,8 @@ internal sealed class FileContextList : UserControl
             if (!SelectedKeys.Add(key)) SelectedKeys.Remove(key);
             Table.InvalidateRow(index); UpdateSummary(); SelectionChanged?.Invoke();
         }
-        Table.CellDoubleClick += (_, e) => { if (e.ColumnIndex == 1) Toggle(e.RowIndex); };
+        Table.CellDoubleClick += (_, e) => { if (!lookup && e.ColumnIndex == 1) Toggle(e.RowIndex); };
+        Table.CellClick += (_, e) => { if (lookup && e.ColumnIndex == 1) Toggle(e.RowIndex); };
         Table.KeyDown += (_, e) => { if (e.KeyCode == Keys.Space) { Toggle(Table.CurrentCell?.RowIndex ?? -1); e.Handled = true; } };
         Table.SelectionChanged += (_, _) => UpdateDetails();
         Table.ColumnHeaderMouseClick += (_, e) =>
@@ -426,11 +429,10 @@ internal sealed class FileContextList : UserControl
             Refilter();
         };
         filter.TextChanged += (_, _) => Refilter();
-        var actions = DesktopTheme.Actions(DesktopTheme.Button("Keep / Recycle selected row", () => Toggle(Table.CurrentCell?.RowIndex ?? -1)),
+        var actions = DesktopTheme.Actions(DesktopTheme.Button(lookup ? "Select / unselect row" : "Keep / Recycle selected row", () => Toggle(Table.CurrentCell?.RowIndex ?? -1)),
             DesktopTheme.Button("Open clip", () => External(row => DesktopTheme.Open(row.Path))),
             DesktopTheme.Button("Open containing folder", () => External(row => DesktopTheme.Open(Path.GetDirectoryName(row.Path)!))),
             DesktopTheme.Button("Copy path", () => External(row => Clipboard.SetText(row.Path))));
-        if (lookup) actions.Controls[0].Visible = false;
         actions.Dock = DockStyle.Bottom; summary.Dock = DockStyle.Bottom;
         Controls.Add(Table); Controls.Add(filter); Controls.Add(details); Controls.Add(actions); Controls.Add(summary);
     }
@@ -446,6 +448,13 @@ internal sealed class FileContextList : UserControl
         Refilter();
     }
     internal void SetFilter(string value) => filter.Text = value;
+    internal void SelectVisible()
+    {
+        foreach (var row in visible.Where(r => r.Selectable)) SelectedKeys.Add(row.Key);
+        Table.Invalidate(); UpdateSummary(); SelectionChanged?.Invoke();
+    }
+    internal void ClearSelection()
+    { SelectedKeys.Clear(); Table.Invalidate(); UpdateSummary(); SelectionChanged?.Invoke(); }
     private void Refilter()
     {
         visible = rows.Where(r => (r.Path + r.Context + r.Group).Contains(filter.Text, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -458,7 +467,7 @@ internal sealed class FileContextList : UserControl
         }
         Table.RowCount = visible.Count; Table.Invalidate(); UpdateSummary(); UpdateDetails();
     }
-    private void UpdateSummary() => summary.Text = lookup ? $"{rows.Count:N0} results • {visible.Count:N0} visible" : $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected for recycling (including hidden rows). Space toggles eligible rows.";
+    private void UpdateSummary() => summary.Text = lookup ? $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected (including hidden rows). Click Select or press Space to toggle." : $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected for recycling (including hidden rows). Space toggles eligible rows.";
     private void UpdateDetails()
     {
         int index = Table.CurrentCell?.RowIndex ?? -1;

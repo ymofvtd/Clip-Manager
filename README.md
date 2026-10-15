@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.1.20
+2.2.0
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -56,7 +56,9 @@ Both kept and selected copies are verified again immediately before recycling. A
 
 To look up clips by date without a reference video, open **Find & clean → Find by date**. Choose a folder, an inclusive **From / Through** range, and **Find clips**. Subfolders are included by default; links/junctions are excluded. Results show the embedded MP4 movie creation date in your local time zone, filename, folder, size and date source. You can sort results, filter paths, open clips or their folders, and copy paths.
 
-Lookup reads the creation timestamp inside the MP4 movie header, which survives unchanged copying and renaming. It never substitutes filesystem creation or modification times. The embedded date can be absent, unset, inaccurate, or replaced by editing/exporting; it is not a guarantee of the original recording time. Missing/unsupported dates are counted separately; enable **Also show clips with no embedded creation date** to inspect those files alongside range matches. Unreadable or malformed files and incomplete scans are reported separately. Lookup makes no clip changes and supports cancellation.
+Lookup reads the creation timestamp inside the MP4 movie header, which survives unchanged copying and renaming. It never substitutes filesystem creation or modification times. The embedded date can be absent, unset, inaccurate, or replaced by editing/exporting; it is not a guarantee of the original recording time. Missing/unsupported dates are counted separately; enable **Also show clips with no embedded creation date** to inspect those files alongside range matches. Unreadable or malformed files and incomplete scans are reported separately. Searching makes no clip changes and supports cancellation.
+
+In **Results**, click a row's **Select** cell, press Space, or use **Select all visible**. **Clear selection** also clears selections hidden by a filter. **Move selected…** lets you choose an existing isolation folder; **Delete selected…** sends selected clips to Windows Recycle Bin. Both prepare an exact-file confirmation, including selected rows hidden by filters. Only selected clips are hashed for review; files changed or replaced since lookup are rejected. Moves preserve filenames where possible and show fixed collision suffixes before confirmation, never overwriting existing files. Execution verifies the reviewed files and destinations again and attempts in-process rollback on cancellation or failure. Successful actions remove completed clips from the current results. Archive can archive surviving watched originals again if you remove their archived copies.
 
 Open **Find & clean → Identify clip**, select a single reference video, and choose the search folder. Subfolders are included; junctions and symbolic links are skipped. Clips match only when their full SHA-256 content hash and duration match the reference, regardless of filename.
 

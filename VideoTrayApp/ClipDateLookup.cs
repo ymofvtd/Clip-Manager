@@ -2,7 +2,8 @@ using System.Buffers.Binary;
 
 namespace VideoTrayApp;
 
-internal sealed record DatedClip(string Path, long Size, DateTimeOffset? Created);
+internal sealed record DatedClip(string Path, long Size, DateTimeOffset? Created, DateTime LastWriteUtc,
+    PhysicalFileId Physical, ArchiveFileStamp? Stamp);
 internal sealed record ClipDateResult(IReadOnlyList<DatedClip> Matches, int Scanned, int Unknown,
     IReadOnlyList<string> Errors);
 
@@ -101,14 +102,17 @@ internal static class ClipDateLookup
                         var info = new FileInfo(path);
                         if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
                         progress.SetIndeterminate($"Reading creation dates: {++scanned:N0} clips; {info.Name}");
-                        var created = ReadCreationTime(path, ct);
+                        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        var created = ReadCreationTime(stream, ct);
                         if (created is null) unknown++;
                         bool inRange = created is { } stamp
                             && DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(stamp, timeZone).DateTime) is var date
                             && date >= from && date <= through;
-                        if (inRange || created is null && includeUnknown) matches.Add(new(path, info.Length, created));
+                        if (inRange || created is null && includeUnknown)
+                            matches.Add(new(path, stream.Length, created, File.GetLastWriteTimeUtc(path),
+                                PhysicalFile.Read(stream.SafeFileHandle), PhysicalFile.ArchiveStamp(stream.SafeFileHandle, stream.Length)));
                     }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.ComponentModel.Win32Exception)
                     { errors.Add(path + ": " + ex.Message); }
                 }
                 if (recursive)

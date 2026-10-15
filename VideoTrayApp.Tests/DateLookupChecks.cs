@@ -69,7 +69,71 @@ internal static class DateLookupChecks
         Check(cancelled && File.ReadAllBytes(clip).SequenceEqual(bytes) && File.ReadAllBytes(copied).SequenceEqual(bytes),
             "Date lookup is cancellable and preserves clip bytes");
         ArchiveOrigins(parent, clip, created);
+        Actions(parent, write);
         Ui(parent, source);
+    }
+
+    private static void Actions(string parent, Action<string, uint, byte> write)
+    {
+        string source = Directory.CreateDirectory(Path.Combine(parent, "date-actions-source")).FullName;
+        string nested = Directory.CreateDirectory(Path.Combine(source, "nested")).FullName;
+        string destination = Directory.CreateDirectory(Path.Combine(parent, "date-actions-isolated")).FullName;
+        string first = Path.Combine(source, "same.mp4"), second = Path.Combine(nested, "same.mp4"), keep = Path.Combine(source, "keep.mp4");
+        write(first, 2, 51); write(second, 2, 52); write(keep, 2, 53);
+        File.WriteAllText(Path.Combine(destination, "same.mp4"), "existing destination");
+        Directory.CreateDirectory(Path.Combine(destination, "same__1.mp4"));
+        DatedClip[] Find() => ClipDateLookup.Find(source, new(2000, 1, 1), new(2100, 1, 1), true, true,
+            TimeZoneInfo.Utc, new TestProgress(), CancellationToken.None).Matches.ToArray();
+        var selected = Find().Where(c => c.Path != keep).ToArray();
+        var move = ClipDateActionPlan.Create(selected, destination, new TestProgress(), CancellationToken.None);
+        Check(move.Changes.Count == 2 && move.Changes.Select(c => c.Destination).Distinct().Count() == 2
+            && move.Changes.All(c => !File.Exists(c.Destination) && !Directory.Exists(c.Destination))
+            && selected.All(c => File.Exists(c.Path)), "Move review freezes unique collision-safe paths without changing selected clips");
+        var before = selected.ToDictionary(c => c.Path, c => SHA256.HashData(File.ReadAllBytes(c.Path)));
+        using (var cancel = new CancellationTokenSource())
+        {
+            bool cancelled = false;
+            try { move.Execute(new TestProgress { OnReport = current => { if (current == 1) cancel.Cancel(); } }, cancel.Token); }
+            catch (OperationCanceledException) { cancelled = true; }
+            Check(cancelled && selected.All(c => File.Exists(c.Path) && before[c.Path].SequenceEqual(SHA256.HashData(File.ReadAllBytes(c.Path))))
+                && move.Changes.All(c => !File.Exists(c.Destination)), "Cancelling after a selected move rolls earlier moves back to their original paths");
+        }
+        File.WriteAllText(move.Changes[0].Destination, "new occupant");
+        bool occupied = false;
+        try { move.Execute(new TestProgress(), CancellationToken.None); } catch (IOException) { occupied = true; }
+        Check(occupied && selected.All(c => File.Exists(c.Path)) && File.ReadAllText(move.Changes[0].Destination) == "new occupant",
+            "A destination occupied after review blocks the complete move before changing clips");
+        selected = Find().Where(c => c.Path != keep).ToArray();
+        move = ClipDateActionPlan.Create(selected, destination, new TestProgress(), CancellationToken.None);
+        move.Execute(new TestProgress(), CancellationToken.None);
+        Check(selected.All(c => !File.Exists(c.Path)) && move.Changes.All(c => File.Exists(c.Destination)
+            && before[c.File.Path].SequenceEqual(SHA256.HashData(File.ReadAllBytes(c.Destination))))
+            && File.Exists(keep) && File.ReadAllText(Path.Combine(destination, "same.mp4")) == "existing destination",
+            "Confirmed moves isolate exactly selected clips, preserve their bytes, and leave other results and existing files untouched");
+        var scan = Find();
+        string original = keep + ".original"; File.Move(keep, original); File.Copy(original, keep);
+        bool replaced = false;
+        try { ClipDateActionPlan.Create(scan, null, new TestProgress(), CancellationToken.None); } catch (IOException) { replaced = true; }
+        Check(replaced && File.Exists(keep), "Physically replaced clips are rejected between lookup and action preparation even when bytes match");
+        scan = Find();
+        var recycle = ClipDateActionPlan.Create(scan, null, new TestProgress(), CancellationToken.None);
+        File.AppendAllText(keep, "changed after review");
+        bool changed = false;
+        try { recycle.Execute(new TestProgress(), CancellationToken.None); } catch (IOException) { changed = true; }
+        Check(changed && File.Exists(keep), "Content changes after confirmation preparation block recycling");
+        write(keep, 2, 53);
+        string recycleSecond = Path.Combine(source, "recycle-second.mp4"); write(recycleSecond, 2, 54);
+        recycle = ClipDateActionPlan.Create(Find(), null, new TestProgress(), CancellationToken.None);
+        using (var cancel = new CancellationTokenSource())
+        {
+            bool cancelled = false;
+            try { recycle.Execute(new TestProgress { OnReport = current => { if (current == 1) cancel.Cancel(); } }, cancel.Token); }
+            catch (OperationCanceledException) { cancelled = true; }
+            Check(cancelled && File.Exists(keep) && File.Exists(recycleSecond), "Cancelling staged deletion restores selected clips before recycling");
+        }
+        recycle.Execute(new TestProgress(), CancellationToken.None);
+        Check(!File.Exists(keep) && !File.Exists(recycleSecond) && File.Exists(original),
+            "Confirmed delete sends only selected generated MP4 files to Windows Recycle Bin");
     }
 
     private static void ArchiveOrigins(string parent, string clip, DateTimeOffset created)
@@ -172,8 +236,18 @@ internal static class DateLookupChecks
                 var list = Descendants(workspace).OfType<FileContextList>().Single();
                 Check(list.Visible && list.Rows.Any(r => r.Created is null) && list.Table.Columns["Created"]!.Visible
                     && !list.Table.Columns["Modified"]!.Visible
-                    && !Descendants(workspace).OfType<Button>().Any(b => b.Visible && b.Text.Contains("Recycle")),
-                    "Native results show embedded dates/unknown dates and omit modified time and recycling controls");
+                    && Descendants(workspace).OfType<Button>().Any(b => b.Visible && b.Text == "Move selected…" && !b.Enabled)
+                    && Descendants(workspace).OfType<Button>().Any(b => b.Visible && b.Text == "Delete selected…" && !b.Enabled),
+                    "Native results show dates and explicit move/delete controls, disabled until clips are selected");
+                list.SetFilter("unknown.mp4"); list.SelectVisible();
+                string unknownPath = list.Rows.Single(r => r.Created is null).Path;
+                list.SetFilter("renamed.MP4"); list.SelectVisible();
+                Check(list.SelectedKeys.Count == 2 && list.SelectedKeys.Contains(unknownPath),
+                    "Select all visible affects filtered rows and preserves previously selected hidden clips");
+                list.ClearSelection(); list.SetFilter("unknown.mp4"); list.SelectVisible();
+                Check(Descendants(workspace).OfType<Button>().Single(b => b.Text == "Move selected…").Enabled,
+                    "Selecting date lookup clips enables the action buttons");
+                list.SetFilter("");
                 foreach (var size in new[] { new Size(1180, 760), new Size(640, 480) })
                 {
                     shell.ClientSize = size; Application.DoEvents();
@@ -186,6 +260,35 @@ internal static class DateLookupChecks
                     using var bitmap = new Bitmap(shell.Width, shell.Height);
                     shell.DrawToBitmap(bitmap, new Rectangle(Point.Empty, shell.Size)); bitmap.Save(screenshot);
                 }
+                string isolated = Directory.CreateDirectory(Path.Combine(parent, "date-ui-isolated")).FullName;
+                void Act(string? target, DialogResult response)
+                {
+                    using var confirm = new System.Windows.Forms.Timer { Interval = 10 };
+                    bool reviewed = false;
+                    confirm.Tick += (_, _) =>
+                    {
+                        if (Application.OpenForms.OfType<ReviewConfirmation>().FirstOrDefault() is not { } dialog) return;
+                        reviewed = true;
+                        Check(Descendants(dialog).OfType<TextBox>().Single().Text.Contains(unknownPath),
+                            "Exact selected paths appear in the action confirmation");
+                        dialog.DialogResult = response;
+                    };
+                    confirm.Start(); var action = workspace.ActAsync(target); var actionTimeout = Stopwatch.StartNew();
+                    while (!action.IsCompleted)
+                    {
+                        if (actionTimeout.ElapsedMilliseconds > 15000) throw new Exception("Date UI action timed out.");
+                        Application.DoEvents(); Thread.Sleep(2);
+                    }
+                    action.GetAwaiter().GetResult(); confirm.Stop();
+                    Check(reviewed, "Date lookup actions require the exact-file confirmation before running");
+                }
+                Act(isolated, DialogResult.Cancel);
+                Check(File.Exists(unknownPath) && list.SelectedKeys.Contains(unknownPath) && Directory.GetFiles(isolated).Length == 0,
+                    "Cancelling the native action confirmation leaves clips and selections untouched");
+                Act(isolated, DialogResult.OK);
+                Check(!File.Exists(unknownPath) && File.Exists(Path.Combine(isolated, "unknown.mp4"))
+                    && !list.Rows.Any(r => r.Path == unknownPath) && list.SelectedKeys.Count == 0,
+                    "Confirmed native Move isolates selected clips and removes completed rows from results");
                 shell.Close();
                 while (!shell.IsDisposed) { Application.DoEvents(); Thread.Sleep(2); }
             }
