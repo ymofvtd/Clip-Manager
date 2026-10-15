@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>2.2.0</Version>
+    <Version>2.2.1</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
@@ -46,6 +46,8 @@
     <Compile Include="../VideoTrayApp/JobController.cs" Link="JobController.cs" />
     <Compile Include="../VideoTrayApp/MainShell*.cs" Link="%(Filename)%(Extension)" />
     <Compile Include="../VideoTrayApp/WorkflowWorkspace.cs" Link="WorkflowWorkspace.cs" />
+    <Compile Include="../VideoTrayApp/WorkflowWorkspace.Identify.cs" Link="WorkflowWorkspace.Identify.cs" />
+    <Compile Include="../VideoTrayApp/IdentifyClipActionPlan.cs" Link="IdentifyClipActionPlan.cs" />
     <Compile Include="../VideoTrayApp/ArchiveWorkspace.cs" Link="ArchiveWorkspace.cs" />
     <Compile Include="../VideoTrayApp/InstanceActivation.cs" Link="InstanceActivation.cs" />
     <Compile Include="../VideoTrayApp/ToolGroupWorkspace.cs" Link="ToolGroupWorkspace.cs" />

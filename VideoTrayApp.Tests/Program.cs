@@ -16,6 +16,8 @@ try
     Mp4Checks.Run(root, WriteMp4);
     DateLookupChecks.Run(root, WriteMp4);
     if (args.Contains("--date-only")) return;
+    IdentifySelectionChecks.Run(root, WriteMp4);
+    if (args.Contains("--identify-only")) return;
     if (args.Contains("--archive-only"))
     {
         ArchiveChecks.Run(root, WriteMp4);

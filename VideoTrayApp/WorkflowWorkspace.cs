@@ -1,6 +1,6 @@
 namespace VideoTrayApp;
 
-internal sealed class WorkflowWorkspace : UserControl
+internal sealed partial class WorkflowWorkspace : UserControl
 {
     internal PresetAction Action { get; }
     private readonly MainShell shell;
@@ -10,7 +10,7 @@ internal sealed class WorkflowWorkspace : UserControl
     private readonly CheckBox useWorking = new() { Text = "Use current working folder", AutoSize = true };
     private readonly CheckBox recursive = new() { Text = "Include subfolders", AutoSize = true, Checked = true };
     private readonly ComboBox selection = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 250, AccessibleName = "Batch selection" };
-    private readonly ComboBox identifyAction = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 230, AccessibleName = "Action for identified matches" };
+    private IdentifyBehavior identifyBehavior = IdentifyBehavior.Move;
     private readonly NumericUpDown minutes = new() { Minimum = 1, Maximum = 10080, Value = 30, Width = 100, AccessibleName = "Target minutes" };
     private readonly NumericUpDown startNumber = new() { Minimum = 0, Maximum = int.MaxValue, Width = 100, AccessibleName = "Starting number" };
     private readonly NumericUpDown padding = new() { Minimum = 0, Maximum = 64, Width = 80, AccessibleName = "Padding width" };
@@ -18,7 +18,7 @@ internal sealed class WorkflowWorkspace : UserControl
     private readonly TextBox prefix = new() { Width = 140, AccessibleName = "Filename prefix" };
     private readonly TextBox batchName = new() { Width = 200, AccessibleName = "New batch folder name" };
     private readonly DetailsBox result = new() { Text = "Configure the tool, then analyze. Analysis makes no file changes.", Multiline = true, ReadOnly = true, Dock = DockStyle.Bottom, Height = 88, ScrollBars = ScrollBars.Vertical, AccessibleName = "Operation result and recovery details" };
-    private readonly FileContextList review = new();
+    private readonly FileContextList review;
     private readonly Button analyze, run;
     private readonly TableLayoutPanel fields;
     private readonly ComboBox presets = new() { Width = 300, DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Saved preset" };
@@ -37,13 +37,13 @@ internal sealed class WorkflowWorkspace : UserControl
     internal WorkflowWorkspace(MainShell shell, PresetAction action, JobController jobs, Func<string> workingFolder, UiPreferences preferences)
     {
         this.shell = shell; Action = action; this.jobs = jobs; this.workingFolder = workingFolder;
+        review = new(selection: action == PresetAction.IdentifyClip);
         Font = DesktopTheme.BodyFont; Dock = DockStyle.Fill; SuspendLayout();
         source = new(action == PresetAction.SeekDuplications ? "Directory A" : action == PresetAction.IdentifyClip ? "Search folder" : "Source / target folder", recent: preferences.RecentPaths);
         destination = new(action == PresetAction.PrepareBatch ? "Destination parent — highest numbered c_ folder or a new batch" : "Move destination", recent: preferences.RecentPaths);
         reference = new("Reference clip — excluded from all changes", file: true, recent: preferences.RecentPaths);
         directoryB = new("Directory B — neither directory has priority", recent: preferences.RecentPaths);
         selection.Items.AddRange(["Numbered MP4 (top level)", "All MP4 files (top level)", "Archives (MP4, recursive, excluding Backup)"]); selection.SelectedIndex = 0;
-        identifyAction.Items.AddRange(["Inspect results only", "Move matches", "Recycle matches"]); identifyAction.SelectedIndex = 0;
         fields = DesktopTheme.Stack();
         fields.Tag = SurfaceRole.Surface;
         fields.Padding = new Padding(24, 16, 24, 24);
@@ -54,7 +54,7 @@ internal sealed class WorkflowWorkspace : UserControl
         presets.DropDown += (_, _) => ReloadPresets();
         DesktopTheme.Add(fields, useWorking); DesktopTheme.Add(fields, source);
         if (action == PresetAction.SeekDuplications) { DesktopTheme.Add(fields, directoryB); DesktopTheme.Add(fields, recursive); }
-        if (action == PresetAction.IdentifyClip) { DesktopTheme.Add(fields, reference); DesktopTheme.Add(fields, identifyAction); DesktopTheme.Add(fields, destination); }
+        if (action == PresetAction.IdentifyClip) DesktopTheme.Add(fields, reference);
         if (action == PresetAction.PrepareBatch)
         {
             DesktopTheme.Add(fields, destination);
@@ -68,11 +68,14 @@ internal sealed class WorkflowWorkspace : UserControl
         analyze = DesktopTheme.Button("Analyze / refresh preview", async () => await AnalyzeAsync());
         analyze.Tag = CommandRole.Primary;
         run = DesktopTheme.Button("Review and run…", async () => await RunAsync()); run.Enabled = false;
+        run.Visible = action != PresetAction.IdentifyClip;
         configurationPage.Controls.Add(fields);
         review.Dock = DockStyle.Fill; reviewPage.Controls.Add(review);
+        var identifyCommands = action == PresetAction.IdentifyClip ? BuildIdentifyCommands() : null;
+        if (identifyCommands is not null) reviewPage.Controls.Add(identifyCommands);
         reviewPage.SizeChanged += (_, _) =>
         {
-            review.Dock = reviewPage.ClientSize.Height < 320 ? DockStyle.Top : DockStyle.Fill;
+            review.Dock = reviewPage.ClientSize.Height - (identifyCommands?.Height ?? 0) < 320 ? DockStyle.Top : DockStyle.Fill;
             if (review.Dock == DockStyle.Top) review.Height = 390;
         };
         stages.Controls.Add(configurationPage); stages.Controls.Add(reviewPage); reviewPage.Visible = false; Controls.Add(stages);
@@ -97,8 +100,8 @@ internal sealed class WorkflowWorkspace : UserControl
         foreach (var picker in new[] { source, destination, reference, directoryB }) picker.ValueChanged += (_, _) => InvalidatePlan();
         foreach (var input in new[] { minutes, startNumber, padding, randomLength }) input.ValueChanged += (_, _) => InvalidatePlan();
         foreach (var input in new[] { prefix, batchName }) input.TextChanged += (_, _) => InvalidatePlan();
-        selection.SelectedIndexChanged += (_, _) => InvalidatePlan(); identifyAction.SelectedIndexChanged += (_, _) => InvalidatePlan(); recursive.CheckedChanged += (_, _) => InvalidatePlan();
-        review.SelectionChanged += () => run.Enabled = !busy && execution is not null;
+        selection.SelectedIndexChanged += (_, _) => InvalidatePlan(); recursive.CheckedChanged += (_, _) => InvalidatePlan();
+        review.SelectionChanged += () => { run.Enabled = !busy && execution is not null; RefreshIdentifyActions(); };
         ReloadPresets();
         try
         {
@@ -130,14 +133,14 @@ internal sealed class WorkflowWorkspace : UserControl
         ResumeLayout(false);
     }
     private void InvalidatePlan()
-    { revision++; execution = null; run.Enabled = false; result.Text = "Configuration changed. Analyze again to review these settings; no files have changed."; }
+    { revision++; execution = null; identifyScan = null; RefreshIdentifyActions(); run.Enabled = false; result.Text = "Configuration changed. Analyze again to review these settings; no files have changed."; }
     private ActionPreset Draft() => new()
     {
         Action = Action, UseWorkingFolder = false, Target = useWorking.Checked ? workingFolder() : source.Value,
         Destination = destination.Value, ReferenceClip = reference.Value, DirectoryB = directoryB.Value,
         IncludeSubfolders = recursive.Checked, DurationMinutes = (int)minutes.Value, Selection = (BatchSelection)selection.SelectedIndex,
         Start = (int)startNumber.Value, Padding = (int)padding.Value, Prefix = prefix.Text, RandomLength = (int)randomLength.Value,
-        BatchFolderName = batchName.Text, IdentifyBehavior = identifyAction.SelectedIndex == 2 ? IdentifyBehavior.Recycle : IdentifyBehavior.Move
+        BatchFolderName = batchName.Text, IdentifyBehavior = identifyBehavior
     };
     internal void ApplyPreset(ActionPreset preset)
     {
@@ -146,7 +149,7 @@ internal sealed class WorkflowWorkspace : UserControl
         recursive.Checked = preset.IncludeSubfolders; minutes.Value = Math.Clamp(preset.DurationMinutes, 1, 10080);
         selection.SelectedIndex = Math.Clamp((int)preset.Selection, 0, 2); startNumber.Value = Math.Max(0, preset.Start);
         padding.Value = Math.Clamp(preset.Padding, 0, 64); prefix.Text = preset.Prefix; randomLength.Value = Math.Clamp(preset.RandomLength, 4, 64);
-        batchName.Text = preset.BatchFolderName; identifyAction.SelectedIndex = preset.IdentifyBehavior == IdentifyBehavior.Move ? 1 : 2;
+        batchName.Text = preset.BatchFolderName; identifyBehavior = preset.IdentifyBehavior;
         InvalidatePlan(); result.Text = $"Preset “{preset.Name}” applied. Review the resolved folders and analyze before running.";
     }
     private void ReloadPresets()
@@ -173,22 +176,23 @@ internal sealed class WorkflowWorkspace : UserControl
         catch (Exception ex) { result.Text = "Preset could not be saved: " + ex.Message; }
     }
     internal void SetBusy(bool value)
-    { busy = value; analyze.Enabled = !value; run.Enabled = !value && execution is not null; }
+    { busy = value; analyze.Enabled = !value && !identifyActionBusy; run.Enabled = !value && execution is not null; RefreshIdentifyActions(); }
 
     internal async Task AnalyzeAsync()
     {
-        if (jobs.Busy) return;
-        int identifyMode = identifyAction.SelectedIndex;
+        if (jobs.Busy || identifyActionBusy) return;
         int analyzedRevision = revision;
         var draft = Draft();
         frozenContext = Action switch
         {
             PresetAction.SeekDuplications => $"Directory A: {draft.Target}\nDirectory B: {draft.DirectoryB}\nInclude subfolders: {draft.IncludeSubfolders}",
-            PresetAction.IdentifyClip => $"Search folder: {draft.Target}\nReference: {draft.ReferenceClip}" + (identifyMode == 1 ? "\nMove destination: " + draft.Destination : ""),
+            PresetAction.IdentifyClip => $"Search folder: {draft.Target}\nReference: {draft.ReferenceClip}",
             PresetAction.PrepareBatch => $"Source: {draft.Target}\nDestination parent: {draft.Destination}",
             _ => "Target folder: " + draft.Target
         };
         execution = null; run.Enabled = false;
+        identifyScan = null; RefreshIdentifyActions();
+        IdentifyClipScan? nextIdentifyScan = null;
         validateSelection = null;
         IReadOnlyList<ContextRow> rows = [];
         Func<IOperationProgress, CancellationToken, JobOutcome>? nextExecution = null;
@@ -197,7 +201,7 @@ internal sealed class WorkflowWorkspace : UserControl
         var outcome = await shell.RunJobAsync(ActionPreset.Label(Action) + " — analyze", frozenContext, true, (progress, ct) =>
         {
             draft.Target = Path.GetFullPath(draft.Target);
-            if (draft.Destination.Length > 0) draft.Destination = Path.GetFullPath(draft.Destination);
+            if (Action != PresetAction.IdentifyClip && draft.Destination.Length > 0) draft.Destination = Path.GetFullPath(draft.Destination);
             if (draft.DirectoryB.Length > 0) draft.DirectoryB = Path.GetFullPath(draft.DirectoryB);
             if (draft.ReferenceClip.Length > 0) draft.ReferenceClip = Path.GetFullPath(draft.ReferenceClip);
             ActionPreset.ValidateFolder(draft.Target);
@@ -275,45 +279,18 @@ internal sealed class WorkflowWorkspace : UserControl
                     var matches = ClipIdentifier.Find(draft.ReferenceClip, draft.Target, MainShell.VideoExtensions, progress, ct);
                     hasIssues = matches.Errors.Count > 0;
                     var referenceGuard = PlannedFile.ReadExpected(draft.ReferenceClip, matches.Reference, ct);
-                    var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    var changes = new List<PlannedChange>();
+                    var identified = new List<PlannedFile>();
                     foreach (var path in matches.Matches)
                     {
                         var guard = PlannedFile.ReadExpected(path, matches.Reference, ct);
-                        if (guard.Physical.Volume == referenceGuard.Physical.Volume && guard.Physical.Index == referenceGuard.Physical.Index) continue;
-                        string target = "Recycle";
-                        if (draft.IdentifyBehavior == IdentifyBehavior.Move && identifyMode == 1)
-                        {
-                            ActionPreset.ValidateFolder(draft.Destination);
-                            if (ClipIdentifier.SamePath(Path.GetDirectoryName(path)!, draft.Destination)) continue;
-                            target = Path.Combine(draft.Destination, Path.GetFileName(path));
-                            for (int suffix = 1; File.Exists(target) || Directory.Exists(target) || reserved.Contains(target); suffix++)
-                                target = Path.Combine(draft.Destination, Path.GetFileNameWithoutExtension(path) + "__" + suffix + Path.GetExtension(path));
-                            reserved.Add(target);
-                        }
-                        changes.Add(new(guard, target));
+                        if (guard.Physical == referenceGuard.Physical) continue;
+                        identified.Add(guard);
                     }
-                    rows = changes.Select(c => new ContextRow(c.File.Path, "1", identifyMode == 0 ? "Match" : identifyMode == 1 ? "Move" : "Recycle", c.File.Path,
-                        identifyMode == 0 ? "Inspect only" : c.Destination, Path.GetDirectoryName(c.File.Path)!, Duration(matches.Reference.Duration), FormatSize(c.File.Length),
-                        Bytes: c.File.Length, Modified: c.File.LastWrite, Identity: "Reviewed SHA-256: " + c.File.Hash)).ToArray();
-                    if (matches.Errors.Count == 0 && changes.Count > 0 && identifyMode > 0)
-                        nextExecution = (p, token) => JobOutcome.Complete(PlanExecution.Transaction(p, token, () =>
-                        {
-                            using var kept = new FileStream(draft.ReferenceClip, FileMode.Open, FileAccess.Read, FileShare.Read);
-                            referenceGuard.Verify(token);
-                            foreach (var change in changes) change.File.Verify(token);
-                            int changed = 0;
-                            foreach (var change in changes)
-                            {
-                                token.ThrowIfCancellationRequested(); p.Report(changed, changes.Count, "Verifying and applying reviewed match…");
-                                change.File.Verify(token);
-                                if (identifyMode == 1) { ActionPreset.ValidateFolder(draft.Destination); OperationTransaction.Move(change.File.Path, change.Destination); }
-                                else OperationTransaction.Recycle(change.File.Path);
-                                changed++;
-                            }
-                            return $"{(identifyMode == 1 ? "Moved" : "Recycled")}: {changed}\nReference preserved: {draft.ReferenceClip}\nReviewed destinations used; no files overwritten.";
-                        }));
-                    summary = matches.Errors.Count > 0 ? "Incomplete scan. Actions are blocked until unreadable paths are resolved.\n" + string.Join("\n", matches.Errors.Take(20)) : $"Complete scan: {changes.Count} independent exact copies. The reference and its aliases are excluded.";
+                    rows = identified.Select(file => new ContextRow(file.Path, "1", "", file.Path,
+                        "Exact match; reference: " + referenceGuard.Path, Path.GetDirectoryName(file.Path)!, Duration(matches.Reference.Duration), FormatSize(file.Length),
+                        Selectable: true, Bytes: file.Length, Modified: file.LastWrite, Identity: "Reviewed SHA-256: " + file.Hash)).ToArray();
+                    if (!hasIssues) nextIdentifyScan = new(referenceGuard, identified.ToArray());
+                    summary = matches.Errors.Count > 0 ? "Incomplete scan. Actions are blocked until unreadable paths are resolved.\n" + string.Join("\n", matches.Errors.Take(20)) : $"Complete scan: {identified.Count} independent exact copies. Select clips or use Select all visible, then Move selected or Delete selected. The reference and its aliases are excluded.";
                     recovery = "Reviewed actions use in-process rollback on failure/cancellation. Successful recycling is recoverable through Windows Recycle Bin.";
                     break;
             }
@@ -323,7 +300,9 @@ internal sealed class WorkflowWorkspace : UserControl
         if (IsDisposed || outcome is null) return;
         review.SetRows(rows); result.Text = frozenContext + "\n" + (outcome.State is JobState.Failed or JobState.Cancelled ? outcome.Details : summary + "\n" + recovery);
         execution = outcome.State is JobState.Failed or JobState.Cancelled ? null : nextExecution;
-        if (revision != analyzedRevision) { execution = null; result.Text += "\nDraft changed during analysis. Analyze again before running."; }
+        identifyScan = outcome.State is JobState.Failed or JobState.Cancelled ? null : nextIdentifyScan;
+        if (revision != analyzedRevision) { execution = null; identifyScan = null; result.Text += "\nDraft changed during analysis. Analyze again before running."; }
+        RefreshIdentifyActions();
         ShowReview();
         review.Show(); review.CreateControl(); review.BringToFront(); review.PerformLayout();
         run.Enabled = execution is not null && !jobs.Busy;
@@ -366,7 +345,7 @@ internal sealed class WorkflowWorkspace : UserControl
     {
         PresetAction.SeekDuplications => "Compare folders (Seek duplications). Exact size, duration and full SHA-256 identity only. Overlapping paths appear once; neither A nor B has priority.",
         PresetAction.RemoveDuplicates => "Clean one folder (Remove duplicates). Includes subfolders, excludes links. Keeps the first full path alphabetically per exact-identity group. Use Compare folders for individual choices.",
-        PresetAction.IdentifyClip => "Identify clip. Search recursively for exact SHA-256 content and duration matches. Inspect first; choose Move or Recycle explicitly. Reference clip stays untouched.",
+        PresetAction.IdentifyClip => "Identify clip. Search recursively for exact SHA-256 content and duration matches, then select results to move to an isolation folder or delete through Windows Recycle Bin. Reference clip stays untouched.",
         PresetAction.PrepareBatch => "Prepare Batch. Randomly select, check exact duplicates and refill, back up final clips, then move them shortest to longest. Analyze resolves the c_ starter folder or exact new batch without changing files.",
         PresetAction.ShuffleBatches => "Shuffle Batches. Pool recursive archive MP4 files, excluding Backup and links, pack intact clips into duration-limited batches and number shortest to longest. No duplicate cleanup or backups.",
         PresetAction.NameByTens => "Name by 10s. Numbering advances by ten (0, 10, 20…). This is a numbering step, not a duration filter. MP4 extensions are preserved.",

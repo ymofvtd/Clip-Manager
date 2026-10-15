@@ -385,13 +385,18 @@ internal sealed class FileContextList : UserControl
     internal HashSet<string> SelectedKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
     internal event Action? SelectionChanged;
     internal IReadOnlyList<ContextRow> Rows => rows;
-    internal FileContextList(bool lookup = false)
+    internal FileContextList(bool lookup = false, bool selection = false)
     {
-        this.lookup = lookup;
+        this.lookup = lookup || selection;
         Dock = DockStyle.Top; Height = 390; MinimumSize = new Size(0, 250);
         Table.AccessibleName = "File context review";
         foreach (var (name, width) in new[] { ("Group", 65), ("Action", 95), ("Filename", 180), ("Folder / batch", 230), ("Proposed action / path", 280), ("Duration", 100), ("Size", 100), ("Modified", 145) })
             Table.Columns.Add(new DataGridViewTextBoxColumn { Name = name, HeaderText = name, Width = width, SortMode = DataGridViewColumnSortMode.Programmatic });
+        if (selection)
+        {
+            Table.Columns[1].HeaderText = "Select";
+            Table.AccessibleName = "Identified clip results";
+        }
         if (lookup)
         {
             Table.Columns.Add(new DataGridViewTextBoxColumn { Name = "Created", HeaderText = "Created (local)", Width = 175, SortMode = DataGridViewColumnSortMode.Programmatic });
@@ -407,7 +412,7 @@ internal sealed class FileContextList : UserControl
         {
             if (e.RowIndex < 0 || e.RowIndex >= visible.Count) return;
             var row = visible[e.RowIndex];
-            e.Value = e.ColumnIndex switch { 0 => row.Group, 1 => row.Selectable ? lookup ? SelectedKeys.Contains(row.Key) ? "Selected" : "—" : SelectedKeys.Contains(row.Key) ? "Recycle" : "Keep" : row.Action,
+            e.Value = e.ColumnIndex switch { 0 => row.Group, 1 => row.Selectable ? this.lookup ? SelectedKeys.Contains(row.Key) ? "Selected" : "—" : SelectedKeys.Contains(row.Key) ? "Recycle" : "Keep" : row.Action,
                 2 => Path.GetFileName(row.Path), 3 => row.Context, 4 => row.Proposed, 5 => row.Duration, 6 => row.Size,
                 8 => row.Created?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "Unknown", _ => row.Modified?.ToLocalTime().ToString("g") ?? "" };
         };
@@ -418,8 +423,8 @@ internal sealed class FileContextList : UserControl
             if (!SelectedKeys.Add(key)) SelectedKeys.Remove(key);
             Table.InvalidateRow(index); UpdateSummary(); SelectionChanged?.Invoke();
         }
-        Table.CellDoubleClick += (_, e) => { if (!lookup && e.ColumnIndex == 1) Toggle(e.RowIndex); };
-        Table.CellClick += (_, e) => { if (lookup && e.ColumnIndex == 1) Toggle(e.RowIndex); };
+        Table.CellDoubleClick += (_, e) => { if (!this.lookup && e.ColumnIndex == 1) Toggle(e.RowIndex); };
+        Table.CellClick += (_, e) => { if (this.lookup && e.ColumnIndex == 1) Toggle(e.RowIndex); };
         Table.KeyDown += (_, e) => { if (e.KeyCode == Keys.Space) { Toggle(Table.CurrentCell?.RowIndex ?? -1); e.Handled = true; } };
         Table.SelectionChanged += (_, _) => UpdateDetails();
         Table.ColumnHeaderMouseClick += (_, e) =>
@@ -429,7 +434,7 @@ internal sealed class FileContextList : UserControl
             Refilter();
         };
         filter.TextChanged += (_, _) => Refilter();
-        var actions = DesktopTheme.Actions(DesktopTheme.Button(lookup ? "Select / unselect row" : "Keep / Recycle selected row", () => Toggle(Table.CurrentCell?.RowIndex ?? -1)),
+        var actions = DesktopTheme.Actions(DesktopTheme.Button(this.lookup ? "Select / unselect row" : "Keep / Recycle selected row", () => Toggle(Table.CurrentCell?.RowIndex ?? -1)),
             DesktopTheme.Button("Open clip", () => External(row => DesktopTheme.Open(row.Path))),
             DesktopTheme.Button("Open containing folder", () => External(row => DesktopTheme.Open(Path.GetDirectoryName(row.Path)!))),
             DesktopTheme.Button("Copy path", () => External(row => Clipboard.SetText(row.Path))));

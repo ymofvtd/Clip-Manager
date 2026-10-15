@@ -1,3 +1,9 @@
+# 2.2.1 Identify clip selection and bulk actions
+
+Identify clip results now use the same selection controls as Find by date: Select cells, Space, Select / unselect row, Select all visible and Clear selection. Move selected chooses an isolation folder; Delete selected uses Windows Recycle Bin. Exact-file confirmation includes hidden selections and frozen collision-safe move paths. Successful actions remove only completed matches from results. The reference remains protected; incomplete scans and changed files block mutation.
+
+Release builds and generated integration checks cover row selection, filtered bulk selection, clearing hidden choices, cancelled confirmation, selected-only move/recycle, collision handling, changed reference/matches, incomplete scans and compact layouts.
+
 # 2.1.16 incremental Archive restart
 
 Archive persists location candidates and verified source receipts across restarts. A cache check uses protected file identity, length, creation/write/change times; new or changed archive content is hashed, while unchanged videos are not reread just to rebuild the catalog. Continuous watching skips unchanged, previously verified sources before queuing/scheduling them. New arrivals retain full copy/read-back verification; missing or changed copies invalidate protection. Run once continues to verify source content and its archived copies.
