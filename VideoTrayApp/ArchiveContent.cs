@@ -33,6 +33,11 @@ internal sealed class ArchiveContent : TagLib.File.IFileAbstraction, IDisposable
         TimeSpan duration = Duration();
         return new(Length, duration, HashTo(null, progress, ct));
     }
+    internal DateTimeOffset? CreationTime(CancellationToken ct)
+    {
+        try { return ClipDateLookup.ReadCreationTime(stream, ct); }
+        catch (InvalidDataException) { return null; }
+    }
     internal string HashTo(Stream? output, Action<long, long>? progress, CancellationToken ct, IoRateLimiter? writeBudget = null,
         string? protectedHash = null)
     {

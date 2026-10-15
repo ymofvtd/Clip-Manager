@@ -48,8 +48,10 @@ internal sealed class ClipArchiver
             ArchivePaths.RejectLinks(source);
             DateTime stamp = File.GetLastWriteTimeUtc(source);
             using var content = new ArchiveContent(source, limiter, ct);
+            var sourceCreated = new DateTimeOffset(File.GetCreationTimeUtc(source));
             long size = content.Length;
             TimeSpan duration = content.Duration();
+            DateTimeOffset? embeddedCreated = content.CreationTime(ct);
             ClipIdentity? identity = null;
             if (index.Entries.Any(entry => entry.Identity.Size == size && entry.Identity.Duration == duration && entry.Locations.Count > 0))
             {
@@ -58,7 +60,7 @@ internal sealed class ClipArchiver
                 if (existing is not null)
                 {
                     RecheckSource();
-                    index.Record(identity, existing, source, settings.Sources, content.Stamp, keeper!.Stamp);
+                    index.Record(identity, existing, source, settings.Sources, content.Stamp, keeper!.Stamp, embeddedCreated, sourceCreated, new DateTimeOffset(stamp));
                     index.Save(indexPath);
                     progress.SetIndeterminate($"Already archived (verified): {source}");
                     return new(ArchiveOutcome.AlreadyArchived, source);
@@ -99,7 +101,7 @@ internal sealed class ClipArchiver
             }
             progress.SetIndeterminate(copied ? $"Published verified copy: {target}" : $"Already archived (verified): {target}");
             index.Record(identity, target, source, settings.Sources, content.Stamp,
-                (occupiedContent ?? duplicateHandle ?? verification).Stamp);
+                (occupiedContent ?? duplicateHandle ?? verification).Stamp, embeddedCreated, sourceCreated, new DateTimeOffset(stamp));
             index.Save(indexPath);
             return new(copied ? ArchiveOutcome.CopiedAndVerified : ArchiveOutcome.AlreadyArchived, source);
 

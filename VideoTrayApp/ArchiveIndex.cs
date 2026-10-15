@@ -3,13 +3,15 @@ using System.Text;
 
 namespace VideoTrayApp;
 
-internal sealed record ArchiveProvenance(string Path, string OriginalName, string SourceRoot, string RootLabel);
+internal sealed record ArchiveProvenance(string Path, string OriginalName, string SourceRoot, string RootLabel,
+    DateTimeOffset? SourceCreatedUtc = null, DateTimeOffset? SourceModifiedUtc = null, DateTimeOffset? FirstArchivedUtc = null);
 internal sealed record ArchiveFileHint(ClipIdentity Identity, ArchiveFileStamp Stamp);
 internal sealed class ArchiveEntry
 {
     public ClipIdentity Identity { get; set; } = new(0, TimeSpan.Zero, "");
     public List<string> Locations { get; set; } = [];
     public List<ArchiveProvenance> Sources { get; set; } = [];
+    public DateTimeOffset? EmbeddedCreatedUtc { get; set; }
 }
 
 internal sealed class ArchiveIndex
@@ -154,16 +156,35 @@ internal sealed class ArchiveIndex
         return false;
     }
     internal void Record(ClipIdentity identity, string location, string source, IEnumerable<string> roots,
-        ArchiveFileStamp? sourceStamp = null, ArchiveFileStamp? locationStamp = null)
+        ArchiveFileStamp? sourceStamp = null, ArchiveFileStamp? locationStamp = null, DateTimeOffset? embeddedCreatedUtc = null,
+        DateTimeOffset? sourceCreatedUtc = null, DateTimeOffset? sourceModifiedUtc = null)
     {
         var entry = GetEntry(identity);
+        entry.EmbeddedCreatedUtc ??= embeddedCreatedUtc;
         if (!entry.Locations.Contains(location, StringComparer.OrdinalIgnoreCase)) entry.Locations.Add(location);
         foreach (string root in roots.Where(root => ArchivePaths.Contains(root, source)))
-            if (!entry.Sources.Any(p => ClipIdentifier.SamePath(p.Path, source) && ClipIdentifier.SamePath(p.SourceRoot, root)))
-                entry.Sources.Add(new(source, Path.GetFileName(source), root, Path.GetFileName(Path.TrimEndingDirectorySeparator(root))));
+        {
+            int existing = entry.Sources.FindIndex(p => ClipIdentifier.SamePath(p.Path, source) && ClipIdentifier.SamePath(p.SourceRoot, root));
+            var origin = existing >= 0 ? entry.Sources[existing]
+                : new ArchiveProvenance(source, Path.GetFileName(source), root, Path.GetFileName(Path.TrimEndingDirectorySeparator(root)));
+            origin = origin with
+            {
+                SourceCreatedUtc = origin.SourceCreatedUtc ?? sourceCreatedUtc ?? (sourceStamp is { Created: > 0 } ? DateTimeOffset.FromFileTime(sourceStamp.Created) : null),
+                SourceModifiedUtc = origin.SourceModifiedUtc ?? sourceModifiedUtc ?? (sourceStamp is { Written: > 0 } ? DateTimeOffset.FromFileTime(sourceStamp.Written) : null),
+                FirstArchivedUtc = origin.FirstArchivedUtc ?? DateTimeOffset.UtcNow
+            };
+            if (existing >= 0) entry.Sources[existing] = origin; else entry.Sources.Add(origin);
+        }
         if (sourceStamp is not null) SourceReceipts[source] = new(identity, sourceStamp);
         else SourceReceipts.Remove(source);
         if (locationStamp is not null) LocationHints[location] = new(identity, locationStamp);
         else LocationHints.Remove(location);
     }
+
+    internal static string OriginDetails(ArchiveEntry entry) =>
+        "Embedded MP4 creation (UTC): " + (entry.EmbeddedCreatedUtc?.ToString("O") ?? "Unknown / not captured")
+        + string.Concat(entry.Sources.Select(origin => $"\nOriginal name: {origin.OriginalName}\nOriginal path: {origin.Path}\nSource root: {origin.SourceRoot}"
+            + $"\nSource filesystem created (UTC, may reflect an earlier copy): {origin.SourceCreatedUtc?.ToString("O") ?? "Unknown"}"
+            + $"\nSource filesystem modified (UTC): {origin.SourceModifiedUtc?.ToString("O") ?? "Unknown"}"
+            + $"\nFirst cataloged archive verification (UTC): {origin.FirstArchivedUtc?.ToString("O") ?? "Unknown"}"));
 }

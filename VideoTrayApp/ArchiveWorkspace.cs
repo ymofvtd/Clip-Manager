@@ -173,7 +173,8 @@ internal sealed class ArchiveWorkspace : UserControl
         var rows = loadedCatalog.Entries.SelectMany(e => e.Locations.Select(location => (e, location)))
             .Skip(catalogPage * CatalogPageSize).Take(CatalogPageSize).Select(item => new ContextRow(item.location, "", "Indexed", item.location,
                 "Previous content identity: " + item.e.Identity.Hash, string.Join("; ", item.e.Sources.Select(s => s.RootLabel + " / " + s.OriginalName).Distinct()),
-                WorkflowWorkspace.Duration(item.e.Identity.Duration), WorkflowWorkspace.FormatSize(item.e.Identity.Size), Bytes: item.e.Identity.Size)).ToArray();
+                WorkflowWorkspace.Duration(item.e.Identity.Duration), WorkflowWorkspace.FormatSize(item.e.Identity.Size), Bytes: item.e.Identity.Size,
+                Identity: ArchiveIndex.OriginDetails(item.e), Created: item.e.EmbeddedCreatedUtc)).ToArray();
         catalog.SetRows(rows); catalogPageStatus.Text = $"Page {catalogPage + 1} of {count}; {total:N0} locations; up to {CatalogPageSize:N0} per page.";
         previousPage.Enabled = catalogPage > 0; nextPage.Enabled = catalogPage + 1 < count;
     }

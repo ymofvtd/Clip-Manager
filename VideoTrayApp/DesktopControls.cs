@@ -366,7 +366,7 @@ internal sealed class SourceFolderList : UserControl
 
 internal sealed record ContextRow(string Key, string Group, string Action, string Path, string Proposed,
     string Context, string Duration, string Size, bool Selectable = false, long Bytes = 0,
-    DateTimeOffset? Modified = null, string Identity = "");
+    DateTimeOffset? Modified = null, string Identity = "", DateTimeOffset? Created = null);
 
 // Materialize only visible grid cells. Selection belongs to stable keys, never row numbers.
 internal sealed class FileContextList : UserControl
@@ -381,21 +381,33 @@ internal sealed class FileContextList : UserControl
     private List<ContextRow> visible = [];
     private int sortColumn = -1;
     private bool descending;
+    private readonly bool lookup;
     internal HashSet<string> SelectedKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
     internal event Action? SelectionChanged;
     internal IReadOnlyList<ContextRow> Rows => rows;
-    internal FileContextList()
+    internal FileContextList(bool lookup = false)
     {
+        this.lookup = lookup;
         Dock = DockStyle.Top; Height = 390; MinimumSize = new Size(0, 250);
         Table.AccessibleName = "File context review";
         foreach (var (name, width) in new[] { ("Group", 65), ("Action", 95), ("Filename", 180), ("Folder / batch", 230), ("Proposed action / path", 280), ("Duration", 100), ("Size", 100), ("Modified", 145) })
             Table.Columns.Add(new DataGridViewTextBoxColumn { Name = name, HeaderText = name, Width = width, SortMode = DataGridViewColumnSortMode.Programmatic });
+        if (lookup)
+        {
+            Table.Columns.Add(new DataGridViewTextBoxColumn { Name = "Created", HeaderText = "Created (local)", Width = 175, SortMode = DataGridViewColumnSortMode.Programmatic });
+            Table.Columns[8].DisplayIndex = 3;
+            foreach (int column in new[] { 0, 1, 5, 7 }) Table.Columns[column].Visible = false;
+            Table.Columns[4].HeaderText = "Date source";
+            Table.Columns[3].HeaderText = "Folder";
+            Table.AccessibleName = "Clip creation date results";
+        }
         Table.CellValueNeeded += (_, e) =>
         {
             if (e.RowIndex < 0 || e.RowIndex >= visible.Count) return;
             var row = visible[e.RowIndex];
             e.Value = e.ColumnIndex switch { 0 => row.Group, 1 => row.Selectable ? SelectedKeys.Contains(row.Key) ? "Recycle" : "Keep" : row.Action,
-                2 => Path.GetFileName(row.Path), 3 => row.Context, 4 => row.Proposed, 5 => row.Duration, 6 => row.Size, _ => row.Modified?.ToLocalTime().ToString("g") ?? "" };
+                2 => Path.GetFileName(row.Path), 3 => row.Context, 4 => row.Proposed, 5 => row.Duration, 6 => row.Size,
+                8 => row.Created?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "Unknown", _ => row.Modified?.ToLocalTime().ToString("g") ?? "" };
         };
         void Toggle(int index)
         {
@@ -418,6 +430,7 @@ internal sealed class FileContextList : UserControl
             DesktopTheme.Button("Open clip", () => External(row => DesktopTheme.Open(row.Path))),
             DesktopTheme.Button("Open containing folder", () => External(row => DesktopTheme.Open(Path.GetDirectoryName(row.Path)!))),
             DesktopTheme.Button("Copy path", () => External(row => Clipboard.SetText(row.Path))));
+        if (lookup) actions.Controls[0].Visible = false;
         actions.Dock = DockStyle.Bottom; summary.Dock = DockStyle.Bottom;
         Controls.Add(Table); Controls.Add(filter); Controls.Add(details); Controls.Add(actions); Controls.Add(summary);
     }
@@ -439,17 +452,19 @@ internal sealed class FileContextList : UserControl
         if (sortColumn >= 0)
         {
             IComparable SortValue(ContextRow r) => sortColumn switch { 0 => r.Group, 1 => r.Selectable ? SelectedKeys.Contains(r.Key) ? "Recycle" : "Keep" : r.Action,
-                2 => System.IO.Path.GetFileName(r.Path), 3 => r.Context, 4 => r.Proposed, 5 => r.Duration, 6 => r.Bytes, _ => r.Modified ?? DateTimeOffset.MinValue };
+                2 => System.IO.Path.GetFileName(r.Path), 3 => r.Context, 4 => r.Proposed, 5 => r.Duration, 6 => r.Bytes,
+                8 => r.Created ?? DateTimeOffset.MaxValue, _ => r.Modified ?? DateTimeOffset.MinValue };
             visible = (descending ? visible.OrderByDescending(SortValue) : visible.OrderBy(SortValue)).ToList();
         }
         Table.RowCount = visible.Count; Table.Invalidate(); UpdateSummary(); UpdateDetails();
     }
-    private void UpdateSummary() => summary.Text = $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected for recycling (including hidden rows). Space toggles eligible rows.";
+    private void UpdateSummary() => summary.Text = lookup ? $"{rows.Count:N0} results • {visible.Count:N0} visible" : $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected for recycling (including hidden rows). Space toggles eligible rows.";
     private void UpdateDetails()
     {
         int index = Table.CurrentCell?.RowIndex ?? -1;
         details.Text = index >= 0 && index < visible.Count ? visible[index].Path + Environment.NewLine + visible[index].Proposed +
-            Environment.NewLine + visible[index].Identity + (visible[index].Modified is { } modified ? "\nExact modified time: " + modified.ToString("O") : "") : "Select a row to inspect its exact path.";
+            Environment.NewLine + visible[index].Identity + (visible[index].Created is { } created ? "\nEmbedded creation time (UTC): " + created.ToString("O") : "")
+            + (visible[index].Modified is { } modified ? "\nExact modified time: " + modified.ToString("O") : "") : "Select a row to inspect its exact path.";
     }
     private void External(Action<ContextRow> action)
     {

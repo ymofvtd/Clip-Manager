@@ -21,6 +21,8 @@ internal sealed partial class MainShell
             });
         }
         pages[name] = tabs;
+        if (name == "Find & clean")
+            tabs.Add("FindByDate", "Find by date", () => new ClipDateWorkspace(this, () => workingFolder, preferences));
     }
     internal void OpenTool(PresetAction action)
     {

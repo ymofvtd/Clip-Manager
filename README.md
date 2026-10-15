@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.1.19
+2.1.20
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -38,6 +38,8 @@ The status window shows queued clips, byte progress, copied/verified and already
 
 Settings, per-destination indexes, and the bounded shutdown log are stored atomically under `%APPDATA%/ClipsManager` (`archive_settings.json`, `archive_index_*.json`, `archive_log.json`). Archive presets support source lists and speed settings and always run once. Older Target/UseWorkingFolder and Destination settings resolve to the same folders with the new copy-only behavior. Completed copies are independent of preset rollback.
 
+When processing clips, Archive also saves origin information in its catalog: embedded MP4 creation time (when available), original filename/path and source root, the observed source filesystem creation/modification times, and the first cataloged verification time. Select a clip in **Archive → Catalog** to inspect these details. Source filesystem creation time can reflect an earlier copy; it is labeled separately from embedded creation time. Origin information stays associated with content when archive clips are renamed or reshuffled. MP4 bytes stay unchanged. Existing catalog records acquire the new fields when their source is next processed, such as **Recheck all content once**; routine unchanged-file checks retain their fast path. The catalog stays in this app's data folder, so retain it alongside the archive if you need original paths/names after moving to another computer. **Find by date** reads the embedded timestamp directly from the clip, independently of the catalog.
+
 Archive saves its file cache across restarts and app updates. Startup and periodic reconciliation enumerate paths and check file identity, size, creation/write/change times, hashing only new or changed archive files. **Run once**, archive presets, and **Watch continuously** skip an already verified source when both it and an archived copy retain their protected-file stamps; unchanged historical clips do not take settling or Slow scheduling slots. Quiet reconciliations do not rewrite an unchanged index. Status separates **Skipped unchanged (metadata checked)** from copies whose content was read and verified. New clips still receive full copy and read-back verification, and changed or missing copies trigger checking/recovery. Choose **Recheck all content once** in Archive's Mode for a full read/hash of archive and source content; this mode cannot auto-resume as continuous watching. The first launch with an older index needs one content scan to populate the new cache. Filesystems without reliable change stamps fall back to full checking. Metadata checks cannot detect silent disk corruption that leaves all file metadata unchanged; use the full recheck when an integrity audit is needed.
 
 A queued clip is not protected until a copy is verified. Clips deleted before processing, while the app is closed, or while the destination is unavailable can still be lost. Slow mode leaves a longer gap; pending and unavailable status remain visible.
@@ -51,6 +53,10 @@ Every row starts as **Keep**, with neither directory given priority. The table s
 Both kept and selected copies are verified again immediately before recycling. A kept copy stays open against writes/deletion throughout its group. A missing/changed keeper skips that group; a changed selected copy stays untouched. Only the Recycle Bin is used; unavailable recycling reports an error with no permanent-delete fallback. Cancellation stops further deletions and reports completed versus untouched copies; earlier successful recycling is not automatically reversed. Unreadable paths and cancelled scans are reported separately from a complete scan with no duplicates. Presets can save A/B paths and recursion, but always open the individual review and final confirmation.
 
 ## Identify clip
+
+To look up clips by date without a reference video, open **Find & clean → Find by date**. Choose a folder, an inclusive **From / Through** range, and **Find clips**. Subfolders are included by default; links/junctions are excluded. Results show the embedded MP4 movie creation date in your local time zone, filename, folder, size and date source. You can sort results, filter paths, open clips or their folders, and copy paths.
+
+Lookup reads the creation timestamp inside the MP4 movie header, which survives unchanged copying and renaming. It never substitutes filesystem creation or modification times. The embedded date can be absent, unset, inaccurate, or replaced by editing/exporting; it is not a guarantee of the original recording time. Missing/unsupported dates are counted separately; enable **Also show clips with no embedded creation date** to inspect those files alongside range matches. Unreadable or malformed files and incomplete scans are reported separately. Lookup makes no clip changes and supports cancellation.
 
 Open **Find & clean → Identify clip**, select a single reference video, and choose the search folder. Subfolders are included; junctions and symbolic links are skipped. Clips match only when their full SHA-256 content hash and duration match the reference, regardless of filename.
 

@@ -4,9 +4,9 @@ internal sealed class ToolGroupWorkspace : UserControl
 {
     private readonly Panel body = new() { Dock = DockStyle.Fill };
     private readonly FlowLayoutPanel choices = new() { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(20, 4, 16, 14) };
-    private readonly Dictionary<PresetAction, WorkflowWorkspace> workspaces = [];
-    private readonly Dictionary<PresetAction, Func<WorkflowWorkspace>> factories = [];
-    private readonly Dictionary<PresetAction, Button> buttons = [];
+    private readonly Dictionary<string, UserControl> workspaces = [];
+    private readonly Dictionary<string, Func<UserControl>> factories = [];
+    private readonly Dictionary<string, Button> buttons = [];
     internal ToolGroupWorkspace()
     {
         Font = DesktopTheme.BodyFont; Dock = DockStyle.Fill;
@@ -16,19 +16,22 @@ internal sealed class ToolGroupWorkspace : UserControl
         Controls.Add(body); Controls.Add(toolHeader);
     }
     internal void Add(PresetAction action, Func<WorkflowWorkspace> create)
+        => Add(action.ToString(), ActionPreset.Label(action), create);
+    internal void Add(string key, string label, Func<UserControl> create)
     {
-        factories[action] = create;
-        var choice = DesktopTheme.Button(ActionPreset.Label(action), () => Select(action));
+        factories[key] = create;
+        var choice = DesktopTheme.Button(label, () => Select(key));
         choice.Kind = ButtonKind.Tool;
         choice.MouseUp += (_, e) =>
         {
-            if (e.Button == MouseButtons.Right && !workspaces.ContainsKey(action))
-            { Select(action); choice.ContextMenuStrip?.Show(choice, e.Location); }
+            if (e.Button == MouseButtons.Right && !workspaces.ContainsKey(key))
+            { Select(key); choice.ContextMenuStrip?.Show(choice, e.Location); }
         };
-        choices.Controls.Add(choice); buttons[action] = choice;
-        if (factories.Count == 1) Select(action);
+        choices.Controls.Add(choice); buttons[key] = choice;
+        if (factories.Count == 1) Select(key);
     }
-    internal void Select(PresetAction action)
+    internal void Select(PresetAction action) => Select(action.ToString());
+    internal void Select(string action)
     {
         if (!workspaces.ContainsKey(action) && factories.TryGetValue(action, out var create))
         {
