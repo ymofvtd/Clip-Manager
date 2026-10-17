@@ -22,6 +22,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
     private Task? task;
     private bool paused, reconcileRequested, disposed;
     private bool suspended;
+    private bool discoveryComplete;
     private string current = "", warning = "";
     private List<string> unavailableRoots = [];
     private int percent, copied, archived, failed, unchanged;
@@ -31,6 +32,11 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
     internal event Action? ArchiveChanged;
     internal ArchiveSettings Settings { get; private set; } = new();
     internal bool Running { get { lock (gate) return task is { IsCompleted: false }; } }
+    internal bool ReadyForMonthlyBatch
+    {
+        get { lock (gate) return discoveryComplete && !reconcileRequested && queue.Count == 0
+            && !paused && !suspended && warning.Length == 0 && unavailableRoots.Count == 0; }
+    }
     internal ArchiveStatus Status { get { lock (gate) return Snapshot(); } }
     internal IReadOnlyList<ArchivePending> Pending
     {
@@ -54,7 +60,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
             Settings = settings;
             queue.Clear(); log.Clear();
             copied = archived = failed = percent = unchanged = 0;
-            current = warning = ""; paused = suspended = false; lastSuccess = null; reconcileRequested = true;
+            current = warning = ""; paused = suspended = discoveryComplete = false; lastSuccess = null; reconcileRequested = true;
             task = Task.Run(() => Run(stop.Token));
             _ = task.ContinueWith(_ => Publish(), TaskScheduler.Default);
         }
@@ -108,7 +114,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                 lock (gate)
                 {
                     rescan = scan is null && (reconcileRequested || clock.UtcNow >= nextReconcile);
-                    if (rescan) reconcileRequested = false;
+                    if (rescan) { reconcileRequested = false; discoveryComplete = false; }
                     cycle?.Dispose();
                     cycle = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 }
@@ -151,6 +157,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                             if (!scan.MoveNext())
                             {
                                 scan.Dispose(); scan = null;
+                                lock (gate) discoveryComplete = true;
                                 nextReconcile = clock.UtcNow.AddSeconds(Settings.ReconcileSeconds);
                                 foreach (string error in scanErrors.Take(20)) AddLog(error);
                                 if (scanErrors.Count > 0) lock (gate) warning = $"Source scan incomplete: {scanErrors.Count} unreadable files/folders. See log.";

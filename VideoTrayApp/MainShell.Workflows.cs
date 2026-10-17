@@ -23,6 +23,8 @@ internal sealed partial class MainShell
         pages[name] = tabs;
         if (name == "Find & clean")
             tabs.Add("FindByDate", "Find by date", () => new ClipDateWorkspace(this, () => workingFolder, preferences));
+        if (name == "Batches")
+            tabs.Add("BestOfMonth", "Best of the month", () => monthlyPage = new MonthlyBatchWorkspace(this, preferences, monthlySettings, workingFolder));
     }
     internal void OpenTool(PresetAction action)
     {
@@ -45,8 +47,12 @@ internal sealed partial class MainShell
         if (!IsDisposed && !shuttingDown)
         {
             RefreshActivity(); RefreshPresentation();
-            if (preferences.Notifications && !analyze && outcome is not null)
-                tray.ShowBalloonTip(3000, title, DesktopTheme.StateLabel(outcome.State), outcome.State == JobState.Failed ? ToolTipIcon.Warning : ToolTipIcon.Info);
+            if ((preferences.Notifications || title == "Automatic best of the month" && monthlySettings.NotifyOnCompletion) && !analyze && outcome is not null)
+            {
+                string message = title.Contains("best of the month", StringComparison.OrdinalIgnoreCase)
+                    ? outcome.Details.Split('\n')[0] : DesktopTheme.StateLabel(outcome.State);
+                tray.ShowBalloonTip(3000, title, message[..Math.Min(message.Length, 240)], outcome.State == JobState.Failed ? ToolTipIcon.Warning : ToolTipIcon.Info);
+            }
         }
         return outcome;
     }

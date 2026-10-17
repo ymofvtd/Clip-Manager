@@ -12,6 +12,7 @@ internal sealed class ArchiveContent : TagLib.File.IFileAbstraction, IDisposable
     public Stream WriteStream => throw new NotSupportedException();
     public void CloseStream(Stream ignored) { }
     internal long Length => file.Length;
+    internal PhysicalFileId Physical => PhysicalFile.Read(file.SafeFileHandle);
     internal ArchiveFileStamp? Stamp => PhysicalFile.ArchiveStamp(file.SafeFileHandle, Length);
     internal ArchiveContent(string path, IoRateLimiter limiter, CancellationToken ct, string? formatName = null, bool allowRename = false)
     {

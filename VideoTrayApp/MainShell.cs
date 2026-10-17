@@ -51,6 +51,16 @@ internal sealed partial class MainShell : Form
         preferences = UiPreferences.Load(dataFolder, out persistentWarning);
         history = new(dataFolder); persistentWarning += "\n" + history.Warning;
         jobs = new(coordinator, history, dataFolder); archive = new(coordinator, VideoExtensions, dataFolder);
+        try
+        {
+            monthlySettings = MonthlyBatchSettings.Load(dataFolder);
+            if (monthlySettings.Enabled)
+            {
+                monthlySettings.Validate(requireAvailable: false);
+                monthlyStatus = $"Automatic monthly preparation enabled. Next month: {monthlySettings.NextMonth:MMMM yyyy}.";
+            }
+        }
+        catch (Exception ex) { monthlySettings = new(); persistentWarning += "\nMonthly preparation settings need attention: " + ex.Message; }
         Text = "Clips Manager v" + AppUpdater.CurrentVersion.ToString(3);
         Font = new Font("Segoe UI", 10.5f); AutoScaleMode = AutoScaleMode.Dpi;
         ClientSize = new Size(1180, 760); MinimumSize = new Size(640, 480); StartPosition = FormStartPosition.CenterScreen;
@@ -118,6 +128,7 @@ internal sealed partial class MainShell : Form
         }
         catch (Exception ex) { persistentWarning += "\nArchive could not resume: " + ex.Message; }
         await UiThread.Switch(this);
+        monthlyReady = true;
         if (preferences.LaunchIntoTray && preferences.SetupDismissed && !shuttingDown && !IsDisposed) Hide();
         RefreshPresentation();
         if (!shuttingDown && !IsDisposed) _ = RefreshWorkingSummaryAsync();
@@ -222,12 +233,14 @@ internal sealed partial class MainShell : Form
             (history.Entries.LastOrDefault() is { } recent ? $"\nRecent outcome: {recent.Action} — {DesktopTheme.StateLabel(recent.State)}. Open Activity for counts and recovery details." : "");
         archivePage?.RefreshStatus();
         foreach (var workspace in workflows.Values) workspace.SetBusy(jobs.Busy);
+        monthlyPage?.SetBusy(jobs.Busy);
         if (tray.ContextMenuStrip is { } menu)
         {
             menu.Items[2].Enabled = state.Running && !state.Paused;
             menu.Items[3].Enabled = state.Running && state.Paused;
             menu.Items[4].Enabled = state.Running;
         }
+        CheckMonthlyBatch();
     }
     private void TrackArchiveActivity(ArchiveStatus state)
     {
@@ -364,6 +377,7 @@ internal sealed partial class MainShell : Form
         SavePreferences();
         var tasks = new List<Task> { archive.StopAsync() };
         if (jobs.ActiveTask is { } active) tasks.Add(active);
+        if (monthlyTask is { } monthly) tasks.Add(monthly);
         if (trackingInitialization is { } initialization) tasks.Add(initialization);
         tasks.Add(Task.Run(() => tracker.Dispose()));
         var drain = Task.WhenAll(tasks);

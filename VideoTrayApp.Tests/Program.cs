@@ -13,9 +13,11 @@ string root = Path.Combine(Path.GetTempPath(), "ClipIdentifierTests-" + Guid.New
 Directory.CreateDirectory(root);
 try
 {
+    if (args.Contains("--monthly-only")) { MonthlyBatchChecks.Run(root, WriteMp4); return; }
     Mp4Checks.Run(root, WriteMp4);
     DateLookupChecks.Run(root, WriteMp4);
     if (args.Contains("--date-only")) return;
+    MonthlyBatchChecks.Run(root, WriteMp4);
     IdentifySelectionChecks.Run(root, WriteMp4);
     if (args.Contains("--identify-only")) return;
     if (args.Contains("--archive-only"))

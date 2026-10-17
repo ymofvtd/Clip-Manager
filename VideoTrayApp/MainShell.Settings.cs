@@ -126,6 +126,8 @@ internal sealed partial class MainShell
         DesktopTheme.Add(tracking, totals); Section("Duration tracking").Controls.Add(tracking);
         _ = ReadTotals();
 
+        Section("Best of the month").Controls.Add(BuildMonthlyBatchSettings());
+
         var presetPage = Section("Presets");
         try
         {

@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>2.2.1</Version>
+    <Version>2.2.2</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
@@ -52,5 +52,6 @@
     <Compile Include="../VideoTrayApp/InstanceActivation.cs" Link="InstanceActivation.cs" />
     <Compile Include="../VideoTrayApp/ToolGroupWorkspace.cs" Link="ToolGroupWorkspace.cs" />
     <Compile Include="../VideoTrayApp/UiThread.cs" Link="UiThread.cs" />
+    <Compile Include="../VideoTrayApp/MonthlyBatch*.cs" Link="%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.2.0
+2.2.2
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -75,6 +75,14 @@ Analyze shows **Keep** and **Recycle** paths using the first full path alphabeti
 Open **Batches → Prepare Batch** and configure the source, destination parent, selection and target minutes. Analyze freezes a random source selection and resolves the highest numbered immediate `c_` folder, or the exact new batch folder. It simulates duplicate cleanup/refill without creating folders, backups, renames or recycled files. The review shows preserved starters, proposed recycling/keepers, backup paths, exact move destinations and planned duration. Destination copies are kept first; otherwise the first source clip in the shuffled order is kept. Files and the reviewed starter inventory are verified again before execution.
 
 After removing duplicates, the batch is refilled from the same shuffled order and checked again until no duplicates remain. Only then are the final clips backed up to the source's `Backup` folder and moved to the destination with numeric filenames (`1`, `2`, `3`, ...) from shortest to longest. Existing destination files are not renamed, occupied numbers are skipped (across extensions), and MP4 extensions are preserved. Backups retain the original filenames. Equal-duration clips keep their selected order. Backups, source subfolders and unselected source clips are excluded from cleanup. The last clip may take the batch past the requested duration, as before. Scan or cleanup errors stop preparation before backup and moving; cancellation stops further work. The source and its Backup folder cannot be used as the destination.
+
+## Best of the month
+
+Open **Batches → Best of the month**, choose any source/archive directory and a separate output directory, then select a completed month. Current and future months are unavailable. **Analyze / refresh preview** shows every unique MP4 from that month, its original embedded creation date, exact copy destination, and the total playback duration. **Review and prepare batch** copies the reviewed clips into a new `best_of_yyyy-MM` folder, adding a suffix when a manual destination is occupied. Subfolders are included, exact content duplicates appear once, and clips are numbered shortest to longest. Originals stay in place. Copies are verified before the whole batch is published; cancellation or failure cleans up owned staging files. An interrupted process can leave a `.pending` staging folder for inspection.
+
+Filtering uses only the creation timestamp inside the MP4, interpreted in your local time zone. Filesystem creation/modification times and archive import dates are never substituted. Missing embedded dates are counted and excluded; an unreadable/incomplete scan stops preparation. There is no rating-based selection: the batch contains all unique clips recorded in the month.
+
+In **Settings → Best of the month**, enable automatic preparation and set the **Archive directory** and **Output directory**. Enabling starts with the previous completed month, checks while the app is running (including in the tray), and catches up missed months in order after restart. A month with no dated clips is recorded as checked without creating an empty folder. Keep Archive up to date before enabling; use the manual tool to regenerate a month after adding older clips. When using the app's active Archive destination, automatic preparation waits for its queued copies. Monthly notifications are enabled by default, can be toggled in this settings section, and include clip count and total playback duration. Results and errors remain in Activity; failed/cancelled runs retry after an hour. Completed batch manifests prevent duplicate automatic output after an interrupted settings save. Monthly settings and progress are saved in `%APPDATA%/ClipsManager/monthly_batch_settings.json`.
 
 ## Shuffle Batches
 

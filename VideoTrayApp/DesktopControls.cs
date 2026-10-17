@@ -382,12 +382,14 @@ internal sealed class FileContextList : UserControl
     private int sortColumn = -1;
     private bool descending;
     private readonly bool lookup;
+    private readonly bool contextOnly;
     internal HashSet<string> SelectedKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
     internal event Action? SelectionChanged;
     internal IReadOnlyList<ContextRow> Rows => rows;
-    internal FileContextList(bool lookup = false, bool selection = false)
+    internal FileContextList(bool lookup = false, bool selection = false, bool contextOnly = false)
     {
         this.lookup = lookup || selection;
+        this.contextOnly = contextOnly;
         Dock = DockStyle.Top; Height = 390; MinimumSize = new Size(0, 250);
         Table.AccessibleName = "File context review";
         foreach (var (name, width) in new[] { ("Group", 65), ("Action", 95), ("Filename", 180), ("Folder / batch", 230), ("Proposed action / path", 280), ("Duration", 100), ("Size", 100), ("Modified", 145) })
@@ -434,7 +436,9 @@ internal sealed class FileContextList : UserControl
             Refilter();
         };
         filter.TextChanged += (_, _) => Refilter();
-        var actions = DesktopTheme.Actions(DesktopTheme.Button(this.lookup ? "Select / unselect row" : "Keep / Recycle selected row", () => Toggle(Table.CurrentCell?.RowIndex ?? -1)),
+        var toggle = DesktopTheme.Button(this.lookup ? "Select / unselect row" : "Keep / Recycle selected row", () => Toggle(Table.CurrentCell?.RowIndex ?? -1));
+        toggle.Visible = !contextOnly;
+        var actions = DesktopTheme.Actions(toggle,
             DesktopTheme.Button("Open clip", () => External(row => DesktopTheme.Open(row.Path))),
             DesktopTheme.Button("Open containing folder", () => External(row => DesktopTheme.Open(Path.GetDirectoryName(row.Path)!))),
             DesktopTheme.Button("Copy path", () => External(row => Clipboard.SetText(row.Path))));
@@ -472,7 +476,8 @@ internal sealed class FileContextList : UserControl
         }
         Table.RowCount = visible.Count; Table.Invalidate(); UpdateSummary(); UpdateDetails();
     }
-    private void UpdateSummary() => summary.Text = lookup ? $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected (including hidden rows). Click Select or press Space to toggle." : $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected for recycling (including hidden rows). Space toggles eligible rows.";
+    private void UpdateSummary() => summary.Text = contextOnly ? $"{rows.Count:N0} clips • {visible.Count:N0} visible. All reviewed clips are included in the batch."
+        : lookup ? $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected (including hidden rows). Click Select or press Space to toggle." : $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected for recycling (including hidden rows). Space toggles eligible rows.";
     private void UpdateDetails()
     {
         int index = Table.CurrentCell?.RowIndex ?? -1;
