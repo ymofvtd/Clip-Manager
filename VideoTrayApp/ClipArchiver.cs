@@ -189,7 +189,7 @@ internal sealed class ClipArchiver
             progress.SetIndeterminate("Checking archive index for new or changed clips...");
             archiver.Reconcile(extensions, errors, ct, Yield, progress);
             var schedule = new ArchiveSchedule(settings, clock);
-            foreach (string path in ArchivePaths.Videos(settings.Sources, extensions, errors, ct, Yield))
+            foreach (string path in ArchivePaths.Videos(settings.Sources, extensions, errors, ct, Yield, recursive: false))
             {
                 if (archiver.IsUnchangedVerifiedSource(path, ct)) { unchanged++; continue; }
                 var before = new FileInfo(path);

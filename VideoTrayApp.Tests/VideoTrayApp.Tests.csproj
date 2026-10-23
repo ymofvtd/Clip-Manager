@@ -20,6 +20,7 @@
     <Compile Include="../VideoTrayApp/ArchiveIndex.cs" Link="ArchiveIndex.cs" />
     <Compile Include="../VideoTrayApp/ArchiveContent.cs" Link="ArchiveContent.cs" />
     <Compile Include="../VideoTrayApp/ArchiveWorker.cs" Link="ArchiveWorker.cs" />
+    <Compile Include="../VideoTrayApp/ArchiveManager.cs" Link="ArchiveManager.cs" />
     <Compile Include="../VideoTrayApp/IoRateLimiter.cs" Link="IoRateLimiter.cs" />
     <Compile Include="../VideoTrayApp/OperationCoordinator.cs" Link="OperationCoordinator.cs" />
     <Compile Include="../VideoTrayApp/ClipDuplicationSeeker.cs" Link="ClipDuplicationSeeker.cs" />

@@ -236,14 +236,22 @@ internal static class MonthlyBatchChecks
                 new UiPreferences { SetupDismissed = true, CloseToTray = false }.Save(watchData);
                 new ArchiveSettings { Sources = [watchSource], Destination = watchArchive, WatchContinuously = true,
                     Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 }.Save(watchData);
+                string idleSource = Directory.CreateDirectory(Path.Combine(parent, "monthly-idle-source")).FullName;
+                string idleArchive = Directory.CreateDirectory(Path.Combine(parent, "monthly-idle-archive")).FullName;
+                AtomicJson.Save(Path.Combine(watchData, "archive_routes.json"), new ArchiveRouteStore { Routes =
+                [
+                    new() { Name = "Other clips", ResumeOnStartup = true, Settings = new ArchiveSettings { Sources = [idleSource], Destination = idleArchive,
+                        WatchContinuously = true, Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 } },
+                    new() { Name = "Monthly source", ResumeOnStartup = true, Settings = ArchiveSettings.Load(watchData) }
+                ] });
                 new MonthlyBatchSettings { Enabled = true, NotifyOnCompletion = false, ArchiveDirectory = watchArchive,
                     OutputDirectory = watchOutput, NextMonth = previous }.Save(watchData);
                 using var watched = new MainShell(watchData); watched.Show();
                 Wait(() => MonthlyBatchSettings.Load(watchData).NextMonth == previous.AddMonths(1) && !watched.IsBusy);
                 string watchedBatch = Path.Combine(watchOutput, "best_of_" + previous.ToString("yyyy-MM"), "0001.mp4");
-                Check(watched.Archive.Status.Copied == 1 && File.Exists(watchedBatch)
+                Check(watched.Archives.Routes[1].Worker.Status.Copied == 1 && watched.Archive.Status.Copied == 0 && File.Exists(watchedBatch)
                     && ClipIdentifier.ReadIdentity(watchedBatch, CancellationToken.None).Duration == TimeSpan.FromSeconds(11),
-                    "Automatic monthly preparation waits for resumed Archive and includes the newly archived original-month clip");
+                    "Automatic monthly preparation waits for its matching secondary archive route and includes the newly archived original-month clip");
                 watched.Close(); Wait(() => watched.IsDisposed);
             }
             catch (Exception ex) { error = ex; }

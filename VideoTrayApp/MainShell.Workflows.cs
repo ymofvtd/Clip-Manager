@@ -39,7 +39,7 @@ internal sealed partial class MainShell
         {
             tracker.Pause();
             try { return work(progress, ct); }
-            finally { tracker.Resume(); archive.RequestReconciliation(); }
+            finally { tracker.Resume(); archives.RequestReconciliation(); }
         });
         RefreshActivity(); RefreshPresentation();
         var outcome = await task;

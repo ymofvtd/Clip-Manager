@@ -54,7 +54,7 @@ internal sealed partial class MainShell
         var month = monthlySettings.DueMonth(DateOnly.FromDateTime(DateTime.Today));
         if (month is null) return;
         // Let the app's archiver finish its queued copies before selecting the completed month's inventory.
-        if (archive.Running && ClipIdentifier.SamePath(archive.Settings.Destination, monthlySettings.ArchiveDirectory) && !archive.ReadyForMonthlyBatch)
+        if (archives.Routes.Any(route => route.Worker.Running && ClipIdentifier.SamePath(route.Worker.Settings.Destination, monthlySettings.ArchiveDirectory) && !route.Worker.ReadyForMonthlyBatch))
         {
             nextMonthlyCheck = DateTimeOffset.UtcNow.AddSeconds(2);
             monthlyStatus = "Waiting for Archive to finish discovery and pending copies before preparing " + month.Value.ToString("MMMM yyyy") + ".";

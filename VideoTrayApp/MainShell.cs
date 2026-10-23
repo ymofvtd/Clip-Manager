@@ -10,7 +10,7 @@ internal sealed partial class MainShell : Form
     private readonly ActivityHistory history;
     private readonly OperationCoordinator coordinator = new();
     private readonly FolderDurationTracker tracker = new(VideoExtensions);
-    private readonly ArchiveWorker archive;
+    private readonly ArchiveManager archives;
     private readonly JobController jobs;
     private readonly NotifyIcon tray = new();
     private readonly System.Windows.Forms.Timer refresh = new() { Interval = 300 };
@@ -40,9 +40,10 @@ internal sealed partial class MainShell : Form
     private bool resourcesDisposed;
     private Task? trackingInitialization;
     private ArchiveWorkspace? archivePage;
-    private JobRecord? archiveActivity;
+    private readonly Dictionary<Guid, JobRecord> archiveActivities = [];
     internal bool IsBusy => jobs.Busy;
-    internal ArchiveWorker Archive => archive;
+    internal ArchiveWorker Archive => archives.Routes[0].Worker;
+    internal ArchiveManager Archives => archives;
     internal string DataFolder => dataFolder;
 
     internal MainShell(string? folder = null)
@@ -50,7 +51,8 @@ internal sealed partial class MainShell : Form
         dataFolder = folder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClipsManager");
         preferences = UiPreferences.Load(dataFolder, out persistentWarning);
         history = new(dataFolder); persistentWarning += "\n" + history.Warning;
-        jobs = new(coordinator, history, dataFolder); archive = new(coordinator, VideoExtensions, dataFolder);
+        jobs = new(coordinator, history, dataFolder); archives = new(coordinator, VideoExtensions, dataFolder);
+        persistentWarning += "\n" + archives.LoadWarning;
         try
         {
             monthlySettings = MonthlyBatchSettings.Load(dataFolder);
@@ -122,9 +124,8 @@ internal sealed partial class MainShell : Form
         trackingInitialization = Task.Run(() => tracker.SetFolders(trackingRoots));
         try
         {
-            var settings = await Task.Run(() => ArchiveSettings.Load(dataFolder));
             await UiThread.Switch(this);
-            if (!shuttingDown && settings.WatchContinuously) archive.Start(settings);
+            if (!shuttingDown) persistentWarning += "\n" + archives.ResumeSaved();
         }
         catch (Exception ex) { persistentWarning += "\nArchive could not resume: " + ex.Message; }
         await UiThread.Switch(this);
@@ -144,7 +145,7 @@ internal sealed partial class MainShell : Form
         if (shuttingDown) return;
         heading.Text = name; heading.Refresh();
         if (name == "Archive" && !pages.ContainsKey(name))
-        { archivePage = new(archive, dataFolder, jobs, preferences, () => workingFolder, () => OpenSettingsSection("Presets"), RefreshPresentation); pages[name] = archivePage; }
+        { archivePage = new(archives, dataFolder, jobs, preferences, () => workingFolder, () => OpenSettingsSection("Presets"), RefreshPresentation); pages[name] = archivePage; }
         if (name is "Batches" or "Find & clean" or "Rename & shuffle" && !pages.ContainsKey(name)) BuildTools(name);
         if (name == "Settings" && !pages.ContainsKey(name)) pages[name] = BuildSettings();
         if (!pages.TryGetValue(name, out var page)) { name = "Overview"; page = pages[name]; }
@@ -208,8 +209,8 @@ internal sealed partial class MainShell : Form
     private void RefreshPresentation()
     {
         if (shuttingDown || IsDisposed) return;
-        var state = archive.Status;
-        TrackArchiveActivity(state);
+        var state = archives.Status;
+        TrackArchiveActivities();
         string archiveState = state.State switch { ArchiveRuntimeState.WaitingForForegroundWork => "Waiting for foreground work", ArchiveRuntimeState.WaitingForStableFile => "Waiting for stable files", _ => state.State.ToString() };
         string sidebarState = state.State switch { ArchiveRuntimeState.WaitingForForegroundWork => "Waiting for work",
             ArchiveRuntimeState.WaitingForStableFile => "Settling files", _ => archiveState };
@@ -237,27 +238,34 @@ internal sealed partial class MainShell : Form
         if (tray.ContextMenuStrip is { } menu)
         {
             menu.Items[2].Enabled = state.Running && !state.Paused;
-            menu.Items[3].Enabled = state.Running && state.Paused;
+            menu.Items[3].Enabled = archives.Routes.Any(route => route.Worker.Running && route.Worker.Status.Paused);
             menu.Items[4].Enabled = state.Running;
         }
         CheckMonthlyBatch();
     }
-    private void TrackArchiveActivity(ArchiveStatus state)
+    private void TrackArchiveActivities()
     {
-        if (state.Running && archiveActivity is null)
+        foreach (var route in archives.Routes) TrackArchiveActivity(route);
+    }
+    private void TrackArchiveActivity(ArchiveRoute route)
+    {
+        var archive = route.Worker;
+        var state = archive.Status;
+        Guid id = route.Configuration.Id;
+        if (state.Running && !archiveActivities.ContainsKey(id))
         {
             var settings = archive.Settings;
-            archiveActivity = new("Archive", "Sources: " + string.Join("; ", settings.Sources) + "\nDestination: " + settings.Destination,
+            var record = new JobRecord("Archive", "Route: " + route + "\nSources: " + string.Join("; ", settings.Sources) + "\nDestination: " + settings.Destination,
                 DateTimeOffset.Now, null, JobState.Running, settings.WatchContinuously ? "Continuous watch is running. Open Archive for pending/retry details." : "Run once is running. Open Archive for pending/retry details.");
-            history.Add(archiveActivity);
+            archiveActivities[id] = record; history.Add(record);
         }
-        else if (!state.Running && archiveActivity is { } record)
+        else if (!state.Running && archiveActivities.TryGetValue(id, out var record))
         {
             var outcome = record with { Finished = DateTimeOffset.Now,
                 State = state.Failed > 0 || state.Warning.Length > 0 ? JobState.CompletedWithIssues : archive.CancellationToken.IsCancellationRequested ? JobState.Cancelled : JobState.Completed,
-                Details = $"Copied and verified: {state.Copied}\nAlready archived (content rechecked): {state.AlreadyArchived}\nSkipped unchanged (metadata checked, latest scan): {state.Unchanged}\nFailed/retrying: {state.Failed}\nPending at stop: {state.Queued}\n{state.Warning}\nCompleted verified copies retained. Inspect Archive and archive_log.json for pending/retry details." };
+                Details = $"Copied and verified: {state.Copied}\nAlready archived (content rechecked): {state.AlreadyArchived}\nSkipped unchanged (metadata checked, latest scan): {state.Unchanged}\nFailed/retrying: {state.Failed}\nPending at stop: {state.Queued}\n{state.Warning}\nCompleted verified copies retained. Inspect Archive and archive_log_{id:N}.json for pending/retry details." };
             if (history.Entries.Contains(record)) history.Replace(record, outcome); else history.Add(outcome);
-            archiveActivity = null;
+            archiveActivities.Remove(id);
         }
         else return;
         try { history.Save(dataFolder); } catch (Exception ex) { persistentWarning = "Archive activity could not be saved: " + ex.Message; }
@@ -271,9 +279,9 @@ internal sealed partial class MainShell : Form
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open Clips Manager", null, (_, _) => ActivateExisting());
         menu.Items.Add("Archive status", null, (_, _) => { ActivateExisting(); Navigate("Archive"); });
-        menu.Items.Add("Pause Archive", null, (_, _) => archive.Pause());
-        menu.Items.Add("Resume Archive", null, (_, _) => archive.Resume());
-        menu.Items.Add("Stop Archive", null, async (_, _) => await StopArchiveAsync());
+        menu.Items.Add("Pause all archives", null, (_, _) => archives.Pause());
+        menu.Items.Add("Resume all archives", null, (_, _) => archives.Resume());
+        menu.Items.Add("Stop all archives", null, async (_, _) => await StopArchiveAsync());
         menu.Items.Add(new ToolStripSeparator());
         foreach (var action in Enum.GetValues<PresetAction>().Where(a => a != PresetAction.Archive))
         {
@@ -290,9 +298,8 @@ internal sealed partial class MainShell : Form
     {
         try
         {
-            var next = archive.Settings.Clone(); next.WatchContinuously = false; next.Save(dataFolder);
-            await archive.StopAsync(); await UiThread.Switch(this);
-            if (!IsDisposed) { archivePage?.Apply(next); RefreshPresentation(); }
+            await archives.StopAllAsync(disableResume: true); await UiThread.Switch(this);
+            if (!IsDisposed) { archivePage?.ReloadSelectedRoute(); RefreshPresentation(); }
         }
         catch (Exception ex) { persistentWarning = "Archive Stop needs attention: " + ex.Message; }
     }
@@ -375,7 +382,7 @@ internal sealed partial class MainShell : Form
         shuttingDown = true; jobs.Cancel(); lifetime.Cancel();
         heading.Text = "Exiting — waiting for safe cancellation and recovery…";
         SavePreferences();
-        var tasks = new List<Task> { archive.StopAsync() };
+        var tasks = new List<Task> { archives.StopAllAsync() };
         if (jobs.ActiveTask is { } active) tasks.Add(active);
         if (monthlyTask is { } monthly) tasks.Add(monthly);
         if (trackingInitialization is { } initialization) tasks.Add(initialization);
@@ -384,7 +391,7 @@ internal sealed partial class MainShell : Form
         if (bounded) await Task.WhenAny(drain, Task.Delay(3000)); else await drain;
         await UiThread.Switch(this);
         if (IsDisposed) return;
-        TrackArchiveActivity(archive.Status);
+        TrackArchiveActivities();
         try { history.Save(dataFolder); } catch (Exception ex) { persistentWarning = "History could not be saved: " + ex.Message; }
         exitReady = true; Close();
     }
@@ -396,9 +403,9 @@ internal sealed partial class MainShell : Form
             SystemEvents.UserPreferenceChanged -= SystemPreferencesChanged;
             lifetime.Cancel(); refresh.Dispose(); durationTooltips.Dispose(); if (!jobs.Busy) jobs.Dispose(); tray.ContextMenuStrip?.Dispose(); tray.Dispose();
             folderRefresh?.Cancel(); folderRefresh?.Dispose(); folderRefresh = null;
-            if (!archive.Running) archive.Dispose();
+            if (!archives.Running) archives.Dispose();
             lifetime.Dispose();
-            if (!archive.Running && !jobs.Busy) coordinator.Dispose();
+            if (!archives.Running && !jobs.Busy) coordinator.Dispose();
             if (trackingInitialization is null || trackingInitialization.IsCompleted) tracker.Dispose();
         }
         base.Dispose(disposing);

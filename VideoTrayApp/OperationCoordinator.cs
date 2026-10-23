@@ -27,14 +27,17 @@ internal sealed class OperationCoordinator : IDisposable
         while (true)
         {
             ct.ThrowIfCancellationRequested();
+            // Queue competing archive routes fairly, then yield to any waiting foreground operation.
+            access.Wait(ct);
             lock (gate)
             {
-                if (foreground == 0 && access.Wait(0))
+                if (foreground == 0)
                 {
                     var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, interrupt.Token);
                     contentToken = linked.Token;
                     return new Lease(() => { linked.Dispose(); access.Release(); });
                 }
+                access.Release();
             }
             if (ct.WaitHandle.WaitOne(50)) ct.ThrowIfCancellationRequested();
         }

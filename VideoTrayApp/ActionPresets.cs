@@ -71,7 +71,7 @@ internal sealed class ActionPreset
         if (Action == PresetAction.Archive)
         {
             var settings = ArchiveConfiguration(workingFolder);
-            lines.Add($"Recursive sources: {string.Join("; ", settings.Sources)}\nCopy and verify only; sources unchanged; completed copies retained on cancellation.\nRun once, {ArchiveSpeed}; interval {ArchiveIntervalSeconds}s; I/O cap {ArchiveMegabytesPerSecond?.ToString() ?? "off"} MB/s; settle {ArchiveSettlingSeconds}s.");
+            lines.Add($"Sources (direct files only): {string.Join("; ", settings.Sources)}\nCopy and verify only; sources unchanged; completed copies retained on cancellation.\nRun once, {ArchiveSpeed}; interval {ArchiveIntervalSeconds}s; I/O cap {ArchiveMegabytesPerSecond?.ToString() ?? "off"} MB/s; settle {ArchiveSettlingSeconds}s.");
         }
         if (Action == PresetAction.SeekDuplications) lines.Add($"Directory B: {DirectoryB}\nInclude subfolders: {IncludeSubfolders}\nScan exact copies; always review individual paths and confirm selection. All start as Keep.");
         if (Action == PresetAction.IdentifyClip) lines.Add($"Reference: {ReferenceClip}\nMatches: {IdentifyBehavior}; includes subfolders.");

@@ -185,7 +185,7 @@ internal sealed partial class MainShell
                 else progress.SetIndeterminate($"Downloading update: {bytes / 1_000_000d:0.0} MB");
             }, ct).GetAwaiter().GetResult();
             progress.SetIndeterminate("Draining background Archive before applying…");
-            archive.StopAsync().GetAwaiter().GetResult(); ct.ThrowIfCancellationRequested();
+            archives.StopAllAsync().GetAwaiter().GetResult(); ct.ThrowIfCancellationRequested();
             AppUpdater.ApplyUpdate(download);
             return JobOutcome.Complete("Update downloaded and scheduled. Restarting to apply.");
         });
@@ -196,7 +196,7 @@ internal sealed partial class MainShell
         {
             updateStatus.Text = outcome?.Details ?? "Update not started.";
             // Stop for update did not change the watch preference. Resume a failed/cancelled attempt.
-            try { var saved = ArchiveSettings.Load(dataFolder); if (!shuttingDown && !archive.Running && saved.WatchContinuously) archive.Start(saved); }
+            try { if (!shuttingDown) persistentWarning += "\n" + archives.ResumeSaved(); }
             catch (Exception ex) { persistentWarning = "Archive could not resume after update: " + ex.Message; }
         }
     }

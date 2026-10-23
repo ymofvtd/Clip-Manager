@@ -2,7 +2,14 @@ namespace VideoTrayApp;
 
 internal sealed class ArchiveWorkspace : UserControl
 {
-    private readonly ArchiveWorker worker;
+    private readonly ArchiveManager manager;
+    private ArchiveRoute route;
+    private ArchiveWorker worker => route.Worker;
+    private readonly ComboBox routes = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280, AccessibleName = "Archive route" };
+    private readonly TextBox routeName = new() { Width = 280, AccessibleName = "Archive route name" };
+    private readonly Label routeSummary = DesktopTheme.Text("");
+    private readonly Button removeRoute;
+    private bool selectingRoute;
     private readonly string dataFolder;
     private readonly JobController jobs;
     private readonly Action stateChanged;
@@ -30,9 +37,9 @@ internal sealed class ArchiveWorkspace : UserControl
     private readonly Label capacity = DesktopTheme.Text("Destination capacity has not been checked.");
     private readonly Button previousPage, nextPage;
 
-    internal ArchiveWorkspace(ArchiveWorker worker, string dataFolder, JobController jobs, UiPreferences preferences, Func<string> workingFolder, Action managePresets, Action stateChanged)
+    internal ArchiveWorkspace(ArchiveManager manager, string dataFolder, JobController jobs, UiPreferences preferences, Func<string> workingFolder, Action managePresets, Action stateChanged)
     {
-        this.worker = worker; this.dataFolder = dataFolder; this.jobs = jobs;
+        this.manager = manager; route = manager.Routes[0]; this.dataFolder = dataFolder; this.jobs = jobs;
         this.stateChanged = stateChanged;
         Font = DesktopTheme.BodyFont; Dock = DockStyle.Fill; SuspendLayout();
         destination = new("Archive destination — independent of the working folder", recent: preferences.RecentPaths);
@@ -40,6 +47,24 @@ internal sealed class ArchiveWorkspace : UserControl
         speed.Items.AddRange(["Fast", "Slow"]); speed.SelectedIndex = 1;
         var page = DesktopTheme.Stack(); page.SuspendLayout();
         DesktopTheme.Add(page, DesktopTheme.Text("Copy and verify clips. Sources and existing archive filenames stay untouched. Completed verified copies survive cancellation."));
+        removeRoute = DesktopTheme.Button("Remove route", () =>
+        {
+            try
+            {
+                manager.Remove(route); route = manager.Routes[0]; ReloadRoutes(); ApplyRoute(); stateChanged();
+            }
+            catch (Exception ex) { warning.Text = ex.Message; }
+        });
+        DesktopTheme.Add(page, DesktopTheme.Actions(DesktopTheme.Text("Archive route"), routes, DesktopTheme.Button("Add route", () =>
+        {
+            try
+            {
+                SaveCurrentRoute(); route = manager.Add(); ReloadRoutes(); ApplyRoute(); stateChanged();
+            }
+            catch (Exception ex) { warning.Text = ex.Message; }
+        }), removeRoute));
+        DesktopTheme.Add(page, DesktopTheme.Text("Each route has its own sources, destination, mode and controls. Start multiple routes to watch clips and final exports together. Switching routes keeps the others running."));
+        DesktopTheme.Add(page, routeSummary);
         var presets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280, AccessibleName = "Archive preset" };
         var saved = new List<ActionPreset>();
         void Reload()
@@ -54,7 +79,8 @@ internal sealed class ArchiveWorkspace : UserControl
         presets.DropDown += (_, _) => Reload(); Reload();
         DesktopTheme.Add(page, DesktopTheme.Actions(DesktopTheme.Text("Preset"), presets, DesktopTheme.Button("Apply preset", () =>
         {
-            if (presets.SelectedIndex > 0) { Apply(saved[presets.SelectedIndex - 1].ArchiveConfiguration(workingFolder())); warning.Text = "Preset applied to the next run. Archive presets run once."; }
+            if (worker.Running) { warning.Text = "Stop this route before applying a preset."; return; }
+            if (presets.SelectedIndex > 0) { Apply(saved[presets.SelectedIndex - 1].ArchiveConfiguration(workingFolder())); warning.Text = "Preset applied to this route. Archive presets run once."; }
         }), DesktopTheme.Button("Save preset…", () =>
         {
             try
@@ -69,6 +95,11 @@ internal sealed class ArchiveWorkspace : UserControl
             catch (Exception ex) { warning.Text = "Preset could not be saved: " + ex.Message; }
         }), DesktopTheme.Button("Manage presets…", managePresets)));
         config = DesktopTheme.Stack(); config.Padding = new Padding(0);
+        DesktopTheme.Add(config, DesktopTheme.Actions(DesktopTheme.Text("Route name"), routeName, DesktopTheme.Button("Save route", () =>
+        {
+            try { SaveCurrentRoute(); ReloadRoutes(); warning.Text = "Route saved. Start this route to begin archiving."; stateChanged(); }
+            catch (Exception ex) { warning.Text = ex.Message; }
+        })));
         DesktopTheme.Add(config, sources); DesktopTheme.Add(config, destination);
         DesktopTheme.Add(config, DesktopTheme.Actions(DesktopTheme.Button("Check destination capacity", async () => await CheckCapacityAsync()), capacity));
         DesktopTheme.Add(config, DesktopTheme.Actions(DesktopTheme.Text("Mode"), mode, DesktopTheme.Text("Speed"), speed));
@@ -87,7 +118,7 @@ internal sealed class ArchiveWorkspace : UserControl
         stop = DesktopTheme.Button("Stop", async () => await StopAsync());
         var commands = DesktopTheme.Actions(start, pause, resume, stop,
             DesktopTheme.Button("Retry / reconcile", () => worker.RequestReconciliation())); commands.Dock = DockStyle.Bottom; commands.Padding = new Padding(8);
-        DesktopTheme.Add(page, DesktopTheme.Text("Pause retains watching. Stop disables watch auto-resume. Configuration edits apply to the next run. Navigating away keeps Archive running."));
+        DesktopTheme.Add(page, DesktopTheme.Text("Controls apply to the selected route. Pause retains watching. Stop disables its watch auto-resume. Save route or switch routes to retain edits; Start begins copying. Navigating away keeps all routes running."));
         DesktopTheme.Add(page, warning); DesktopTheme.Add(page, status);
         DesktopTheme.Add(page, DesktopTheme.Text("Pending files and retry issues (bounded to 4,096 paths)")); DesktopTheme.Add(page, pending);
         DesktopTheme.Add(page, DesktopTheme.Text("Archive log — the latest 200 events")); DesktopTheme.Add(page, log);
@@ -101,13 +132,44 @@ internal sealed class ArchiveWorkspace : UserControl
         var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true }; scroll.Controls.Add(page); Controls.Add(scroll); Controls.Add(commands);
         try
         {
-            Apply(worker.Running ? worker.Settings : ArchiveSettings.Load(dataFolder));
-            if (!worker.Running && PresetStore.Load(Path.Combine(dataFolder, "presets.json")).DefaultFor(PresetAction.Archive) is { } preset)
+            ReloadRoutes(); ApplyRoute();
+            if (manager.Routes.Count == 1 && !worker.Running && PresetStore.Load(Path.Combine(dataFolder, "presets.json")).DefaultFor(PresetAction.Archive) is { } preset)
             { Apply(preset.ArchiveConfiguration(workingFolder())); warning.Text = "Default Archive preset filled the next-run configuration. Review before Start; presets run once."; }
         }
         catch (Exception ex) { warning.Text = "Settings need attention; saved configuration retained. " + ex.Message; }
+        routes.SelectedIndexChanged += (_, _) => SwitchRoute();
         RefreshStatus(); page.ResumeLayout(false); ResumeLayout(false);
     }
+    private void ReloadRoutes()
+    {
+        selectingRoute = true;
+        try { routes.Items.Clear(); routes.Items.AddRange(manager.Routes.Cast<object>().ToArray()); routes.SelectedItem = route; }
+        finally { selectingRoute = false; }
+    }
+    private void SwitchRoute()
+    {
+        if (selectingRoute || routes.SelectedItem is not ArchiveRoute next || next == route) return;
+        try { SaveCurrentRoute(); route = next; ReloadRoutes(); ApplyRoute(); }
+        catch (Exception ex) { ReloadRoutes(); warning.Text = ex.Message; }
+    }
+    private void ApplyRoute()
+    {
+        routeName.Text = route.Configuration.Name;
+        Apply(worker.Running ? worker.Settings : route.Configuration.Settings);
+        loadedCatalog = null; catalogPage = 0; catalog.SetRows([]);
+        catalogPageStatus.Text = "Catalog has not been loaded."; previousPage.Enabled = nextPage.Enabled = false;
+        capacity.Text = "Destination capacity has not been checked."; warning.Text = "";
+        RefreshStatus();
+    }
+    private ArchiveSettings ReadSettings() => new() { Sources = sources.Paths, Destination = destination.Value,
+        WatchContinuously = mode.SelectedIndex == 1, VerifyExistingContent = mode.SelectedIndex == 2,
+        Speed = speed.SelectedIndex == 0 ? ArchiveSpeed.Fast : ArchiveSpeed.Slow, IntervalSeconds = (int)interval.Value,
+        SettlingSeconds = (int)settling.Value, MegabytesPerSecond = limit.Checked ? (int)bandwidth.Value : null, ReconcileSeconds = reconcileSeconds };
+    private void SaveCurrentRoute()
+    {
+        if (!worker.Running) manager.Save(route, ReadSettings(), routeName.Text);
+    }
+    internal void ReloadSelectedRoute() => ApplyRoute();
     internal void Apply(ArchiveSettings settings)
     {
         sources.Paths = settings.Sources; destination.Value = settings.Destination;
@@ -121,24 +183,28 @@ internal sealed class ArchiveWorkspace : UserControl
     {
         try
         {
-            var next = new ArchiveSettings { Sources = sources.Paths, Destination = destination.Value, WatchContinuously = mode.SelectedIndex == 1,
-                VerifyExistingContent = mode.SelectedIndex == 2,
-                Speed = speed.SelectedIndex == 0 ? ArchiveSpeed.Fast : ArchiveSpeed.Slow, IntervalSeconds = (int)interval.Value,
-                SettlingSeconds = (int)settling.Value, MegabytesPerSecond = limit.Checked ? (int)bandwidth.Value : null, ReconcileSeconds = reconcileSeconds };
-            next.Validate(false); next.Save(dataFolder); worker.Start(next); warning.Text = ""; stateChanged();
+            manager.Start(route, ReadSettings(), routeName.Text); ReloadRoutes(); warning.Text = ""; stateChanged();
         }
         catch (Exception ex) { warning.Text = ex.Message; }
     }
     private async Task StopAsync()
     {
         stop.Enabled = false;
-        try { var next = worker.Settings.Clone(); next.WatchContinuously = false; next.Save(dataFolder); await worker.StopAsync(); await UiThread.Switch(this); if (!IsDisposed) { mode.SelectedIndex = 0; stateChanged(); } }
+        var stoppedRoute = route;
+        try { await manager.StopAsync(stoppedRoute, disableResume: true); await UiThread.Switch(this); if (!IsDisposed) { if (route == stoppedRoute) ApplyRoute(); stateChanged(); } }
         catch (Exception ex) { await UiThread.Switch(this); if (!IsDisposed) warning.Text = "Stop could not be completed or saved: " + ex.Message; }
     }
     internal void RefreshStatus()
     {
         if (IsDisposed) return;
         var value = worker.Status;
+        config.Enabled = !value.Running;
+        removeRoute.Enabled = manager.Routes.Count > 1 && !value.Running;
+        routeSummary.Text = string.Join(Environment.NewLine, manager.Routes.Select(item =>
+        {
+            var snapshot = item.Worker.Status;
+            return $"{item}: {DesktopTheme.StateLabel(snapshot.State)}; {snapshot.Queued} pending; {snapshot.Copied} copied → {item.Configuration.Settings.Destination}";
+        }));
         start.Enabled = !value.Running && !jobs.Busy; pause.Enabled = value.Running && !value.Paused;
         resume.Enabled = value.Running && value.Paused; stop.Enabled = value.Running;
         status.Text = $"{DesktopTheme.StateLabel(value.State)} • {value.Queued} pending • {value.Copied} copied and verified • {value.AlreadyArchived} already archived (content rechecked) • {value.Failed} failed/retrying\n" +

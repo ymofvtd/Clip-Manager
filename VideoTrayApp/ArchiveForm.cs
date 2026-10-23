@@ -55,7 +55,7 @@ internal sealed class ArchiveForm : Form
             && !sources.Items.Cast<string>().Any(p => ClipIdentifier.SamePath(p, picker.SelectedPath))) sources.Items.Add(picker.SelectedPath); };
         remove.Click += (_, _) => { if (sources.SelectedIndex >= 0) sources.Items.RemoveAt(sources.SelectedIndex); };
         sourceButtons.Controls.AddRange([add, remove]); sourcePanel.Controls.Add(sources, 0, 0); sourcePanel.Controls.Add(sourceButtons, 1, 0);
-        fields.Controls.Add(new Label { Text = "Recursive sources", AutoSize = true }, 0, 0); fields.Controls.Add(sourcePanel, 1, 0);
+        fields.Controls.Add(new Label { Text = "Sources (direct files only)", AutoSize = true }, 0, 0); fields.Controls.Add(sourcePanel, 1, 0);
         var destPanel = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2 };
         destPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); destPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var browse = new Button { Text = "Browse...", AutoSize = true };

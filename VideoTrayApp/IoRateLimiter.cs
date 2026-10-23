@@ -36,6 +36,8 @@ internal sealed class IoRateLimiter(long? bytesPerSecond, IArchiveClock clock)
 internal sealed class ArchiveSchedule(ArchiveSettings settings, IArchiveClock clock)
 {
     private DateTimeOffset? lastStart;
+    internal TimeSpan RemainingDelay => settings.Speed == ArchiveSpeed.Slow && lastStart is { } previous
+        ? previous.AddSeconds(settings.IntervalSeconds) - clock.UtcNow : TimeSpan.Zero;
     internal void BeforeClip(CancellationToken ct)
     {
         if (settings.Speed == ArchiveSpeed.Slow && lastStart is { } previous)

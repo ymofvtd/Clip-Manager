@@ -102,10 +102,10 @@ internal static class UxChecks
         for (int i = 0; i < 140; i++) history.Add(new("test", "scope", DateTimeOffset.Now, null, JobState.Running, "in progress"));
         history.Save(data); var restored = new ActivityHistory(data);
         Check(restored.Entries.Count == 100 && restored.Entries.All(e => e.State == JobState.Interrupted), "Activity remains bounded and interrupted work never restores as success");
-        Ui(prefs, data, source);
+        Ui(prefs, data, source, write);
     }
 
-    private static void Ui(UiPreferences prefs, string data, string source)
+    private static void Ui(UiPreferences prefs, string data, string source, Action<string, uint, byte> write)
     {
         Exception? error = null;
         var thread = new Thread(() =>
@@ -138,7 +138,7 @@ internal static class UxChecks
                     if (watcherTimeout.ElapsedMilliseconds > 10000) throw new Exception("New shell watch resumption timed out.");
                     Application.DoEvents(); Thread.Sleep(5);
                 }
-                Check(shell.Archive.Running && ArchiveSettings.Load(data).WatchContinuously, "New shell resumes saved watching without changing Archive enablement or source roots");
+                Check(shell.Archive.Running && shell.Archives.Routes[0].Configuration.Settings.WatchContinuously, "New shell resumes saved watching without changing Archive enablement or source roots");
                 typeof(MainShell).GetMethod("RefreshPresentation", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(shell, []);
                 var archiveButton = Descendants(shell).OfType<DesktopButton>().Single(b => Equals(b.Tag, "Archive"));
                 Check(archiveButton.Text == "Archive" && archiveButton.StatusActive && archiveButton.StatusText.Contains("pending")
@@ -152,7 +152,7 @@ internal static class UxChecks
                     "Duration quick stats show saved roots directly below Settings");
                 shell.Navigate("Archive"); shell.Archive.Pause(); Capture(shell, Path.Combine(images, "archive-paused.png"));
                 Check(!archiveButton.StatusActive && archiveButton.StatusText.StartsWith("Paused"), "Paused Archive loses the active dot and keeps its visible status");
-                Check(shell.Archive.Status.Paused && ArchiveSettings.Load(data).WatchContinuously, "Pausing the new shell Archive retains continuous watch enablement");
+                Check(shell.Archive.Status.Paused && shell.Archives.Routes[0].Configuration.Settings.WatchContinuously, "Pausing the new shell Archive retains continuous watch enablement");
                 shell.Archive.Resume();
                 foreach (string page in new[] { "Overview", "Archive", "Batches", "Find & clean", "Rename & shuffle", "Activity", "Settings" })
                 {
@@ -288,7 +288,7 @@ internal static class UxChecks
                 var stopArchive = (Task)typeof(MainShell).GetMethod("StopArchiveAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(shell, [])!;
                 while (!stopArchive.IsCompleted) { Application.DoEvents(); Thread.Sleep(5); }
                 stopArchive.GetAwaiter().GetResult();
-                Check(!shell.Archive.Running && !ArchiveSettings.Load(data).WatchContinuously, "New shell Stop drains Archive and persists watch auto-resume disabled");
+                Check(!shell.Archive.Running && !shell.Archives.Routes[0].Configuration.Settings.WatchContinuously, "New shell Stop drains Archive and persists watch auto-resume disabled");
                 var shellHistory = (ActivityHistory)typeof(MainShell).GetField("history", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(shell)!;
                 Check(shellHistory.Entries.Any(e => e.Action == "Archive" && e.Finished is not null
                     && e.State is JobState.Cancelled or JobState.CompletedWithIssues
@@ -296,7 +296,7 @@ internal static class UxChecks
                     "Background Archive stop records an accurate retained-copy outcome in the shared Activity history");
                 shell.Navigate("Archive");
                 var archivePage = Descendants(shell).OfType<ArchiveWorkspace>().Single();
-                var archiveSettings = ArchiveSettings.Load(data);
+                var archiveSettings = shell.Archives.Routes[0].Configuration.Settings.Clone();
                 archiveSettings.VerifyExistingContent = true; archiveSettings.Speed = ArchiveSpeed.Fast; archiveSettings.SettlingSeconds = 0;
                 archivePage.Apply(archiveSettings);
                 var archiveMode = Descendants(archivePage).OfType<ComboBox>().Single(c => c.AccessibleName == "Archive run mode");
@@ -306,15 +306,51 @@ internal static class UxChecks
                 timeout.Restart();
                 while (shell.Archive.Running && timeout.ElapsedMilliseconds < 10000) { Application.DoEvents(); Thread.Sleep(5); }
                 Check(!shell.Archive.Running && shell.Archive.Settings.VerifyExistingContent && shell.Archive.Status.AlreadyArchived > 0
-                    && shell.Archive.Status.Unchanged == 0 && shell.Archive.Status.Failed == 0 && !ArchiveSettings.Load(data).WatchContinuously,
+                    && shell.Archive.Status.Unchanged == 0 && shell.Archive.Status.Failed == 0 && !shell.Archives.Routes[0].Configuration.Settings.WatchContinuously,
                     "Starting full recheck from the desktop reads existing content and persists run-once configuration");
                 archivePage.RefreshStatus(); archiveMode.SelectedIndex = 0; archiveStart.PerformClick();
                 timeout.Restart();
                 while (shell.Archive.Running && timeout.ElapsedMilliseconds < 10000) { Application.DoEvents(); Thread.Sleep(5); }
-                Check(!shell.Archive.Running && !ArchiveSettings.Load(data).VerifyExistingContent && shell.Archive.Status.Unchanged > 0
+                Check(!shell.Archive.Running && !shell.Archives.Routes[0].Configuration.Settings.VerifyExistingContent && shell.Archive.Status.Unchanged > 0
                     && shell.Archive.Status.AlreadyArchived == 0 && shell.Archive.Status.Copied == 0 && shell.Archive.Status.Failed == 0,
                     "Switching the desktop back to Run once uses saved receipts and skips unchanged clip content");
                 archivePage.RefreshStatus(); Capture(shell, Path.Combine(images, "archive-cached-run.png"));
+                var routePicker = Descendants(archivePage).OfType<ComboBox>().Single(c => c.AccessibleName == "Archive route");
+                var addRoute = Descendants(archivePage).OfType<Button>().Single(b => b.Text == "Add route");
+                var removeRoute = Descendants(archivePage).OfType<Button>().Single(b => b.Text == "Remove route");
+                var nameRoute = Descendants(archivePage).OfType<TextBox>().Single(c => c.AccessibleName == "Archive route name");
+                archiveMode.SelectedIndex = 1; archiveStart.PerformClick();
+                addRoute.PerformClick();
+                Check(shell.Archive.Running && routePicker.Items.Count == 2 && routePicker.SelectedIndex == 1,
+                    "Adding a second archive route keeps the original continuous watch running");
+                string finalSource = Directory.CreateDirectory(Path.Combine(data, "final-exports")).FullName;
+                string finalArchive = Directory.CreateDirectory(Path.Combine(data, "archived-compilations")).FullName;
+                archivePage.Apply(new ArchiveSettings { Sources = [finalSource], Destination = finalArchive,
+                    WatchContinuously = true, Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 });
+                nameRoute.Text = "Final compilations"; archiveStart.PerformClick();
+                var finalWorker = shell.Archives.Routes[1].Worker;
+                write(Path.Combine(finalSource, "export.mp4"), 5, 120);
+                timeout.Restart();
+                while (finalWorker.Status.Copied != 1 && timeout.ElapsedMilliseconds < 10000) { Application.DoEvents(); Thread.Sleep(5); }
+                archivePage.RefreshStatus();
+                Check(finalWorker.Status.Copied == 1 && shell.Archive.Running && !removeRoute.Enabled,
+                    "The native Archive page starts a second independent watcher and prevents removing a running route");
+                routePicker.SelectedIndex = 0;
+                Descendants(archivePage).OfType<Button>().Single(b => b.Text == "Pause").PerformClick();
+                Check(shell.Archive.Status.Paused && !finalWorker.Status.Paused && finalWorker.Running,
+                    "Switching routes makes Pause affect only the selected archive");
+                routePicker.SelectedIndex = 1;
+                Check(nameRoute.Text == "Final compilations" && archiveMode.SelectedIndex == 1,
+                    "Route selection restores its own saved name and continuous watch configuration");
+                Descendants(archivePage).OfType<Button>().Single(b => b.Text == "Stop").PerformClick();
+                timeout.Restart();
+                while (finalWorker.Running && timeout.ElapsedMilliseconds < 10000) { Application.DoEvents(); Thread.Sleep(5); }
+                Application.DoEvents(); archivePage.RefreshStatus();
+                Check(!finalWorker.Running && shell.Archive.Running && !shell.Archives.Routes[1].Configuration.Settings.WatchContinuously,
+                    "Native Stop persists only the selected route's stopped state and leaves the first archive running");
+                removeRoute.PerformClick();
+                Check(routePicker.Items.Count == 1 && shell.Archives.Routes.Count == 1 && Directory.GetFiles(finalArchive, "*.mp4").Length == 1,
+                    "Removing a stopped route keeps its verified compilation files");
                 var exit = (Task)typeof(MainShell).GetMethod("ExitAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(shell, [false])!;
                 while (!exit.IsCompleted) { Application.DoEvents(); Thread.Sleep(5); }
                 exit.GetAwaiter().GetResult();

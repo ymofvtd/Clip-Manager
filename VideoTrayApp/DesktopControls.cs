@@ -332,10 +332,10 @@ internal sealed class PathPicker : UserControl
 
 internal sealed class SourceFolderList : UserControl
 {
-    private readonly ListBox list = new() { Dock = DockStyle.Fill, IntegralHeight = false, Height = 112, HorizontalScrollbar = true, AccessibleName = "Recursive source folders" };
+    private readonly ListBox list = new() { Dock = DockStyle.Fill, IntegralHeight = false, Height = 112, HorizontalScrollbar = true, AccessibleName = "Source folders" };
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal List<string> Paths { get => list.Items.Cast<string>().ToList(); set { list.Items.Clear(); list.Items.AddRange(value.Cast<object>().ToArray()); } }
-    internal SourceFolderList(string role = "Recursive source folders — overlaps are scanned once; links are excluded.")
+    internal SourceFolderList(string role = "Source folders — only files directly inside each folder; add subfolders separately. Links are excluded.")
     {
         AutoSize = true; var stack = DesktopTheme.Stack(); stack.Padding = new Padding(0);
         DesktopTheme.Add(stack, DesktopTheme.Text(role));

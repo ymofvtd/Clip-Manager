@@ -20,6 +20,8 @@ internal static class ArchiveChecks
         Check(ArchivePaths.Contains(Path.GetPathRoot(source)!, destination), "Containment validation correctly handles a drive root with a trailing separator");
         write(Path.Combine(source, "same-name.mp4"), 2, 1);
         write(Path.Combine(nested, "same-name.mp4"), 120, 2);
+        string unselected = Directory.CreateDirectory(Path.Combine(nested, "not-selected")).FullName;
+        write(Path.Combine(unselected, "ignored.mp4"), 10, 3);
         File.Copy(Path.Combine(source, "same-name.mp4"), Path.Combine(second, "duplicate.mp4"));
         string batch = Directory.CreateDirectory(Path.Combine(destination, "batch_0001")).FullName;
         File.Copy(Path.Combine(nested, "same-name.mp4"), Path.Combine(batch, "0001.mp4"));
@@ -29,7 +31,7 @@ internal static class ArchiveChecks
         byte[] existingBytes = File.ReadAllBytes(existing);
         var result = ClipArchiver.Run(settings, data, exts, new TestProgress(), CancellationToken.None);
         Check(result.Copied == 1 && result.AlreadyArchived == 2 && result.Errors.Count == 0,
-            "Recursive overlapping sources are deduplicated; existing shuffled archives and cross-root identities are reused");
+            "Only direct files in explicitly selected roots are archived; repeated roots are deduplicated and nested archive copies are reused");
         Check(before.SequenceEqual(Snapshot(source).Concat(Snapshot(second))) && File.ReadAllBytes(existing).SequenceEqual(existingBytes),
             "Archive leaves every source path/byte and existing destination untouched");
         var files = Directory.GetFiles(destination, "*.mp4", SearchOption.AllDirectories);
@@ -44,7 +46,8 @@ internal static class ArchiveChecks
             "Routine reruns skip unchanged verified sources after checking source and archive metadata");
         var indexPath = ArchiveIndex.IndexPath(data, destination);
         var index = ArchiveIndex.Load(indexPath, destination);
-        Check(index.Entries.Sum(e => e.Sources.Count) == 4, "Index retains original names, full paths and every overlapping source-root context");
+        Check(index.Entries.Sum(e => e.Sources.Count) == 3 && !index.SourceReceipts.ContainsKey(Path.Combine(unselected, "ignored.mp4")),
+            "Index retains the exact selected source folder for each clip and never catalogs an unselected descendant");
         string shuffled = Path.Combine(batch, "renamed.mp4");
         File.Move(files.Single(p => Path.GetDirectoryName(p) == destination), shuffled);
         again = ClipArchiver.Run(settings, data, exts, new TestProgress(), CancellationToken.None);
@@ -135,6 +138,7 @@ internal static class ArchiveChecks
         RunRoutineCache(root, write, exts);
         RunTiming();
         RunWorker(root, write, exts);
+        RunMultipleRoutes(root, write, exts);
         RunInterrupt(root, write, exts);
         RunAvailabilityAndOverflow(root, write, exts);
         MeasureIndex(data, isolatedDest);
@@ -442,7 +446,7 @@ internal static class ArchiveChecks
         Directory.CreateDirectory(source); write(Path.Combine(source, "returned.mp4"), 2, 91);
         worker.RequestReconciliation();
         Wait(() => worker.Status.Copied == 1, 10000);
-        Check(true, "Unavailable source roots remain configured and register recursive watchers when they return");
+        Check(true, "Unavailable source roots remain configured and register direct-folder watchers when they return");
         string offline = dest + "-offline"; Directory.Move(dest, offline);
         write(Path.Combine(source, "queued.mp4"), 2, 92);
         worker.Enqueue(Path.Combine(source, "queued.mp4"), true);
@@ -481,7 +485,8 @@ internal static class ArchiveChecks
             Speed = ArchiveSpeed.Fast, SettlingSeconds = 1, ReconcileSeconds = 2 };
         worker.Start(settings);
         string nested = Directory.CreateDirectory(Path.Combine(source, "new-subfolder")).FullName;
-        string clip = Path.Combine(nested, "growing.mp4");
+        string ignored = Path.Combine(nested, "ignored.mp4"); write(ignored, 2, 80);
+        string clip = Path.Combine(source, "growing.mp4");
         write(clip, 2, 81);
         using (var growing = new FileStream(clip, FileMode.Open, FileAccess.Write, FileShare.Read))
         {
@@ -489,7 +494,11 @@ internal static class ArchiveChecks
             Check(Directory.GetFiles(dest, "*.mp4").Length == 0, "Watcher leaves write-open growing clips pending");
         }
         Wait(() => Directory.GetFiles(dest, "*.mp4").Length == 1 && worker.Status.LastSuccess is not null, 15000);
-        Check(worker.Status.LastSuccess is not null && File.Exists(clip), "Recursive watcher protects new subfolder clips after settling without changing sources");
+        Check(worker.Status.LastSuccess is not null && File.Exists(clip), "Direct-folder watcher protects settled clips without changing sources");
+        worker.Enqueue(ignored, true); worker.RequestReconciliation();
+        Thread.Sleep(1300);
+        Check(Directory.GetFiles(dest, "*.mp4").Length == 1 && worker.Pending.All(item => item.Path != ignored),
+            "Watcher events, explicit enqueues and reconciliation all ignore unselected subfolders");
         worker.Pause();
         string next = Path.Combine(source, "paused.mp4"); write(next, 2, 82);
         Thread.Sleep(1300);
@@ -521,6 +530,84 @@ internal static class ArchiveChecks
         worker.Start(settings); Wait(() => !worker.Running, 15000);
         Check(worker.Status.AlreadyArchived == 3 && worker.Status.Unchanged == 0,
             "Full recheck worker drains its queue and verifies every existing source and archive copy");
+        settings.Sources.Add(nested); settings.VerifyExistingContent = false; settings.WatchContinuously = true;
+        worker.Start(settings);
+        Wait(() => worker.Status.Copied == 1, 10000);
+        write(Path.Combine(nested, "selected-child.mp4"), 2, 84);
+        Wait(() => worker.Status.Copied == 2, 10000);
+        Check(Directory.GetFiles(dest, "*.mp4").Length == 5,
+            "A subfolder explicitly added as another source is scanned and watched independently");
+        worker.StopAsync().GetAwaiter().GetResult();
+    }
+
+    private static void RunMultipleRoutes(string root, Action<string, uint, byte> write, ISet<string> extensions)
+    {
+        string source = Directory.CreateDirectory(Path.Combine(root, "route-clips")).FullName;
+        string exports = Directory.CreateDirectory(Path.Combine(root, "route-exports")).FullName;
+        string clipsArchive = Directory.CreateDirectory(Path.Combine(root, "route-clip-archive")).FullName;
+        string compilations = Directory.CreateDirectory(Path.Combine(root, "route-compilations")).FullName;
+        string data = Path.Combine(root, "route-settings");
+        new ArchiveSettings { Sources = [source], Destination = clipsArchive, WatchContinuously = true,
+            Speed = ArchiveSpeed.Slow, IntervalSeconds = 120, MegabytesPerSecond = null, SettlingSeconds = 0 }.Save(data);
+        using var coordinator = new OperationCoordinator();
+        Guid firstId, secondId;
+        using (var manager = new ArchiveManager(coordinator, extensions, data))
+        {
+            var first = manager.Routes[0]; firstId = first.Configuration.Id;
+            Check(first.Configuration.Settings.WatchContinuously && first.Configuration.Settings.Sources.SequenceEqual([source]),
+                "An existing single archive migrates into the first named route with its original folders and watch preference");
+            var second = manager.Add(); secondId = second.Configuration.Id;
+            var settings = new ArchiveSettings { Sources = [exports], Destination = compilations, WatchContinuously = true,
+                Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 };
+            manager.Save(second, settings, "Final videos");
+            bool sharedDestinationRejected = false;
+            try { var conflict = settings.Clone(); conflict.Destination = clipsArchive; manager.Start(second, conflict, "Final videos"); }
+            catch (IOException) { sharedDestinationRejected = true; }
+            Check(sharedDestinationRejected && !second.Worker.Running, "Routes cannot write competing catalogs to the same archive destination");
+            bool loopRejected = false;
+            try { var conflict = settings.Clone(); conflict.Sources = [clipsArchive]; manager.Start(second, conflict, "Final videos"); }
+            catch (IOException) { loopRejected = true; }
+            Check(loopRejected, "Cross-route source/destination overlap cannot feed an archive back into another route");
+            Check(manager.ResumeSaved().Length == 0 && first.Worker.Running && !second.Worker.Running,
+                "Saving a watch configuration does not enable automatic startup until Start is used");
+            manager.Start(second, settings, "Final videos");
+            Check(manager.Routes.All(route => route.Worker.Running), "Explicitly started archive routes watch together");
+            write(Path.Combine(source, "first.mp4"), 2, 110);
+            ArchiveChecks.Wait(() => first.Worker.Status.Copied == 1, 10000);
+            write(Path.Combine(source, "waiting.mp4"), 2, 111);
+            ArchiveChecks.Wait(() => first.Worker.Status.Queued > 0, 10000);
+            write(Path.Combine(exports, "final.mp4"), 2, 112);
+            ArchiveChecks.Wait(() => second.Worker.Status.Copied == 1, 10000);
+            Check(first.Worker.Status.Copied == 1 && manager.Status.Copied == 2 && manager.Status.Queued > 0,
+                "Final exports reach their own archive while the clip route waits through a 120-second Slow interval");
+            first.Worker.Pause();
+            write(Path.Combine(exports, "another-final.mp4"), 2, 113);
+            ArchiveChecks.Wait(() => second.Worker.Status.Copied == 2, 10000);
+            Check(first.Worker.Status.Paused && !second.Worker.Status.Paused && !manager.Status.Paused,
+                "Pausing one archive leaves the other watching and copying with accurate aggregate status");
+            manager.StopAsync(first, disableResume: true).GetAwaiter().GetResult();
+            Check(!first.Worker.Running && second.Worker.Running && !first.Configuration.Settings.WatchContinuously
+                && second.Configuration.Settings.WatchContinuously, "Stopping one route disables only its own automatic resume");
+            manager.StopAllAsync().GetAwaiter().GetResult();
+            Check(Directory.GetFiles(data, "archive_log_*.json").Length == 2,
+                "Each archive route saves its own bounded shutdown log");
+        }
+        using (var restarted = new ArchiveManager(coordinator, extensions, data))
+        {
+            Check(restarted.Routes.Select(route => route.Configuration.Id).SequenceEqual([firstId, secondId])
+                && restarted.Routes[1].Configuration.Name == "Final videos", "Route identities, names and destinations survive application restart");
+            Check(restarted.ResumeSaved().Length == 0 && !restarted.Routes[0].Worker.Running && restarted.Routes[1].Worker.Running,
+                "Restart resumes enabled routes independently and keeps an explicitly stopped route stopped");
+            var second = restarted.Routes[1];
+            write(Path.Combine(exports, "after-restart.mp4"), 2, 114);
+            ArchiveChecks.Wait(() => second.Worker.Status.Copied == 1, 10000);
+            Check(Directory.GetFiles(compilations, "*.mp4").Length == 3 && Directory.GetFiles(clipsArchive, "*.mp4").Length == 1,
+                "Restarted exports stay in the compilation archive and cached history does not duplicate copies");
+            restarted.StopAllAsync(disableResume: true).GetAwaiter().GetResult();
+        }
+        using var stopped = new ArchiveManager(coordinator, extensions, data);
+        Check(stopped.Routes.All(route => !route.Configuration.Settings.WatchContinuously),
+            "Stop all archives persists disabled automatic resume for every route");
     }
     private static void MeasureIndex(string data, string destination)
     {

@@ -13,6 +13,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
     private readonly OperationCoordinator coordinator;
     private readonly ISet<string> extensions;
     private readonly string dataFolder;
+    private readonly string logFileName;
     private readonly IArchiveClock clock;
     private readonly Dictionary<string, Job> queue = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FileSystemWatcher> watchers = new(StringComparer.OrdinalIgnoreCase);
@@ -44,8 +45,9 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
     }
     public CancellationToken CancellationToken => stop?.Token ?? CancellationToken.None;
 
-    internal ArchiveWorker(OperationCoordinator coordinator, ISet<string> extensions, string dataFolder, IArchiveClock? clock = null)
-    { this.coordinator = coordinator; this.extensions = extensions; this.dataFolder = dataFolder; this.clock = clock ?? new ArchiveClock(); }
+    internal ArchiveWorker(OperationCoordinator coordinator, ISet<string> extensions, string dataFolder, IArchiveClock? clock = null,
+        string logFileName = "archive_log.json")
+    { this.coordinator = coordinator; this.extensions = extensions; this.dataFolder = dataFolder; this.clock = clock ?? new ArchiveClock(); this.logFileName = logFileName; }
 
     internal void Start(ArchiveSettings settings)
     {
@@ -144,7 +146,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                         scanErrors.Clear();
                         lock (gate) unchanged = 0;
                         scan = ArchivePaths.Videos(Settings.Sources, extensions, scanErrors, ct,
-                            () => Yield(ct)).GetEnumerator();
+                            () => Yield(ct), recursive: false).GetEnumerator();
                         nextReconcile = clock.UtcNow.AddSeconds(Settings.ReconcileSeconds);
                     }
                     // Incremental discovery keeps memory and the event queue bounded.
@@ -181,6 +183,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                         if (!Settings.WatchContinuously && scan is null && Status.Queued == 0) break;
                         if (Settings.WatchContinuously && scan is null && Status.Queued == 0)
                             SetIndeterminate("Watching for new or changed clips...");
+                        lease.Dispose();
                         clock.Delay(TimeSpan.FromMilliseconds(100), workToken);
                         continue;
                     }
@@ -208,6 +211,11 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                             continue;
                         }
                         SetIndeterminate($"Waiting to start: {path}");
+                        if (schedule.RemainingDelay > TimeSpan.Zero)
+                        {
+                            job.Due = clock.UtcNow + schedule.RemainingDelay;
+                            continue;
+                        }
                         schedule.BeforeClip(workToken);
                         var result = archiver!.Process(path, this, workToken);
                         if (result.Outcome is ArchiveOutcome.CopiedAndVerified or ArchiveOutcome.AlreadyArchived)
@@ -265,7 +273,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                 watchers.Clear(); cycle?.Dispose(); cycle = null; current = "";
             }
             // Publish after this task finishes so Running is accurate.
-            try { AtomicJson.Save(Path.Combine(dataFolder, "archive_log.json"), log.ToArray()); } catch { }
+            try { AtomicJson.Save(Path.Combine(dataFolder, logFileName), log.ToArray()); } catch { }
         }
     }
 
@@ -290,6 +298,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
 
     internal void Enqueue(string path, bool debounce)
     {
+        if (!Settings.Sources.Any(root => ClipIdentifier.SamePath(root, Path.GetDirectoryName(path) ?? ""))) return;
         if (!VideoFiles.IsMp4(path) || !extensions.Contains(Path.GetExtension(path))) { if (Directory.Exists(path)) RequestReconciliation(); return; }
         lock (gate)
         {
@@ -319,7 +328,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                 {
                     ActionPreset.ValidateFolder(root);
                     if (!Settings.WatchContinuously) continue;
-                    watcher = new(root) { IncludeSubdirectories = true,
+                    watcher = new(root) { IncludeSubdirectories = false,
                         NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size };
                     watcher.Created += (_, e) => Enqueue(e.FullPath, true);
                     watcher.Changed += (_, e) => Enqueue(e.FullPath, true);

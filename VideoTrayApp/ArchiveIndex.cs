@@ -162,7 +162,7 @@ internal sealed class ArchiveIndex
         var entry = GetEntry(identity);
         entry.EmbeddedCreatedUtc ??= embeddedCreatedUtc;
         if (!entry.Locations.Contains(location, StringComparer.OrdinalIgnoreCase)) entry.Locations.Add(location);
-        foreach (string root in roots.Where(root => ArchivePaths.Contains(root, source)))
+        foreach (string root in roots.Where(root => ClipIdentifier.SamePath(root, Path.GetDirectoryName(source)!)))
         {
             int existing = entry.Sources.FindIndex(p => ClipIdentifier.SamePath(p.Path, source) && ClipIdentifier.SamePath(p.SourceRoot, root));
             var origin = existing >= 0 ? entry.Sources[existing]
