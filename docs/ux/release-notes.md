@@ -1,3 +1,9 @@
+# 2.2.4 Preserve original archive filenames
+
+Archive now offers **Preserve original filename** below the destination. Each route and Archive preset saves this preference independently. When enabled, new verified copies retain the source filename and extension; occupied names receive `__1`, `__2`, etc. Existing archived copies retain their names, and identical content is still reused. Leaving the option unchecked preserves content-hash naming.
+
+The Release build and full generated integration suite passed, including native checkbox behavior, route switching and restart, preset persistence, filename conflicts, Unicode names, duplicate detection and publication conflicts during verification.
+
 # 2.2.3 Independent archive routes
 
 Archive sources include only MP4 files directly inside each selected folder. Add a subfolder separately to scan or watch its files. Existing archive destinations are still indexed recursively so renamed and shuffled copies can be reused.

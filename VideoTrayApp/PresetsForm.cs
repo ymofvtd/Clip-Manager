@@ -235,6 +235,9 @@ internal sealed class PresetEditorForm : Form
             var roots = new SourceFolderList { Paths = preset.ArchiveSources };
             Add("Archive sources", roots);
             saveValues.Add(() => preset.ArchiveSources = roots.Paths);
+            var preserveOriginalName = new CheckBox { Text = "Preserve original filename", Checked = preset.ArchivePreserveOriginalName, AutoSize = true };
+            Add("Filenames", preserveOriginalName);
+            saveValues.Add(() => preset.ArchivePreserveOriginalName = preserveOriginalName.Checked);
             Add("Source selection", new Label { AutoSize = true, Text = "With current working folder selected, add it to this list.\nOtherwise use this list, or the fixed target when the list is empty.\nOnly files directly inside each source; run once; keep completed copies." });
             Choice("Speed", preset.ArchiveSpeed, v => preset.ArchiveSpeed = v);
             Number("Slow interval (seconds)", preset.ArchiveIntervalSeconds, 0, 86400, v => preset.ArchiveIntervalSeconds = v);

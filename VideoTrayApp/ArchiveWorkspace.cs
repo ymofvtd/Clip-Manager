@@ -15,6 +15,7 @@ internal sealed class ArchiveWorkspace : UserControl
     private readonly Action stateChanged;
     private readonly SourceFolderList sources = new();
     private readonly PathPicker destination;
+    private readonly CheckBox preserveOriginalName = new() { Text = "Preserve original filename", AutoSize = true, AccessibleName = "Preserve original filename" };
     private readonly ComboBox mode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, AccessibleName = "Archive run mode" };
     private readonly ComboBox speed = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140, AccessibleName = "Archive speed" };
     private readonly NumericUpDown interval = new() { Minimum = 0, Maximum = 86400, Value = 120, Width = 100, AccessibleName = "Seconds between clip starts" };
@@ -87,6 +88,7 @@ internal sealed class ArchiveWorkspace : UserControl
             {
                 var preset = new ActionPreset { Action = PresetAction.Archive, UseWorkingFolder = false, ArchiveSources = sources.Paths,
                     Destination = destination.Value, ArchiveSpeed = speed.SelectedIndex == 0 ? ArchiveSpeed.Fast : ArchiveSpeed.Slow,
+                    ArchivePreserveOriginalName = preserveOriginalName.Checked,
                     ArchiveIntervalSeconds = (int)interval.Value, ArchiveSettlingSeconds = (int)settling.Value, ArchiveMegabytesPerSecond = limit.Checked ? (int)bandwidth.Value : null };
                 using var editor = new PresetEditorForm(preset, workingFolder());
                 if (editor.ShowDialog(FindForm()) != DialogResult.OK) return;
@@ -101,6 +103,8 @@ internal sealed class ArchiveWorkspace : UserControl
             catch (Exception ex) { warning.Text = ex.Message; }
         })));
         DesktopTheme.Add(config, sources); DesktopTheme.Add(config, destination);
+        DesktopTheme.Add(config, preserveOriginalName);
+        DesktopTheme.Add(config, DesktopTheme.Text("When checked, new copies keep the source filename; name conflicts add __1, __2, ... Existing archived clips keep their current names."));
         DesktopTheme.Add(config, DesktopTheme.Actions(DesktopTheme.Button("Check destination capacity", async () => await CheckCapacityAsync()), capacity));
         DesktopTheme.Add(config, DesktopTheme.Actions(DesktopTheme.Text("Mode"), mode, DesktopTheme.Text("Speed"), speed));
         var advanced = DesktopTheme.Stack(); advanced.Padding = new Padding(0); advanced.Visible = false;
@@ -162,6 +166,7 @@ internal sealed class ArchiveWorkspace : UserControl
         RefreshStatus();
     }
     private ArchiveSettings ReadSettings() => new() { Sources = sources.Paths, Destination = destination.Value,
+        PreserveOriginalName = preserveOriginalName.Checked,
         WatchContinuously = mode.SelectedIndex == 1, VerifyExistingContent = mode.SelectedIndex == 2,
         Speed = speed.SelectedIndex == 0 ? ArchiveSpeed.Fast : ArchiveSpeed.Slow, IntervalSeconds = (int)interval.Value,
         SettlingSeconds = (int)settling.Value, MegabytesPerSecond = limit.Checked ? (int)bandwidth.Value : null, ReconcileSeconds = reconcileSeconds };
@@ -173,6 +178,7 @@ internal sealed class ArchiveWorkspace : UserControl
     internal void Apply(ArchiveSettings settings)
     {
         sources.Paths = settings.Sources; destination.Value = settings.Destination;
+        preserveOriginalName.Checked = settings.PreserveOriginalName;
         mode.SelectedIndex = settings.WatchContinuously ? 1 : settings.VerifyExistingContent ? 2 : 0;
         speed.SelectedIndex = settings.Speed == ArchiveSpeed.Fast ? 0 : 1;
         interval.Value = Math.Clamp(settings.IntervalSeconds, 0, 86400); settling.Value = Math.Clamp(settings.SettlingSeconds, 0, 3600);

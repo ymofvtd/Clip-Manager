@@ -8,6 +8,7 @@ internal sealed class ArchiveForm : Form
     private readonly TextBox destination = new() { Dock = DockStyle.Fill };
     private readonly CheckBox watch = new() { Text = "Watch continuously", AutoSize = true };
     private readonly CheckBox verify = new() { Text = "Recheck all content once", AutoSize = true };
+    private readonly CheckBox preserveOriginalName = new() { Text = "Preserve original filename", AutoSize = true, AccessibleName = "Preserve original filename" };
     private readonly ComboBox speed = new() { DropDownStyle = ComboBoxStyle.DropDownList, DataSource = Enum.GetValues<ArchiveSpeed>(), Width = 90 };
     private readonly NumericUpDown interval = new() { Minimum = 0, Maximum = 86400, Width = 90 };
     private readonly CheckBox limit = new() { Text = "Limit I/O (MB/s)", AutoSize = true };
@@ -31,6 +32,7 @@ internal sealed class ArchiveForm : Form
         ClientSize = new Size(850, 660); MinimumSize = new Size(750, 590); StartPosition = FormStartPosition.CenterParent;
         sources.Items.AddRange(settings.Sources.Cast<object>().ToArray());
         destination.Text = settings.Destination; watch.Checked = settings.WatchContinuously;
+        preserveOriginalName.Checked = settings.PreserveOriginalName;
         verify.Checked = settings.VerifyExistingContent; verify.Enabled = !watch.Checked;
         watch.CheckedChanged += (_, _) => { verify.Enabled = !watch.Checked; if (watch.Checked) verify.Checked = false; };
         speed.SelectedItem = settings.Speed; interval.Value = Math.Clamp(settings.IntervalSeconds, 0, 86400);
@@ -42,10 +44,10 @@ internal sealed class ArchiveForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4 };
+        var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 5 };
         fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         fields.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 3; i++) fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (int i = 0; i < 4; i++) fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var sourcePanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
         sourcePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); sourcePanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var sourceButtons = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, Dock = DockStyle.Fill, AutoSize = true };
@@ -69,6 +71,7 @@ internal sealed class ArchiveForm : Form
         slow.Controls.AddRange([new Label { Text = "Interval (s)", AutoSize = true }, interval, limit, bandwidth,
             new Label { Text = "Settle (s)", AutoSize = true }, settling]);
         fields.Controls.Add(new Label { Text = "Slow / readiness", AutoSize = true }, 0, 3); fields.Controls.Add(slow, 1, 3);
+        fields.Controls.Add(new Label { Text = "Filenames", AutoSize = true }, 0, 4); fields.Controls.Add(preserveOriginalName, 1, 4);
         configuration.Controls.Add(fields); layout.Controls.Add(configuration, 0, 0);
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
         buttons.Controls.AddRange([start, pause, resume, stop, new Label { AutoSize = true, Padding = new Padding(5, 6, 0, 0), Text = "Closing this window keeps Archive running in the tray." }]);
@@ -79,6 +82,7 @@ internal sealed class ArchiveForm : Form
                 var next = new ArchiveSettings { Sources = sources.Items.Cast<string>().ToList(), Destination = destination.Text.Trim(),
                     WatchContinuously = watch.Checked, Speed = (ArchiveSpeed)speed.SelectedItem!, IntervalSeconds = (int)interval.Value,
                     VerifyExistingContent = !watch.Checked && verify.Checked,
+                    PreserveOriginalName = preserveOriginalName.Checked,
                     MegabytesPerSecond = limit.Checked ? (int)bandwidth.Value : null, SettlingSeconds = (int)settling.Value, ReconcileSeconds = reconcileSeconds };
                 next.Validate(false); next.Save(dataFolder); worker.Start(next); RefreshStatus();
             }

@@ -27,6 +27,7 @@ internal sealed class ActionPreset
     public string ReferenceClip { get; set; } = "";
     public IdentifyBehavior IdentifyBehavior { get; set; }
     public List<string> ArchiveSources { get; set; } = [];
+    public bool ArchivePreserveOriginalName { get; set; }
     public ArchiveSpeed ArchiveSpeed { get; set; } = ArchiveSpeed.Slow;
     public int ArchiveIntervalSeconds { get; set; } = 120;
     public int? ArchiveMegabytesPerSecond { get; set; } = 20;
@@ -39,6 +40,7 @@ internal sealed class ActionPreset
         Sources = UseWorkingFolder ? new[] { workingFolder }.Concat(ArchiveSources).ToList()
             : ArchiveSources.Count > 0 ? ArchiveSources.ToList() : [Target],
         Destination = Destination, Speed = ArchiveSpeed, IntervalSeconds = ArchiveIntervalSeconds,
+        PreserveOriginalName = ArchivePreserveOriginalName,
         MegabytesPerSecond = ArchiveMegabytesPerSecond, SettlingSeconds = ArchiveSettlingSeconds,
         WatchContinuously = false
     };
@@ -71,6 +73,8 @@ internal sealed class ActionPreset
         if (Action == PresetAction.Archive)
         {
             var settings = ArchiveConfiguration(workingFolder);
+            lines.Add(ArchivePreserveOriginalName ? "Filenames: preserve original names; name conflicts add a numbered suffix."
+                : "Filenames: full content hash.");
             lines.Add($"Sources (direct files only): {string.Join("; ", settings.Sources)}\nCopy and verify only; sources unchanged; completed copies retained on cancellation.\nRun once, {ArchiveSpeed}; interval {ArchiveIntervalSeconds}s; I/O cap {ArchiveMegabytesPerSecond?.ToString() ?? "off"} MB/s; settle {ArchiveSettlingSeconds}s.");
         }
         if (Action == PresetAction.SeekDuplications) lines.Add($"Directory B: {DirectoryB}\nInclude subfolders: {IncludeSubfolders}\nScan exact copies; always review individual paths and confirm selection. All start as Keep.");

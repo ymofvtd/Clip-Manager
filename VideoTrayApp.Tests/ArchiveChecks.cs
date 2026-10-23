@@ -136,6 +136,7 @@ internal static class ArchiveChecks
         RunCachedCorruption(root, write, exts);
         RunPersistentCache(root, write, exts);
         RunRoutineCache(root, write, exts);
+        RunPreserveOriginalNames(root, write, exts);
         RunTiming();
         RunWorker(root, write, exts);
         RunMultipleRoutes(root, write, exts);
@@ -143,6 +144,67 @@ internal static class ArchiveChecks
         RunAvailabilityAndOverflow(root, write, exts);
         MeasureIndex(data, isolatedDest);
         MeasureLibrary(root, write, exts);
+    }
+
+    private static void RunPreserveOriginalNames(string root, Action<string, uint, byte> write, ISet<string> extensions)
+    {
+        string source = Directory.CreateDirectory(Path.Combine(root, "preserve-source")).FullName;
+        string second = Directory.CreateDirectory(Path.Combine(root, "preserve-second-source")).FullName;
+        string destination = Directory.CreateDirectory(Path.Combine(root, "preserve-destination")).FullName;
+        string data = Path.Combine(root, "preserve-settings");
+        string original = Path.Combine(source, "Final cut.MP4");
+        write(original, 2, 201);
+        var settings = new ArchiveSettings { Sources = [source], Destination = destination, PreserveOriginalName = true,
+            Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 };
+        settings.Save(data);
+        settings = ArchiveSettings.Load(data);
+        Check(settings.PreserveOriginalName && settings.Clone().PreserveOriginalName && !new ArchiveSettings().PreserveOriginalName,
+            "Preserve original filename survives saving and cloning; existing archive defaults retain hash naming");
+        var result = ClipArchiver.Run(settings, data, extensions, new TestProgress(), CancellationToken.None);
+        string archived = Path.Combine(destination, "Final cut.MP4");
+        Check(result.Copied == 1 && result.Errors.Count == 0 && File.Exists(archived)
+            && File.ReadAllBytes(archived).SequenceEqual(File.ReadAllBytes(original)),
+            "Preserved archive copies keep the original filename, extension case and verified bytes");
+
+        string other = Path.Combine(second, "Final cut.MP4");
+        write(other, 2, 202);
+        Directory.CreateDirectory(Path.Combine(destination, "Final cut__1.MP4"));
+        string occupied = Path.Combine(destination, "Final cut__2.MP4");
+        write(occupied, 3, 203);
+        byte[] occupiedBytes = File.ReadAllBytes(occupied);
+        string unicode = Path.Combine(second, "Аялал 2026.MP4");
+        write(unicode, 4, 204);
+        settings.Sources.Add(second);
+        result = ClipArchiver.Run(settings, data, extensions, new TestProgress(), CancellationToken.None);
+        Check(result.Copied == 2 && result.Unchanged == 1 && result.Errors.Count == 0
+            && File.ReadAllBytes(Path.Combine(destination, "Final cut__3.MP4")).SequenceEqual(File.ReadAllBytes(other))
+            && File.ReadAllBytes(archived).SequenceEqual(File.ReadAllBytes(original))
+            && File.ReadAllBytes(occupied).SequenceEqual(occupiedBytes) && Directory.Exists(Path.Combine(destination, "Final cut__1.MP4"))
+            && File.Exists(Path.Combine(destination, Path.GetFileName(unicode))),
+            "Same-name clips from different sources skip occupied files and folders with numbered suffixes and preserve Unicode names");
+
+        File.Copy(original, Path.Combine(second, "renamed-duplicate.mp4"));
+        result = ClipArchiver.Run(settings, data, extensions, new TestProgress(), CancellationToken.None);
+        Check(result.Copied == 0 && result.AlreadyArchived == 1 && result.Unchanged == 3 && result.Errors.Count == 0
+            && Directory.GetFiles(destination, "*.mp4").Length == 4,
+            "Preserved names retain content deduplication and cached verification across repeated runs");
+        settings.PreserveOriginalName = false;
+        result = ClipArchiver.Run(settings, data, extensions, new TestProgress(), CancellationToken.None);
+        Check(result.Copied == 0 && result.Unchanged == 4 && result.Errors.Count == 0 && File.Exists(archived),
+            "Changing the naming preference leaves existing archived copies and cached receipts intact");
+
+        settings.PreserveOriginalName = true;
+        string raceSource = Path.Combine(source, "arrival.mp4");
+        string raceTarget = Path.Combine(destination, "arrival.mp4");
+        write(raceSource, 5, 205);
+        result = ClipArchiver.Run(settings, data, extensions, new TestProgress { OnMessage = message =>
+        {
+            if (message == "Verifying arrival.mp4...") write(raceTarget, 6, 206);
+        } }, CancellationToken.None);
+        Check(result.Copied == 1 && result.Errors.Count == 0
+            && ClipIdentifier.ReadIdentity(raceTarget, CancellationToken.None) != ClipIdentifier.ReadIdentity(raceSource, CancellationToken.None)
+            && File.ReadAllBytes(Path.Combine(destination, "arrival__1.mp4")).SequenceEqual(File.ReadAllBytes(raceSource)),
+            "A filename occupied during copy verification is preserved and publication retries with a numbered suffix");
     }
 
     private static void RunForcedTermination(string root, Action<string, uint, byte> write, ISet<string> exts, string data)
@@ -558,7 +620,7 @@ internal static class ArchiveChecks
                 "An existing single archive migrates into the first named route with its original folders and watch preference");
             var second = manager.Add(); secondId = second.Configuration.Id;
             var settings = new ArchiveSettings { Sources = [exports], Destination = compilations, WatchContinuously = true,
-                Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 };
+                Speed = ArchiveSpeed.Fast, SettlingSeconds = 0, PreserveOriginalName = true };
             manager.Save(second, settings, "Final videos");
             bool sharedDestinationRejected = false;
             try { var conflict = settings.Clone(); conflict.Destination = clipsArchive; manager.Start(second, conflict, "Final videos"); }
@@ -578,6 +640,8 @@ internal static class ArchiveChecks
             ArchiveChecks.Wait(() => first.Worker.Status.Queued > 0, 10000);
             write(Path.Combine(exports, "final.mp4"), 2, 112);
             ArchiveChecks.Wait(() => second.Worker.Status.Copied == 1, 10000);
+            Check(File.Exists(Path.Combine(compilations, "final.mp4")) && !first.Worker.Settings.PreserveOriginalName,
+                "Concurrent routes independently preserve original export filenames or use content hash filenames");
             Check(first.Worker.Status.Copied == 1 && manager.Status.Copied == 2 && manager.Status.Queued > 0,
                 "Final exports reach their own archive while the clip route waits through a 120-second Slow interval");
             first.Worker.Pause();
@@ -596,12 +660,15 @@ internal static class ArchiveChecks
         {
             Check(restarted.Routes.Select(route => route.Configuration.Id).SequenceEqual([firstId, secondId])
                 && restarted.Routes[1].Configuration.Name == "Final videos", "Route identities, names and destinations survive application restart");
+            Check(!restarted.Routes[0].Configuration.Settings.PreserveOriginalName && restarted.Routes[1].Configuration.Settings.PreserveOriginalName,
+                "Each archive route retains its independent filename preference after restart");
             Check(restarted.ResumeSaved().Length == 0 && !restarted.Routes[0].Worker.Running && restarted.Routes[1].Worker.Running,
                 "Restart resumes enabled routes independently and keeps an explicitly stopped route stopped");
             var second = restarted.Routes[1];
             write(Path.Combine(exports, "after-restart.mp4"), 2, 114);
             ArchiveChecks.Wait(() => second.Worker.Status.Copied == 1, 10000);
-            Check(Directory.GetFiles(compilations, "*.mp4").Length == 3 && Directory.GetFiles(clipsArchive, "*.mp4").Length == 1,
+            Check(Directory.GetFiles(compilations, "*.mp4").Length == 3 && Directory.GetFiles(clipsArchive, "*.mp4").Length == 1
+                && File.Exists(Path.Combine(compilations, "after-restart.mp4")),
                 "Restarted exports stay in the compilation archive and cached history does not duplicate copies");
             restarted.StopAllAsync(disableResume: true).GetAwaiter().GetResult();
         }

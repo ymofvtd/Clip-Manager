@@ -10,6 +10,7 @@ internal sealed class ArchiveSettings
     public string Destination { get; set; } = "";
     public bool WatchContinuously { get; set; }
     public bool VerifyExistingContent { get; set; }
+    public bool PreserveOriginalName { get; set; }
     public ArchiveSpeed Speed { get; set; } = ArchiveSpeed.Slow;
     public int IntervalSeconds { get; set; } = 120;
     public int? MegabytesPerSecond { get; set; } = 20;

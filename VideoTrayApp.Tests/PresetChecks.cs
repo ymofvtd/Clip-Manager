@@ -102,6 +102,7 @@ internal static class PresetChecks
         Check((int)PresetAction.ShuffleBatches == 7 && (int)PresetAction.SeekDuplications == 8,
             "Existing numeric action values are preserved; Seek duplications is appended");
         var archivePreset = migrated.Clone(); archivePreset.UseWorkingFolder = false; archivePreset.ArchiveSources = [source];
+        archivePreset.ArchivePreserveOriginalName = true;
         archivePreset.ArchiveSpeed = ArchiveSpeed.Fast; archivePreset.ArchiveMegabytesPerSecond = null;
         var archiveStore = new PresetStore { Presets = [archivePreset], Defaults = new() { [PresetAction.Archive] = archivePreset.Id } };
         string archiveConfig = Path.Combine(root, "archive-presets.json"); archiveStore.Save(archiveConfig);
@@ -109,6 +110,9 @@ internal static class PresetChecks
         Check(savedArchive.ArchiveSources.SequenceEqual([source]) && savedArchive.ArchiveConfiguration(source).Speed == ArchiveSpeed.Fast
             && savedArchive.ArchiveMegabytesPerSecond is null && !savedArchive.ArchiveConfiguration(source).WatchContinuously,
             "Multi-source Archive preset settings round-trip without silently enabling watching");
+        Check(!mapped.PreserveOriginalName && savedArchive.ArchiveConfiguration(source).PreserveOriginalName
+            && savedArchive.Summary(source).Contains("preserve original names"),
+            "Archive presets retain original-name preferences while older presets keep content hash naming");
 
         string batchSource = Directory.CreateDirectory(Path.Combine(root, "batch-source")).FullName;
         string batchDest = Directory.CreateDirectory(Path.Combine(root, "batch-dest")).FullName;

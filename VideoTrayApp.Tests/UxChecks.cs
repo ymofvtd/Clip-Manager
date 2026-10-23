@@ -296,6 +296,8 @@ internal static class UxChecks
                     "Background Archive stop records an accurate retained-copy outcome in the shared Activity history");
                 shell.Navigate("Archive");
                 var archivePage = Descendants(shell).OfType<ArchiveWorkspace>().Single();
+                var preserveArchiveNames = Descendants(archivePage).OfType<CheckBox>().Single(c => c.Text == "Preserve original filename");
+                Check(!preserveArchiveNames.Checked, "Archive filename preservation defaults to unchecked for existing routes");
                 var archiveSettings = shell.Archives.Routes[0].Configuration.Settings.Clone();
                 archiveSettings.VerifyExistingContent = true; archiveSettings.Speed = ArchiveSpeed.Fast; archiveSettings.SettlingSeconds = 0;
                 archivePage.Apply(archiveSettings);
@@ -327,6 +329,7 @@ internal static class UxChecks
                 string finalArchive = Directory.CreateDirectory(Path.Combine(data, "archived-compilations")).FullName;
                 archivePage.Apply(new ArchiveSettings { Sources = [finalSource], Destination = finalArchive,
                     WatchContinuously = true, Speed = ArchiveSpeed.Fast, SettlingSeconds = 0 });
+                preserveArchiveNames.Checked = true;
                 nameRoute.Text = "Final compilations"; archiveStart.PerformClick();
                 var finalWorker = shell.Archives.Routes[1].Worker;
                 write(Path.Combine(finalSource, "export.mp4"), 5, 120);
@@ -335,12 +338,15 @@ internal static class UxChecks
                 archivePage.RefreshStatus();
                 Check(finalWorker.Status.Copied == 1 && shell.Archive.Running && !removeRoute.Enabled,
                     "The native Archive page starts a second independent watcher and prevents removing a running route");
+                Check(finalWorker.Settings.PreserveOriginalName && File.Exists(Path.Combine(finalArchive, "export.mp4")),
+                    "The Archive filename checkbox controls the actual filename of verified copies");
                 routePicker.SelectedIndex = 0;
+                Check(!preserveArchiveNames.Checked, "Switching to the first route restores its own filename preference");
                 Descendants(archivePage).OfType<Button>().Single(b => b.Text == "Pause").PerformClick();
                 Check(shell.Archive.Status.Paused && !finalWorker.Status.Paused && finalWorker.Running,
                     "Switching routes makes Pause affect only the selected archive");
                 routePicker.SelectedIndex = 1;
-                Check(nameRoute.Text == "Final compilations" && archiveMode.SelectedIndex == 1,
+                Check(nameRoute.Text == "Final compilations" && archiveMode.SelectedIndex == 1 && preserveArchiveNames.Checked,
                     "Route selection restores its own saved name and continuous watch configuration");
                 Descendants(archivePage).OfType<Button>().Single(b => b.Text == "Stop").PerformClick();
                 timeout.Restart();

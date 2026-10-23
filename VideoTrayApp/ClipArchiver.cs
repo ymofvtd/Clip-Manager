@@ -85,18 +85,30 @@ internal sealed class ClipArchiver
                 throw new IOException("Copied clip failed size, SHA-256 or duration verification.");
             RecheckSource();
             ct.ThrowIfCancellationRequested();
-            string target = Path.Combine(settings.Destination, identity.Hash.ToLowerInvariant() + Path.GetExtension(source).ToLowerInvariant());
+            string target = Path.Combine(settings.Destination, settings.PreserveOriginalName ? Path.GetFileName(source)
+                : identity.Hash.ToLowerInvariant() + Path.GetExtension(source).ToLowerInvariant());
             using var duplicateHandle = VerifiedLocation(identity, ct, out string? duplicate, progress);
             bool copied = duplicate is null;
             if (duplicate is not null) target = duplicate;
             else
             {
-                try { File.Move(temporary, target, false); }
-                catch (IOException) when (File.Exists(target) || Directory.Exists(target))
+                int suffix = 0;
+                while (true)
                 {
-                    occupiedContent = new ArchiveContent(target, limiter, ct);
-                    if (occupiedContent.Identity(ct) != identity) throw new IOException($"Archive target conflict; never overwritten: {target}");
-                    copied = false;
+                    ct.ThrowIfCancellationRequested();
+                    try { File.Move(temporary, target, false); break; }
+                    catch (IOException) when (File.Exists(target) || Directory.Exists(target))
+                    {
+                        if (settings.PreserveOriginalName)
+                        {
+                            target = Path.Combine(settings.Destination, $"{Path.GetFileNameWithoutExtension(source)}__{++suffix}{Path.GetExtension(source)}");
+                            continue;
+                        }
+                        occupiedContent = new ArchiveContent(target, limiter, ct);
+                        if (occupiedContent.Identity(ct) != identity) throw new IOException($"Archive target conflict; never overwritten: {target}");
+                        copied = false;
+                        break;
+                    }
                 }
             }
             progress.SetIndeterminate(copied ? $"Published verified copy: {target}" : $"Already archived (verified): {target}");
