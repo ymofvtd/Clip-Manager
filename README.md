@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.2.2
+2.2.3
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 

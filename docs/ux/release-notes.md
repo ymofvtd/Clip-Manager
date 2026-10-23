@@ -1,3 +1,9 @@
+# 2.2.3 Independent archive routes
+
+Archive sources include only MP4 files directly inside each selected folder. Add a subfolder separately to scan or watch its files. Existing archive destinations are still indexed recursively so renamed and shuffled copies can be reused.
+
+Named archive routes can watch different sources and destinations together, with separate settings, pending files, pause/stop controls, restart preferences, logs and catalogs. Existing single-archive settings migrate automatically. Slow scheduling waits leave other routes free to copy, and automatic monthly preparation waits for its matching archive route. The release build and all 537 generated integration checks passed for the archive changes.
+
 # 2.2.1 Identify clip selection and bulk actions
 
 Identify clip results now use the same selection controls as Find by date: Select cells, Space, Select / unselect row, Select all visible and Clear selection. Move selected chooses an isolation folder; Delete selected uses Windows Recycle Bin. Exact-file confirmation includes hidden selections and frozen collision-safe move paths. Successful actions remove only completed matches from results. The reference remains protected; incomplete scans and changed files block mutation.
