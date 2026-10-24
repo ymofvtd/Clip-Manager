@@ -34,8 +34,9 @@ internal static class UxChecks
         write(scannedPath, 2, 10); original = Snapshot(source);
         var rename = RenamePlan.Analyze(source, PresetAction.ShuffleAndName, 100, 4, "clip_", 12, MainShell.VideoExtensions, progress, CancellationToken.None, new Random(42));
         Check(original.SequenceEqual(Snapshot(source)), "Rename analysis is mutation-free");
+        var reviewedHashes = rename.Changes.ToDictionary(c => c.File.Path, c => Hash(c.File.Path));
         rename.Execute(progress, CancellationToken.None);
-        Check(rename.Changes.All(c => File.Exists(c.Destination) && Hash(c.Destination) == c.File.Hash), "Rename execution uses the exact reviewed random mapping");
+        Check(rename.Changes.All(c => File.Exists(c.Destination) && Hash(c.Destination) == reviewedHashes[c.File.Path]), "Rename execution uses the exact reviewed random mapping");
         var changed = RenamePlan.Analyze(source, PresetAction.NameByTens, 0, 0, "", 12, MainShell.VideoExtensions, progress, CancellationToken.None);
         File.AppendAllText(changed.Changes[0].File.Path, "changed");
         original = Snapshot(source); bool rejected = false;
@@ -45,7 +46,7 @@ internal static class UxChecks
         original = Snapshot(source); using (var cancellation = new CancellationTokenSource())
         {
             bool cancelled = false;
-            try { retry.Execute(new TestProgress { OnMessage = _ => cancellation.Cancel() }, cancellation.Token); }
+            try { retry.Execute(new TestProgress { OnMessage = message => { if (message.StartsWith("Renaming reviewed files")) cancellation.Cancel(); } }, cancellation.Token); }
             catch (OperationCanceledException) { cancelled = true; }
             Check(cancelled && original.SequenceEqual(Snapshot(source)), "Cancelling a staged rename restores every original path and byte");
         }

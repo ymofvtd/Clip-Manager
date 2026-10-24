@@ -211,7 +211,9 @@ internal sealed partial class WorkflowWorkspace : UserControl
                 case PresetAction.NameByTens:
                 case PresetAction.ShuffleRandom:
                     var rename = RenamePlan.Analyze(draft.Target, Action, draft.Start, draft.Padding, draft.Prefix, draft.RandomLength, MainShell.VideoExtensions, progress, ct);
-                    rows = rename.Changes.Select(c => ChangeRow(c, "Rename")).ToArray();
+                    rows = rename.Changes.Select(c => new ContextRow(c.File.Path, "", "Rename", c.File.Path,
+                        c.Destination, Path.GetDirectoryName(c.File.Path)!, "", FormatSize(c.File.Length), Bytes: c.File.Length,
+                        Modified: c.File.LastWrite, Identity: $"File identity: {c.File.Physical.Volume:X8}:{c.File.Physical.Index:X16}; reviewed size and timestamps")).ToArray();
                     nextExecution = (p, token) => JobOutcome.Complete(rename.Execute(p, token));
                     summary = rename.Changes.Count == 0 ? "No top-level MP4 files found. Nothing to rename." : $"{rename.Changes.Count} files reviewed. Run uses this exact mapping; refresh generates a new random mapping.";
                     recovery = "Cancellation or failure attempts in-process rollback. Forced termination is outside this guarantee.";

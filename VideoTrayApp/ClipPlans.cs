@@ -29,7 +29,30 @@ internal sealed record PlannedFile(string Path, long Length, DateTime LastWrite,
     }
 }
 internal sealed record PlannedChange(PlannedFile File, string Destination, string? Backup = null, TimeSpan? Duration = null);
-internal sealed record RenamePlan(ReadOnlyCollection<PlannedChange> Changes)
+
+// Renaming changes directory entries, so its review guard must not read video contents.
+// Keep content hashes in PlannedFile for workflows that depend on exact content identity.
+internal sealed record RenameFile(string Path, long Length, DateTime Created, DateTime LastWrite,
+    PhysicalFileId Physical, ArchiveFileStamp? Stamp)
+{
+    internal static RenameFile Read(string path, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        ArchivePaths.RejectLinks(path);
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var handle = stream.SafeFileHandle;
+        return new(path, stream.Length, File.GetCreationTimeUtc(handle), File.GetLastWriteTimeUtc(handle),
+            PhysicalFile.Read(handle), PhysicalFile.ArchiveStamp(handle, stream.Length));
+    }
+
+    internal void Verify(CancellationToken ct)
+    {
+        if (Read(Path, ct) != this) throw new IOException($"Reviewed file changed or was replaced; analyze again: {Path}");
+    }
+}
+
+internal sealed record RenameChange(RenameFile File, string Destination);
+internal sealed record RenamePlan(ReadOnlyCollection<RenameChange> Changes)
 {
     internal static RenamePlan Analyze(string folder, PresetAction mode, int start, int padding, string prefix,
         int length, ISet<string> extensions, IOperationProgress progress, CancellationToken ct, Random? random = null)
@@ -45,7 +68,7 @@ internal sealed record RenamePlan(ReadOnlyCollection<PlannedChange> Changes)
             for (int i = paths.Count - 1; i > 0; i--) { int j = random.Next(i + 1); (paths[i], paths[j]) = (paths[j], paths[i]); }
         var originals = paths.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var destinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var changes = new List<PlannedChange>();
+        var changes = new List<RenameChange>();
         for (int i = 0; i < paths.Count; i++)
         {
             ct.ThrowIfCancellationRequested(); progress.Report(i, paths.Count, $"Analyzing {Path.GetFileName(paths[i])}");
@@ -65,7 +88,7 @@ internal sealed record RenamePlan(ReadOnlyCollection<PlannedChange> Changes)
             string target = Path.Combine(folder, stem + Path.GetExtension(paths[i]));
             if (!destinations.Add(target) || Directory.Exists(target) || File.Exists(target) && !originals.Contains(target))
                 throw new IOException($"Proposed filename is occupied: {target}");
-            changes.Add(new(PlannedFile.Read(paths[i], ct), target));
+            changes.Add(new(RenameFile.Read(paths[i], ct), target));
         }
         return new(changes.AsReadOnly());
     }
@@ -85,17 +108,29 @@ internal sealed record RenamePlan(ReadOnlyCollection<PlannedChange> Changes)
     {
         return PlanExecution.Transaction(progress, ct, () =>
         {
-            foreach (var change in Changes) change.File.Verify(ct);
+            foreach (var change in Changes)
+            {
+                progress.SetIndeterminate("Checking reviewed file: " + Path.GetFileName(change.File.Path));
+                change.File.Verify(ct);
+            }
             var originals = Changes.Select(c => c.File.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var change in Changes)
                 if (Directory.Exists(change.Destination) || File.Exists(change.Destination) && !originals.Contains(change.Destination))
                     throw new IOException($"Reviewed destination is now occupied: {change.Destination}");
-            var staged = new List<(PlannedChange Change, string Temporary)>();
+            var staged = new List<(RenameChange Change, string Temporary)>();
+            var aliasStamps = new Dictionary<PhysicalFileId, ArchiveFileStamp?>();
             foreach (var change in Changes.Where(c => !ClipIdentifier.SamePath(c.File.Path, c.Destination)))
             {
-                ct.ThrowIfCancellationRequested(); change.File.Verify(ct);
+                progress.Report(staged.Count, Changes.Count, "Staging rename: " + Path.GetFileName(change.File.Path));
+                ct.ThrowIfCancellationRequested();
+                var reviewed = aliasStamps.TryGetValue(change.File.Physical, out var stamp)
+                    ? change.File with { Stamp = stamp } : change.File;
+                reviewed.Verify(ct);
                 string temporary = change.File.Path + "." + Guid.NewGuid().ToString("N") + ".pending";
                 OperationTransaction.Move(change.File.Path, temporary); staged.Add((change, temporary));
+                // Renaming one hard link updates the shared change time of its other aliases.
+                if (change.File.Physical.Links > 1)
+                    aliasStamps[change.File.Physical] = RenameFile.Read(temporary, ct).Stamp;
             }
             int completed = 0;
             foreach (var item in staged)

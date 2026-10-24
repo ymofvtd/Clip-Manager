@@ -14,6 +14,8 @@ Directory.CreateDirectory(root);
 try
 {
     if (args.Contains("--monthly-only")) { MonthlyBatchChecks.Run(root, WriteMp4); return; }
+    RenameChecks.Run(root, WriteMp4);
+    if (args.Contains("--rename-only")) return;
     Mp4Checks.Run(root, WriteMp4);
     DateLookupChecks.Run(root, WriteMp4);
     if (args.Contains("--date-only")) return;
