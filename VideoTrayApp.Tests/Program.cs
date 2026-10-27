@@ -14,12 +14,14 @@ Directory.CreateDirectory(root);
 try
 {
     if (args.Contains("--monthly-only")) { MonthlyBatchChecks.Run(root, WriteMp4); return; }
+    if (args.Contains("--prepare-only")) { BatchPreparationChecks.Run(root, WriteMp4); return; }
     RenameChecks.Run(root, WriteMp4);
     if (args.Contains("--rename-only")) return;
     Mp4Checks.Run(root, WriteMp4);
     DateLookupChecks.Run(root, WriteMp4);
     if (args.Contains("--date-only")) return;
     MonthlyBatchChecks.Run(root, WriteMp4);
+    BatchPreparationChecks.Run(root, WriteMp4);
     IdentifySelectionChecks.Run(root, WriteMp4);
     if (args.Contains("--identify-only")) return;
     if (args.Contains("--archive-only"))
@@ -214,8 +216,8 @@ try
     string refilled = ClipBatchPreparer.Prepare(refillSource, refillDestination, TimeSpan.FromSeconds(6),
         extensions, refillProgress, CancellationToken.None, ".mp4", new PreserveOrderRandom());
     Check(refillScans == 3 && refilled.Contains("Duplicates sent to Recycle Bin: 3")
-        && File.Exists(Path.Combine(refillDestination, "a.mp4")) && !File.Exists(Path.Combine(refillDestination, "z.mp4"))
-        && File.Exists(Path.Combine(refillDestination, "1.mp4")) && File.Exists(Path.Combine(refillDestination, "2.mp4")),
+        && !File.Exists(Path.Combine(refillDestination, "a.mp4")) && !File.Exists(Path.Combine(refillDestination, "z.mp4"))
+        && Directory.GetFiles(refillDestination).Select(Path.GetFileName).Order().SequenceEqual(["1.mp4", "2.mp4", "3.mp4"]),
         "Destination copies take priority and duplicates introduced during refill trigger another cleanup cycle");
 
     string exhaustedSource = Directory.CreateDirectory(Path.Combine(root, "exhausted-source")).FullName;
@@ -299,10 +301,10 @@ try
     var collisionIdentity = ClipIdentifier.ReadIdentity(Path.Combine(collisionDest, "10.mp4"), CancellationToken.None);
     string collision = ClipBatchPreparer.Prepare(collisionSource, collisionDest, TimeSpan.FromSeconds(6),
         extensions, progress, CancellationToken.None, ".mp4", new PreserveOrderRandom());
-    Check(collision.Contains("Moved and backed up: 1") && File.Exists(Path.Combine(collisionDest, "1.mp4"))
+    Check(collision.Contains("Moved and backed up: 1") && File.Exists(Path.Combine(collisionDest, "2.mp4"))
         && !File.Exists(Path.Combine(collisionSource, "10.mp4"))
-        && ClipIdentifier.ReadIdentity(Path.Combine(collisionDest, "10.mp4"), CancellationToken.None) == collisionIdentity,
-        "An original filename collision preserves the existing clip and moves the new clip with a numeric name");
+        && ClipIdentifier.ReadIdentity(Path.Combine(collisionDest, "1.mp4"), CancellationToken.None) == collisionIdentity,
+        "An original filename collision preserves both clips' content while numbering the entire batch");
     string orderedSource = Directory.CreateDirectory(Path.Combine(root, "ordered-source")).FullName;
     string orderedDest = Directory.CreateDirectory(Path.Combine(root, "ordered-destination")).FullName;
     WriteMp4(Path.Combine(orderedDest, "01.MP4"), 30, 111);
@@ -323,9 +325,11 @@ try
         ClipIdentifier.ReadIdentity(Path.Combine(orderedDest, $"{number}.MP4"), CancellationToken.None).Duration
             == TimeSpan.FromSeconds(number - 3)),
         "New clips are numbered numerically from shortest to longest, including numbers above 9 and preserving extensions");
-    Check(existingOrdered.All(item => File.ReadAllBytes(Path.Combine(orderedDest, item.Key)).SequenceEqual(item.Value))
+    Check(File.ReadAllBytes(Path.Combine(orderedDest, "1.mp4")).SequenceEqual(existingOrdered["starter.mp4"])
+        && File.ReadAllBytes(Path.Combine(orderedDest, "16.MP4")).SequenceEqual(existingOrdered["01.MP4"])
+        && File.ReadAllBytes(Path.Combine(orderedDest, "2.txt")).SequenceEqual(existingOrdered["2.txt"])
         && Directory.Exists(Path.Combine(orderedDest, "3.mp4")),
-        "Existing numbered and starter clips, notes and folders are untouched; occupied numbers are skipped across extensions and padding");
+        "Existing clips join duration numbering while notes and folders retain their occupied numbers");
     Check(orderedCandidates.All(path => File.Exists(Path.Combine(orderedSource, "Backup", Path.GetFileName(path))))
         && Directory.GetFiles(orderedSource).Length == 0,
         "Duration numbering backs up every selected clip under its original filename");
@@ -359,12 +363,12 @@ try
         extensions, shuffleProgress, CancellationToken.None, ".mp4", shuffleRandom);
     Check(shuffleScans == 2 && shuffles == 1 && shuffleRandom.Calls == 3
         && shuffled.Contains("Moved and backed up: 2") && shuffled.Contains("Duplicates sent to Recycle Bin: 1")
-        && Directory.GetFiles(shuffleDest).Select(Path.GetFileName).Order().SequenceEqual(["1.mp4", "2.mp4", "existing.mp4"]),
+        && Directory.GetFiles(shuffleDest).Select(Path.GetFileName).Order().SequenceEqual(["1.mp4", "2.mp4", "3.mp4"]),
         "Batch selection and duplicate refill follow the same shuffled source order before numbering the final batch");
-    Check(ClipIdentifier.ReadIdentity(Path.Combine(shuffleSource, "10.mp4"), CancellationToken.None) == remainingIdentity
+    Check(ClipIdentifier.ReadIdentity(Path.Combine(shuffleSource, "40.mp4"), CancellationToken.None) == remainingIdentity
         && File.Exists(Path.Combine(shuffleSource, "unnumbered.mp4")) && File.Exists(Path.Combine(shuffleNested, "50.mp4"))
         && Directory.GetFiles(Path.Combine(shuffleSource, "Backup")).Select(Path.GetFileName).Order().SequenceEqual(["30.mp4", "40.mp4"]),
-        "Shuffle preserves unselected source content, excludes unnumbered and nested clips, and backs up selected filenames");
+        "Shuffle changes the remaining source filename while preserving content, selection exclusions and original backup names");
 
     using var shuffleCts = new CancellationTokenSource();
     var cancelShuffleProgress = new TestProgress
@@ -378,7 +382,7 @@ try
             extensions, cancelShuffleProgress, shuffleCts.Token, ".mp4");
     }
     catch (OperationCanceledException) { shuffleCancelled = true; }
-    Check(shuffleCancelled && File.Exists(Path.Combine(shuffleSource, "10.mp4"))
+    Check(shuffleCancelled && File.Exists(Path.Combine(shuffleSource, "40.mp4"))
         && Directory.GetFiles(shuffleDest).Length == 3,
         "Cancellation during shuffle stops before cleanup, backup or moving");
     ArchiveChecks.Run(root, WriteMp4);

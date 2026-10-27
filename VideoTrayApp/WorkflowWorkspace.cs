@@ -228,15 +228,18 @@ internal sealed partial class WorkflowWorkspace : UserControl
                     break;
                 case PresetAction.PrepareBatch:
                     var prepare = PrepareBatchPlan.Analyze(draft, draft.Target, MainShell.VideoExtensions, progress, ct);
-                    rows = prepare.Changes.Select(c => ChangeRow(c, "Backup / move"))
-                        .Concat(prepare.StarterPaths.Where(path => !prepare.DuplicateGroups.Any(g => g.Duplicates.Contains(path, StringComparer.OrdinalIgnoreCase)))
-                            .Select(path => new ContextRow(path, "Starter", "Keep", path, "Starter filename preserved", Path.GetDirectoryName(path)!,
-                                Duration(prepare.Durations[path]), FormatSize(prepare.Guards.First(g => g.Path == path).Length))))
+                    var preparedPaths = prepare.SourceShuffle.ToDictionary(c => c.File.Path, c => c.Destination, StringComparer.OrdinalIgnoreCase);
+                    rows = prepare.SourceShuffle.Select(c => new ContextRow("before:" + c.File.Path, "1. Source shuffle", "Rename", c.File.Path,
+                            c.Destination, Path.GetDirectoryName(c.File.Path)!, "", FormatSize(c.File.Length), Bytes: c.File.Length))
+                        .Concat(prepare.Changes.Select(c => ChangeRow(c, "Backup / move")))
+                        .Concat(prepare.StarterChanges.Select(c => ChangeRow(c, "Rename")))
                         .Concat(prepare.DuplicateGroups.SelectMany((g, i) => g.Duplicates.Select(path => new ContextRow(path, (i + 1).ToString(), "Recycle", path,
-                            "Recycle; keeper: " + g.Keep, Path.GetDirectoryName(path)!, Duration(g.Identity.Duration), FormatSize(g.Identity.Size), Bytes: g.Identity.Size)))).ToArray();
+                            "Recycle; keeper: " + g.Keep, Path.GetDirectoryName(path)!, Duration(g.Identity.Duration), FormatSize(g.Identity.Size), Bytes: g.Identity.Size))))
+                        .Concat(prepare.RemainingShuffle.Select(c => new ContextRow("after:" + c.File.Path, "3. Source reshuffle", "Rename", preparedPaths[c.File.Path],
+                            c.Destination, Path.GetDirectoryName(c.File.Path)!, "", FormatSize(c.File.Length), Bytes: c.File.Length))).ToArray();
                     nextExecution = (p, token) => JobOutcome.Complete(prepare.Execute(p, token));
-                    summary = $"Batch: {prepare.Batch.Path} ({(prepare.Batch.Create ? "create" : "existing starter folder")})\nStarters: {prepare.StarterCount}, {Duration(prepare.StarterDuration)}. Planned total: {Duration(prepare.TotalDuration)}.\nMove/backup {prepare.Changes.Count}; recycle {prepare.DuplicateGroups.Sum(g => g.Duplicates.Count)}. Originals backed up under {Path.Combine(draft.Target, "Backup")}.";
-                    recovery = "This reviewed workflow uses an in-process transaction for recycling, backups and moves. Cancellation/failure attempts full rollback; blocked recovery retains recovery files. Legacy manual operations retain their previous contract.";
+                    summary = $"Batch: {prepare.Batch.Path} ({(prepare.Batch.Create ? "create" : "existing starter folder")})\nStarters: {prepare.StarterCount}, {Duration(prepare.StarterDuration)}. Planned total: {Duration(prepare.TotalDuration)}.\nShuffle {prepare.SourceShuffle.Count} source clips before preparation and {prepare.RemainingShuffle.Count} remaining clips afterward.\nMove/backup {prepare.Changes.Count}; recycle {prepare.DuplicateGroups.Sum(g => g.Duplicates.Count)}. Number the entire target batch shortest to longest. Originals backed up under {Path.Combine(draft.Target, "Backup")}.";
+                    recovery = "Cancellation or failure attempts to restore both source shuffles, target numbering, recycled clips and backups. Blocked recovery retains recovery files.";
                     break;
                 case PresetAction.SeekDuplications:
                     var scan = ClipDuplicationSeeker.Find(draft.Target, draft.DirectoryB, draft.IncludeSubfolders, MainShell.VideoExtensions, progress, ct);
@@ -348,7 +351,7 @@ internal sealed partial class WorkflowWorkspace : UserControl
         PresetAction.SeekDuplications => "Compare folders (Seek duplications). Exact size, duration and full SHA-256 identity only. Overlapping paths appear once; neither A nor B has priority.",
         PresetAction.RemoveDuplicates => "Clean one folder (Remove duplicates). Includes subfolders, excludes links. Keeps the first full path alphabetically per exact-identity group. Use Compare folders for individual choices.",
         PresetAction.IdentifyClip => "Identify clip. Search recursively for exact SHA-256 content and duration matches, then select results to move to an isolation folder or delete through Windows Recycle Bin. Reference clip stays untouched.",
-        PresetAction.PrepareBatch => "Prepare Batch. Randomly select, check exact duplicates and refill, back up final clips, then move them shortest to longest. Analyze resolves the c_ starter folder or exact new batch without changing files.",
+        PresetAction.PrepareBatch => "Prepare Batch. Shuffle source filenames, select and refill without exact duplicates, back up final clips, number the entire target batch shortest to longest, then reshuffle remaining source filenames. Analyze previews all changes without changing files.",
         PresetAction.ShuffleBatches => "Shuffle Batches. Pool recursive archive MP4 files, excluding Backup and links, pack intact clips into duration-limited batches and number shortest to longest. No duplicate cleanup or backups.",
         PresetAction.NameByTens => "Name by 10s. Numbering advances by ten (0, 10, 20…). This is a numbering step, not a duration filter. MP4 extensions are preserved.",
         PresetAction.ShuffleAndName => "Shuffle & Name. Randomize clips, then number in steps of ten with optional padding and prefix. MP4 extensions are preserved.",

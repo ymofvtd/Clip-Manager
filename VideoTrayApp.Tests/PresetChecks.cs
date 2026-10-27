@@ -229,7 +229,7 @@ internal static class PresetChecks
             tx.Commit(CancellationToken.None);
         }
         Check(Directory.GetFiles(current, "*.mp4").Length == 3
-            && ClipIdentifier.ReadIdentity(Path.Combine(current, "starter.mp4"), CancellationToken.None).Hash == starterHash
+            && ClipIdentifier.ReadIdentity(Path.Combine(current, "1.mp4"), CancellationToken.None).Hash == starterHash
             && !Directory.Exists(fallback.Path),
             "Prepare Batch refills the chosen c_ folder to the requested total duration while preserving starter clips");
 

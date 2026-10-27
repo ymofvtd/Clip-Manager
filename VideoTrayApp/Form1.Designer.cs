@@ -201,7 +201,7 @@ namespace VideoTrayApp
             btnPrepare.FlatAppearance.BorderSize = 0;
             btnPrepare.Cursor = Cursors.Hand;
             btnPrepare.Click += btnPrepare_Click;
-            toolTips.SetToolTip(btnPrepare, "Shuffle numbered clips once, recycle exact duplicates and refill until clean, then back up and move the batch.");
+            toolTips.SetToolTip(btnPrepare, "Shuffle source filenames, recycle exact duplicates and refill, back up and number the entire batch shortest to longest, then reshuffle remaining source filenames.");
 
             btnIdentifyClip.Text = "Identify clip";
             btnIdentifyClip.Font = new Font("Segoe UI", 9F, FontStyle.Bold);

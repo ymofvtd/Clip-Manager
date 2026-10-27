@@ -1,3 +1,9 @@
+# 2.2.6 Automatic source shuffles for Prepare Batch
+
+Prepare Batch now shuffles eligible source filenames before preparation and reshuffles the remaining source clips afterward. The entire target batch, including existing starters, is numbered from shortest to longest. Backups keep the original pre-shuffle filenames, and Analyze previews both source shuffles without changing files. Cancellation or failure attempts to restore both shuffles, target numbering, backups and staged duplicate removals.
+
+The Release build and all 590 generated integration checks passed, including physical source shuffles, repeated preparation, duplicate refill, original-name backups, recursive source exclusions and rollback during the second shuffle.
+
 # 2.2.4 Preserve original archive filenames
 
 Archive now offers **Preserve original filename** below the destination. Each route and Archive preset saves this preference independently. When enabled, new verified copies retain the source filename and extension; occupied names receive `__1`, `__2`, etc. Existing archived copies retain their names, and identical content is still reused. Leaving the option unchecked preserves content-hash naming.

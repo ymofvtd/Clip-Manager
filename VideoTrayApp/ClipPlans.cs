@@ -105,48 +105,50 @@ internal sealed record RenamePlan(ReadOnlyCollection<RenameChange> Changes)
         return a.Length.CompareTo(b.Length);
     }
     internal string Execute(IOperationProgress progress, CancellationToken ct)
+        => PlanExecution.Transaction(progress, ct, () => Apply(progress, ct));
+
+    internal string Apply(IOperationProgress progress, CancellationToken ct)
     {
-        return PlanExecution.Transaction(progress, ct, () =>
+        foreach (var change in Changes)
         {
-            foreach (var change in Changes)
-            {
-                progress.SetIndeterminate("Checking reviewed file: " + Path.GetFileName(change.File.Path));
-                change.File.Verify(ct);
-            }
-            var originals = Changes.Select(c => c.File.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var change in Changes)
-                if (Directory.Exists(change.Destination) || File.Exists(change.Destination) && !originals.Contains(change.Destination))
-                    throw new IOException($"Reviewed destination is now occupied: {change.Destination}");
-            var staged = new List<(RenameChange Change, string Temporary)>();
-            var aliasStamps = new Dictionary<PhysicalFileId, ArchiveFileStamp?>();
-            foreach (var change in Changes.Where(c => !ClipIdentifier.SamePath(c.File.Path, c.Destination)))
-            {
-                progress.Report(staged.Count, Changes.Count, "Staging rename: " + Path.GetFileName(change.File.Path));
-                ct.ThrowIfCancellationRequested();
-                var reviewed = aliasStamps.TryGetValue(change.File.Physical, out var stamp)
-                    ? change.File with { Stamp = stamp } : change.File;
-                reviewed.Verify(ct);
-                string temporary = change.File.Path + "." + Guid.NewGuid().ToString("N") + ".pending";
-                OperationTransaction.Move(change.File.Path, temporary); staged.Add((change, temporary));
-                // Renaming one hard link updates the shared change time of its other aliases.
-                if (change.File.Physical.Links > 1)
-                    aliasStamps[change.File.Physical] = RenameFile.Read(temporary, ct).Stamp;
-            }
-            int completed = 0;
-            foreach (var item in staged)
-            {
-                ct.ThrowIfCancellationRequested(); progress.Report(completed, staged.Count, "Renaming reviewed files…");
-                OperationTransaction.Move(item.Temporary, item.Change.Destination); completed++;
-            }
-            return $"Renamed: {completed}\nUnchanged: {Changes.Count - completed}\nThe reviewed filename mapping was used. In-process rollback is available on cancellation or failure; forced termination is outside that guarantee.";
-        });
+            progress.SetIndeterminate("Checking reviewed file: " + Path.GetFileName(change.File.Path));
+            change.File.Verify(ct);
+        }
+        var originals = Changes.Select(c => c.File.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var change in Changes)
+            if (Directory.Exists(change.Destination) || File.Exists(change.Destination) && !originals.Contains(change.Destination))
+                throw new IOException($"Reviewed destination is now occupied: {change.Destination}");
+        var staged = new List<(RenameChange Change, string Temporary)>();
+        var aliasStamps = new Dictionary<PhysicalFileId, ArchiveFileStamp?>();
+        foreach (var change in Changes.Where(c => !ClipIdentifier.SamePath(c.File.Path, c.Destination)))
+        {
+            progress.Report(staged.Count, Changes.Count, "Staging rename: " + Path.GetFileName(change.File.Path));
+            ct.ThrowIfCancellationRequested();
+            var reviewed = aliasStamps.TryGetValue(change.File.Physical, out var stamp)
+                ? change.File with { Stamp = stamp } : change.File;
+            reviewed.Verify(ct);
+            string temporary = change.File.Path + "." + Guid.NewGuid().ToString("N") + ".pending";
+            OperationTransaction.Move(change.File.Path, temporary); staged.Add((change, temporary));
+            // Renaming one hard link updates the shared change time of its other aliases.
+            if (change.File.Physical.Links > 1)
+                aliasStamps[change.File.Physical] = RenameFile.Read(temporary, ct).Stamp;
+        }
+        int completed = 0;
+        foreach (var item in staged)
+        {
+            ct.ThrowIfCancellationRequested(); progress.Report(completed, staged.Count, "Renaming reviewed files…");
+            OperationTransaction.Move(item.Temporary, item.Change.Destination); completed++;
+        }
+        return $"Renamed: {completed}\nUnchanged: {Changes.Count - completed}\nThe reviewed filename mapping was used. In-process rollback is available on cancellation or failure; forced termination is outside that guarantee.";
     }
 }
 
 internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDestination Batch,
     ReadOnlyCollection<PlannedChange> Changes, ReadOnlyCollection<DuplicateClipGroup> DuplicateGroups,
     ReadOnlyCollection<PlannedFile> Guards, TimeSpan StarterDuration, TimeSpan TotalDuration, int StarterCount,
-    ReadOnlyCollection<string> StarterPaths, ReadOnlyDictionary<string, TimeSpan> Durations, ReadOnlyCollection<string> Extensions)
+    ReadOnlyCollection<string> StarterPaths, ReadOnlyDictionary<string, TimeSpan> Durations, ReadOnlyCollection<string> Extensions,
+    ReadOnlyCollection<RenameChange> SourceShuffle, ReadOnlyCollection<RenameChange> RemainingShuffle,
+    ReadOnlyCollection<PlannedChange> StarterChanges, BatchSelection? Selection)
 {
     internal static PrepareBatchPlan Analyze(ActionPreset preset, string source, ISet<string> extensions,
         IOperationProgress progress, CancellationToken ct, Random? random = null)
@@ -154,17 +156,50 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
         source = Path.GetFullPath(source);
         ActionPreset.ValidateFolder(source);
         var batch = BatchDestinationResolver.Resolve(preset, source);
+        var candidates = ListCandidates(source, preset.Destination, batch.Path, preset.Selection, extensions, ct);
+        return AnalyzeCandidates(source, preset.Destination, batch, TimeSpan.FromMinutes(preset.DurationMinutes),
+            candidates, extensions, progress, ct, random, preset.Selection);
+    }
+
+    private static List<string> ListCandidates(string source, string parent, string destination, BatchSelection selection,
+        ISet<string> extensions, CancellationToken ct)
+    {
         var errors = new List<string>();
-        var candidates = ArchivePaths.Videos([source], extensions, errors, ct, recursive: preset.Selection == BatchSelection.Archives)
+        var candidates = ArchivePaths.Videos([source], extensions, errors, ct, recursive: selection == BatchSelection.Archives)
             .Where(p => !p.StartsWith(Path.Combine(source, "Backup") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                && !p.StartsWith(batch.Path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                && !(preset.Selection == BatchSelection.Archives && !ClipIdentifier.SamePath(source, preset.Destination)
-                    && p.StartsWith(Path.GetFullPath(preset.Destination) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
-            .Where(p => preset.Selection != BatchSelection.NumberedMp4 || Path.GetExtension(p).Equals(".mp4", StringComparison.OrdinalIgnoreCase)
+                && !p.StartsWith(destination + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                && !(selection == BatchSelection.Archives && !ClipIdentifier.SamePath(source, parent)
+                    && p.StartsWith(Path.GetFullPath(parent) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            .Where(p => selection != BatchSelection.NumberedMp4 || Path.GetExtension(p).Equals(".mp4", StringComparison.OrdinalIgnoreCase)
                 && Path.GetFileNameWithoutExtension(p).Length > 0 && Path.GetFileNameWithoutExtension(p).All(char.IsAsciiDigit)).ToList();
         if (errors.Count > 0) throw new IOException("Batch scan incomplete." + ClipIdentifier.FormatErrors(errors));
+        return candidates;
+    }
+
+    internal static PrepareBatchPlan AnalyzeCandidates(string source, string parent, BatchDestination batch, TimeSpan limit,
+        IEnumerable<string> paths, ISet<string> extensions, IOperationProgress progress, CancellationToken ct,
+        Random? random = null, BatchSelection? selection = null)
+    {
+        source = Path.GetFullPath(source);
+        parent = Path.GetFullPath(parent);
+        ActionPreset.ValidateFolder(source);
+        batch.Validate(source, parent);
+        string backupFolder = Path.Combine(source, "Backup");
+        if (Directory.Exists(backupFolder)) ActionPreset.ValidateFolder(backupFolder);
+        if (limit <= TimeSpan.Zero) throw new ArgumentException("Batch duration must be positive.");
+        var candidates = paths.Where(VideoFiles.IsMp4).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (string path in candidates)
+            if (!path.StartsWith(source + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(Path.Combine(source, "Backup") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(batch.Path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Batch candidate must be inside the source and outside Backup and the batch: " + path);
         random ??= Random.Shared;
-        for (int i = candidates.Count - 1; i > 0; i--) { int j = random.Next(i + 1); (candidates[i], candidates[j]) = (candidates[j], candidates[i]); }
+        progress.SetIndeterminate("Shuffling source clips before preparing batch...");
+        Shuffle(candidates, random, ct);
+        var sourceFiles = candidates.ToDictionary(p => p, p => RenameFile.Read(p, ct), StringComparer.OrdinalIgnoreCase);
+        var sourceShuffle = Permute(candidates, p => p, sourceFiles);
+        var preparedPaths = sourceShuffle.ToDictionary(c => c.File.Path, c => c.Destination, StringComparer.OrdinalIgnoreCase);
         var starters = batch.Create ? [] : Directory.EnumerateFiles(batch.Path).Where(p => VideoFiles.IsMp4(p) && extensions.Contains(Path.GetExtension(p))).Order(StringComparer.OrdinalIgnoreCase).ToList();
         var guards = new Dictionary<string, PlannedFile>(StringComparer.OrdinalIgnoreCase);
         var durations = new Dictionary<string, TimeSpan>(StringComparer.OrdinalIgnoreCase);
@@ -183,10 +218,12 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
         while (true)
         {
             ct.ThrowIfCancellationRequested();
+            progress.SetIndeterminate("Preparing clips for duplicate check...");
             var pool = starters.Concat(selected).Where(p => !deleted.Contains(p)).ToList();
             TimeSpan total = TimeSpan.FromTicks(pool.Sum(p => Duration(p).Ticks));
-            while (next < candidates.Count && total < TimeSpan.FromMinutes(preset.DurationMinutes))
+            while (next < candidates.Count && total < limit)
             { string path = candidates[next++]; selected.Add(path); pool.Add(path); total += Duration(path); }
+            progress.SetIndeterminate("Checking prepared batch for duplicates...");
             var duplicates = ClipDuplicateCleaner.Find(pool, progress, ct);
             if (duplicates.Errors.Count > 0) throw new IOException("Could not verify the batch." + ClipIdentifier.FormatErrors(duplicates.Errors));
             if (duplicates.DuplicateCount == 0) break;
@@ -194,49 +231,125 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
             foreach (var path in duplicates.Groups.SelectMany(g => g.Duplicates)) deleted.Add(path);
             selected.RemoveAll(deleted.Contains);
         }
-        var occupied = batch.Create ? new HashSet<BigInteger>() : Directory.EnumerateFileSystemEntries(batch.Path)
+        var starterSet = starters.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var occupied = batch.Create ? new HashSet<BigInteger>() : Directory.EnumerateFileSystemEntries(batch.Path).Where(p => !starterSet.Contains(p))
             .Select(Path.GetFileNameWithoutExtension).Where(n => !string.IsNullOrEmpty(n) && n.All(char.IsAsciiDigit)).Select(n => BigInteger.Parse(n!)).ToHashSet();
         var backups = new HashSet<string>(StringComparer.OrdinalIgnoreCase); BigInteger sequence = 1;
         var changes = new List<PlannedChange>();
-        foreach (string path in selected.OrderBy(Duration))
+        var starterChanges = new List<PlannedChange>();
+        foreach (string path in starters.Where(p => !deleted.Contains(p)).Concat(selected).OrderBy(Duration))
         {
             while (occupied.Contains(sequence)) sequence++;
             string target = Path.Combine(batch.Path, sequence + Path.GetExtension(path)); occupied.Add(sequence++);
-            if (Directory.Exists(target) || File.Exists(target)) throw new IOException("Batch destination collision: " + target);
+            if (Directory.Exists(target) || File.Exists(target) && !starterSet.Contains(target)) throw new IOException("Batch destination collision: " + target);
+            if (starterSet.Contains(path))
+            {
+                starterChanges.Add(new(guards[path], target, Duration: Duration(path)));
+                continue;
+            }
             string backup = Path.Combine(source, "Backup", Path.GetFileName(path));
             for (int suffix = 1; backups.Contains(backup) || File.Exists(backup) || Directory.Exists(backup); suffix++)
                 backup = Path.Combine(source, "Backup", Path.GetFileNameWithoutExtension(path) + "__" + suffix + Path.GetExtension(path));
             backups.Add(backup); changes.Add(new(guards[path], target, backup, Duration(path)));
         }
-        return new(source, preset.Destination, batch, changes.AsReadOnly(), groups.AsReadOnly(), guards.Values.ToList().AsReadOnly(), starterDuration,
+        var selectedSet = selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var remaining = candidates.Where(p => !deleted.Contains(p) && !selectedSet.Contains(p)).ToList();
+        Shuffle(remaining, random, ct);
+        var remainingShuffle = Permute(remaining, p => preparedPaths[p], sourceFiles);
+        return new(source, parent, batch, changes.AsReadOnly(), groups.AsReadOnly(), guards.Values.ToList().AsReadOnly(), starterDuration,
             TimeSpan.FromTicks(starters.Concat(selected).Where(p => !deleted.Contains(p)).Sum(p => Duration(p).Ticks)), starters.Count,
-            starters.AsReadOnly(), new(durations), extensions.ToList().AsReadOnly());
+            starters.AsReadOnly(), new(durations), extensions.ToList().AsReadOnly(), sourceShuffle.AsReadOnly(),
+            remainingShuffle.AsReadOnly(), starterChanges.AsReadOnly(), selection);
     }
-    internal string Execute(IOperationProgress progress, CancellationToken ct) => PlanExecution.Transaction(progress, ct, () =>
+
+    private static void Shuffle(List<string> paths, Random random, CancellationToken ct)
+    {
+        for (int i = paths.Count - 1; i > 0; i--)
+        { ct.ThrowIfCancellationRequested(); int j = random.Next(i + 1); (paths[i], paths[j]) = (paths[j], paths[i]); }
+        ct.ThrowIfCancellationRequested();
+    }
+
+    // Shuffle filename assignments within each folder; keep the folder layout and MP4 extension casing.
+    private static List<RenameChange> Permute(List<string> order, Func<string, string> currentPath,
+        Dictionary<string, RenameFile> files)
+    {
+        var result = new List<RenameChange>();
+        foreach (var folder in order.GroupBy(p => Path.GetDirectoryName(currentPath(p))!, StringComparer.OrdinalIgnoreCase))
+        {
+            var slots = folder.Select(currentPath).Order(StringComparer.OrdinalIgnoreCase).ToList();
+            int index = 0;
+            foreach (string path in folder)
+                result.Add(new(files[path], Path.Combine(folder.Key,
+                    Path.GetFileNameWithoutExtension(slots[index++]) + Path.GetExtension(path))));
+        }
+        return result;
+    }
+
+    internal string Execute(IOperationProgress progress, CancellationToken ct) => OperationTransaction.IsActive
+        ? ExecuteCore(progress, ct) : PlanExecution.Transaction(progress, ct, () => ExecuteCore(progress, ct));
+
+    private string ExecuteCore(IOperationProgress progress, CancellationToken ct)
     {
         Batch.Validate(Source, Parent);
+        if (Directory.Exists(Path.Combine(Source, "Backup"))) ActionPreset.ValidateFolder(Path.Combine(Source, "Backup"));
+        if (Selection is { } selection && !SourceShuffle.Select(c => c.File.Path).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            .SetEquals(ListCandidates(Source, Parent, Batch.Path, selection, Extensions.ToHashSet(StringComparer.OrdinalIgnoreCase), ct)))
+            throw new IOException("The reviewed source videos changed. Analyze again before preparing the batch.");
         if (!Batch.Create && !StarterPaths.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(
             Directory.EnumerateFiles(Batch.Path).Where(p => VideoFiles.IsMp4(p) && Extensions.Contains(Path.GetExtension(p), StringComparer.OrdinalIgnoreCase))))
             throw new IOException("The reviewed starter folder's videos changed. Analyze again before preparing the batch: " + Batch.Path);
         foreach (var guard in Guards) guard.Verify(ct);
-        foreach (var change in Changes)
-            if (File.Exists(change.Destination) || Directory.Exists(change.Destination) || File.Exists(change.Backup) || Directory.Exists(change.Backup))
+        foreach (var change in Changes.Concat(StarterChanges))
+            if (Directory.Exists(change.Destination) || File.Exists(change.Destination) && !StarterPaths.Contains(change.Destination, StringComparer.OrdinalIgnoreCase)
+                || change.Backup is not null && (File.Exists(change.Backup) || Directory.Exists(change.Backup)))
                 throw new IOException("A reviewed move or backup destination is now occupied: " + change.Destination);
+        progress.SetIndeterminate("Shuffling source filenames before preparing batch...");
+        new RenamePlan(SourceShuffle).Apply(progress, ct);
+        var preparedPaths = SourceShuffle.ToDictionary(c => c.File.Path, c => c.Destination, StringComparer.OrdinalIgnoreCase);
+        string PreparedPath(string original) => preparedPaths.GetValueOrDefault(original, original);
+        // Windows filename tunneling can change creation times when shuffle destinations reuse names.
+        // Capture the metadata after our own renames so the second shuffle can still reject outside edits.
+        var remainingFiles = RemainingShuffle.ToDictionary(c => c.File.Path,
+            c => RenameFile.Read(PreparedPath(c.File.Path), ct), StringComparer.OrdinalIgnoreCase);
+        progress.SetIndeterminate("Source filenames shuffled; preparing reviewed batch...");
         if (Batch.Create) OperationTransaction.CreateDirectory(Batch.Path);
         // Freeze the exact recycle set, including refill choices; never rescan to select replacements.
-        var duplicates = new DuplicateClipResult(DuplicateGroups.ToList(), []);
+        var duplicates = new DuplicateClipResult(DuplicateGroups.Select(g => new DuplicateClipGroup(g.Identity,
+            PreparedPath(g.Keep), g.Duplicates.Select(PreparedPath).ToList())).ToList(), []);
         ClipDuplicateCleaner.Apply(duplicates, progress, ct, stopBatchOnError: true);
         if (Changes.Count > 0) OperationTransaction.CreateDirectory(Path.Combine(Source, "Backup"));
         int moved = 0;
         foreach (var change in Changes)
         {
-            ct.ThrowIfCancellationRequested(); change.File.Verify(ct);
-            progress.Report(moved, Changes.Count, "Backing up and moving " + Path.GetFileName(change.File.Path));
-            OperationTransaction.Copy(change.File.Path, change.Backup!);
-            OperationTransaction.Move(change.File.Path, change.Destination); moved++;
+            ct.ThrowIfCancellationRequested();
+            progress.Report(moved, Changes.Count, $"Backing up {Path.GetFileName(change.File.Path)}...");
+            (change.File with { Path = PreparedPath(change.File.Path) }).Verify(ct);
+            OperationTransaction.Copy(PreparedPath(change.File.Path), change.Backup!);
+            progress.Report(moved++, Changes.Count, $"Moving {Path.GetFileName(change.File.Path)}...");
         }
-        return $"Moved and backed up: {moved}\nRecycled: {duplicates.DuplicateCount}\nBatch: {Batch.Path}\nBackup: {Path.Combine(Source, "Backup")}\nStarter filenames preserved. Reviewed selection and destinations were used.";
-    });
+        var targetRenames = Changes.Concat(StarterChanges).Select(change =>
+        {
+            string path = PreparedPath(change.File.Path);
+            (change.File with { Path = path }).Verify(ct);
+            return new RenameChange(RenameFile.Read(path, ct), change.Destination);
+        }).ToList();
+        progress.SetIndeterminate("Numbering the entire target batch from shortest to longest...");
+        new RenamePlan(targetRenames.AsReadOnly()).Apply(progress, ct);
+        var remainingRenames = RemainingShuffle.Select(change =>
+        {
+            var current = RenameFile.Read(PreparedPath(change.File.Path), ct);
+            var expected = remainingFiles[change.File.Path];
+            // Moving another hard-link alias updates the shared change stamp.
+            if (expected.Physical.Links > 1) expected = expected with { Stamp = current.Stamp };
+            if (current != expected)
+                throw new IOException("Source clip changed during preparation: " + current.Path);
+            return new RenameChange(current, change.Destination);
+        }).ToList();
+        progress.SetIndeterminate("Reshuffling remaining source filenames after preparing batch...");
+        new RenamePlan(remainingRenames.AsReadOnly()).Apply(progress, ct);
+        progress.SetIndeterminate("Source reshuffle completed.");
+        return $"Moved and backed up: {moved}\nDuplicates sent to Recycle Bin: {duplicates.DuplicateCount}\nBatch: {Batch.Path}\nBackup: {Path.Combine(Source, "Backup")}\nSource reshuffled before preparation: {SourceShuffle.Count}; after preparation: {RemainingShuffle.Count}.\nEntire batch numbered shortest to longest. Reviewed selection and destinations were used.";
+    }
 }
 
 internal static class PlanExecution

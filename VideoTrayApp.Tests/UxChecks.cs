@@ -72,7 +72,9 @@ internal static class UxChecks
         Check(rejected && original.SequenceEqual(Snapshot(prepareSource)), "A new starter video invalidates the reviewed batch before recycling, backing up or moving files");
         File.Delete(arrival);
         prepare.Execute(progress, CancellationToken.None);
-        Check(prepare.Changes.All(c => File.Exists(c.Destination) && File.Exists(c.Backup)) && File.Exists(Path.Combine(starter, "starter.mp4")), "Prepare Batch executes reviewed moves/backups and preserves starter filenames");
+        Check(prepare.Changes.All(c => File.Exists(c.Destination) && File.Exists(c.Backup))
+            && prepare.StarterChanges.All(c => File.Exists(c.Destination) && Hash(c.Destination) == c.File.Hash),
+            "Prepare Batch executes reviewed moves/backups and includes starter clips in duration numbering");
         var offline = new ActionPreset { Target = @"Z:\unavailable", UseWorkingFolder = false, Action = PresetAction.ShuffleRandom };
         offline.ValidateForSave();
         Check(offline.Target == @"Z:\unavailable", "Preset editing accepts an unavailable absolute path without changing execution-time validation");

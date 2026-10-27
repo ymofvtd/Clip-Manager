@@ -259,7 +259,7 @@ internal sealed class PresetEditorForm : Form
             Number("Duration (minutes)", preset.DurationMinutes, 1, 10080, v => preset.DurationMinutes = v);
             Choice("Select clips", preset.Selection, v => preset.Selection = v);
             Add("Selection help", new Label { AutoSize = true, Text = "Numbered MP4: numbered top-level MP4 files.\nAll MP4 files: all top-level MP4 files.\nArchives: MP4 files in target and subfolders, excluding Backup.\nEach mode uses a random order." });
-            Add("Batch naming", new Label { AutoSize = true, Text = "New clips: 1, 2, 3, ... from shortest to longest.\nExisting filenames stay unchanged; occupied numbers are skipped." });
+            Add("Batch naming", new Label { AutoSize = true, Text = "Shuffle source filenames before preparation and again afterward.\nEntire target batch: 1, 2, 3, ... from shortest to longest.\nOccupied non-video numbers are skipped; backups use original names." });
         }
         if (preset.Action == PresetAction.ShuffleBatches)
         {

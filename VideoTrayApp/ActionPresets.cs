@@ -64,7 +64,7 @@ internal sealed class ActionPreset
         {
             lines.Add("Use the highest numbered c_ folder, or create a new batch if none exists.");
             lines.Add($"New folder name: {(string.IsNullOrWhiteSpace(BatchFolderName) ? "batch_1, batch_2, ... (next available)" : BatchFolderName)}");
-            lines.Add($"Duration: {DurationMinutes} minutes\nSelection: {Selection}\nNaming: 1, 2, 3, ... shortest to longest (new clips only; occupied numbers skipped)\nBackup: target's Backup folder");
+            lines.Add($"Duration: {DurationMinutes} minutes\nSelection: {Selection}\nShuffle source filenames before preparation and reshuffle remaining clips afterward.\nNaming: entire batch 1, 2, 3, ... shortest to longest (occupied non-video numbers skipped)\nBackup: target's Backup folder, using original filenames");
         }
         if (Action is PresetAction.ShuffleAndName or PresetAction.NameByTens)
             lines.Add($"Start: {Start}; padding: {Padding}; prefix: {Prefix}");
