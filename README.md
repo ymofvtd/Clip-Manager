@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.2.6
+2.2.7
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -50,7 +50,7 @@ A queued clip is not protected until a copy is verified. Clips deleted before pr
 
 Open **Find & clean → Seek duplications** and configure directories A and B. Subfolders are included by default. Analyze finds exact size/duration/SHA-256 identity groups represented in both selections and includes every matching path. Copies entirely within one selection are excluded. Overlapping paths appear once. Hard-link aliases are labeled as the same underlying file and stay Keep; they do not represent independently reclaimable content. Re-encoded or edited clips are outside this action's scope.
 
-Every row starts as **Keep**, with neither directory given priority. The table shows group, A/B and folder context, filename, size, duration, and modified time; selected-file details reveal full paths and content/physical identities. Use **Open clip**, **Open containing folder**, or **Copy path**, then toggle individual copies with **Keep / Recycle selected row** or Space. Leave at least one kept copy per group. Filtering and sorting preserve hidden choices; refreshing preserves choices only for unchanged file identities. **Review and run** confirms exact selected paths, keeper context, and known content bytes before recycling.
+Directory **A** defaults to **Keep**; matching duplicate copies found only in directory **B** are automatically marked **Recycle**, including matches in subfolders. Unique B clips are untouched. Shared A/B paths and hard-link aliases default to Keep. The table shows group, A/B and folder context, filename, size, duration, and modified time; selected-file details reveal full paths and content/physical identities. Use **Open clip**, **Open containing folder**, or **Copy path**, then adjust individual copies with **Keep / Recycle selected row** or Space. Leave at least one kept copy per group. Filtering and sorting preserve hidden choices; refreshing preserves both Keep and Recycle choices for unchanged file identities and directory roles. **Review and run** confirms exact selected paths, keeper context, and known content bytes before recycling. Analysis only marks choices; files change after confirmation.
 
 Both kept and selected copies are verified again immediately before recycling. A kept copy stays open against writes/deletion throughout its group. A missing/changed keeper skips that group; a changed selected copy stays untouched. Only the Recycle Bin is used; unavailable recycling reports an error with no permanent-delete fallback. Cancellation stops further deletions and reports completed versus untouched copies; earlier successful recycling is not automatically reversed. Unreadable paths and cancelled scans are reported separately from a complete scan with no duplicates. Presets can save A/B paths and recursion, but always open the individual review and final confirmation.
 
@@ -102,7 +102,7 @@ Duration tracking is paused during reshuffling and refreshed afterward. It repla
 
 Each workspace has visible **Apply preset**, **Save preset**, and **Manage presets** controls; right-click access remains available. **Settings → Presets** and the tray menu open the same manager. Use **Add preset**, **Edit**, **Duplicate**, **Rename**, **Delete**, and **Set as default**. **Always ask (Current)** opens normal configuration. Deleting a default restores Always ask. Settings are saved atomically in `%APPDATA%/ClipsManager/presets.json`; unavailable drives remain editable.
 
-Saved presets can use the current working folder or a fixed target. A saved default fills the normal configuration without running. Analyze and the required exact-file confirmation remain explicit. Archive presets always run once; Seek duplications always requires individual choices and a final confirmation.
+Saved presets can use the current working folder or a fixed target. A saved default fills the normal configuration without running. Analyze and the required exact-file confirmation remain explicit. Archive presets always run once; Seek duplications defaults to keeping A and recycling matching B copies, with individual overrides and a final confirmation.
 
 The workspace context menu reloads its presets each time it opens. Choosing one fills configuration without changing the saved default or executing work. Empty menus state that no presets are saved.
 

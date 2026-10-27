@@ -250,7 +250,7 @@ internal sealed class PresetEditorForm : Form
             PathField("Directory B", preset.DirectoryB, v => preset.DirectoryB = v);
             var recursive = new CheckBox { Text = "Include subfolders", Checked = preset.IncludeSubfolders, AutoSize = true };
             Add("Scan options", recursive); saveValues.Add(() => preset.IncludeSubfolders = recursive.Checked);
-            Add("Review", new Label { Text = "Always review individual copies and confirm selection.\nAll files start as Keep; neither folder has priority.", AutoSize = true });
+            Add("Review", new Label { Text = "Default: keep A, recycle matching copies from B.\nShared A/B paths and hard links stay kept.\nReview individual copies and confirm selection.", AutoSize = true });
         }
         if (preset.Action == PresetAction.PrepareBatch)
         {

@@ -15,6 +15,7 @@ try
 {
     if (args.Contains("--monthly-only")) { MonthlyBatchChecks.Run(root, WriteMp4); return; }
     if (args.Contains("--prepare-only")) { BatchPreparationChecks.Run(root, WriteMp4); return; }
+    if (args.Contains("--duplication-only")) { DuplicationChecks.Run(root, WriteMp4); return; }
     RenameChecks.Run(root, WriteMp4);
     if (args.Contains("--rename-only")) return;
     Mp4Checks.Run(root, WriteMp4);

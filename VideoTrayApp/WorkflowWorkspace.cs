@@ -39,10 +39,10 @@ internal sealed partial class WorkflowWorkspace : UserControl
         this.shell = shell; Action = action; this.jobs = jobs; this.workingFolder = workingFolder;
         review = new(selection: action == PresetAction.IdentifyClip);
         Font = DesktopTheme.BodyFont; Dock = DockStyle.Fill; SuspendLayout();
-        source = new(action == PresetAction.SeekDuplications ? "Directory A" : action == PresetAction.IdentifyClip ? "Search folder" : "Source / target folder", recent: preferences.RecentPaths);
+        source = new(action == PresetAction.SeekDuplications ? "Directory A — keep copies" : action == PresetAction.IdentifyClip ? "Search folder" : "Source / target folder", recent: preferences.RecentPaths);
         destination = new(action == PresetAction.PrepareBatch ? "Destination parent — highest numbered c_ folder or a new batch" : "Move destination", recent: preferences.RecentPaths);
         reference = new("Reference clip — excluded from all changes", file: true, recent: preferences.RecentPaths);
-        directoryB = new("Directory B — neither directory has priority", recent: preferences.RecentPaths);
+        directoryB = new("Directory B — recycle matching duplicates", recent: preferences.RecentPaths);
         selection.Items.AddRange(["Numbered MP4 (top level)", "All MP4 files (top level)", "Archives (MP4, recursive, excluding Backup)"]); selection.SelectedIndex = 0;
         fields = DesktopTheme.Stack();
         fields.Tag = SurfaceRole.Surface;
@@ -245,8 +245,8 @@ internal sealed partial class WorkflowWorkspace : UserControl
                     var scan = ClipDuplicationSeeker.Find(draft.Target, draft.DirectoryB, draft.IncludeSubfolders, MainShell.VideoExtensions, progress, ct);
                     hasIssues = scan.Errors.Count > 0;
                     rows = scan.Groups.SelectMany((g, i) => g.Copies.Select(c => new ContextRow(c.Path, (i + 1).ToString(), "Keep", c.Path,
-                        c.HardLink ? "Hard-link alias: Keep" : "Keep or recycle individually", c.Side + " / " + Path.GetFileName(c.Root) + " / " + Path.GetDirectoryName(c.RelativePath),
-                        Duration(c.Duration), FormatSize(c.Size), !c.HardLink, c.Size, c.LastWriteTime, $"SHA-256: {g.Identity.Hash}\nPhysical identity: {c.Physical.Volume:X}:{c.Physical.Index:X}; links: {c.Physical.Links}"))).ToArray();
+                        c.HardLink ? "Hard-link alias: Keep" : c.RecycleByDefault ? "Default: recycle duplicate from B" : "Default: keep copy from A", c.Side + " / " + Path.GetFileName(c.Root) + " / " + Path.GetDirectoryName(c.RelativePath),
+                        Duration(c.Duration), FormatSize(c.Size), !c.HardLink, c.Size, c.LastWriteTime, $"SHA-256: {g.Identity.Hash}\nPhysical identity: {c.Physical.Volume:X}:{c.Physical.Index:X}; links: {c.Physical.Links}", SelectedByDefault: c.RecycleByDefault))).ToArray();
                     validateSelection = selected => scan.Groups.Any(g => g.Copies.All(c => selected.Contains(c.Path))) ? "Keep at least one copy in every group." : null;
                     nextExecution = (p, token) =>
                     {
@@ -255,7 +255,7 @@ internal sealed partial class WorkflowWorkspace : UserControl
                         var applied = ClipDuplicationSeeker.Apply(scan, selected, p, token);
                         return new(applied.Cancelled ? JobState.Cancelled : applied.Errors.Count > 0 ? JobState.CompletedWithIssues : JobState.Completed, applied.Summary + "\nRecovery: Windows Recycle Bin. Earlier completed recycling is retained.");
                     };
-                    summary = scan.Groups.Count == 0 ? scan.Errors.Count > 0 ? "Scan incomplete; unreadable paths remain. No claim of no duplicates can be made." : "Complete scan: no exact groups spanning A and B." : $"{scan.Groups.Count} exact groups. All copies start Keep. Keep at least one per group; hard-link aliases stay Keep.";
+                    summary = scan.Groups.Count == 0 ? scan.Errors.Count > 0 ? "Scan incomplete; unreadable paths remain. No claim of no duplicates can be made." : "Complete scan: no exact groups spanning A and B." : $"{scan.Groups.Count} exact groups. Default: keep A, recycle matching copies from B. Adjust individual choices before confirming. Shared A/B paths and hard-link aliases stay Keep; keep at least one per group.";
                     summary += $"\nUnreadable paths: {scan.Errors.Count}. Only discovered groups are shown.\n" + string.Join("\n", scan.Errors.Take(20));
                     recovery = "Kept and selected copies are verified again. Recycle Bin only. Cancellation retains earlier successful recycling; no automatic undo.";
                     if (scan.Groups.Count == 0) nextExecution = null;
@@ -348,7 +348,7 @@ internal sealed partial class WorkflowWorkspace : UserControl
         Modified: change.File.LastWrite, Identity: "Reviewed SHA-256: " + change.File.Hash);
     private static string Description(PresetAction action) => action switch
     {
-        PresetAction.SeekDuplications => "Compare folders (Seek duplications). Exact size, duration and full SHA-256 identity only. Overlapping paths appear once; neither A nor B has priority.",
+        PresetAction.SeekDuplications => "Compare folders (Seek duplications). Exact size, duration and full SHA-256 identity only. By default, keep directory A and mark matching copies from B for recycling. Review and confirm before files change. Shared A/B paths and hard links stay kept.",
         PresetAction.RemoveDuplicates => "Clean one folder (Remove duplicates). Includes subfolders, excludes links. Keeps the first full path alphabetically per exact-identity group. Use Compare folders for individual choices.",
         PresetAction.IdentifyClip => "Identify clip. Search recursively for exact SHA-256 content and duration matches, then select results to move to an isolation folder or delete through Windows Recycle Bin. Reference clip stays untouched.",
         PresetAction.PrepareBatch => "Prepare Batch. Shuffle source filenames, select and refill without exact duplicates, back up final clips, number the entire target batch shortest to longest, then reshuffle remaining source filenames. Analyze previews all changes without changing files.",

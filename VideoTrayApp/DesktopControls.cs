@@ -366,7 +366,7 @@ internal sealed class SourceFolderList : UserControl
 
 internal sealed record ContextRow(string Key, string Group, string Action, string Path, string Proposed,
     string Context, string Duration, string Size, bool Selectable = false, long Bytes = 0,
-    DateTimeOffset? Modified = null, string Identity = "", DateTimeOffset? Created = null);
+    DateTimeOffset? Modified = null, string Identity = "", DateTimeOffset? Created = null, bool SelectedByDefault = false);
 
 // Materialize only visible grid cells. Selection belongs to stable keys, never row numbers.
 internal sealed class FileContextList : UserControl
@@ -449,9 +449,16 @@ internal sealed class FileContextList : UserControl
     {
         if (reset)
         {
-            var prior = rows.Where(r => SelectedKeys.Contains(r.Key)).ToDictionary(r => r.Key, StringComparer.OrdinalIgnoreCase);
-            SelectedKeys.IntersectWith(value.Where(r => r.Selectable && prior.TryGetValue(r.Key, out var old)
-                && old.Identity == r.Identity && old.Modified == r.Modified && old.Bytes == r.Bytes).Select(r => r.Key));
+            var prior = rows.Where(r => r.Selectable).ToDictionary(r => r.Key, StringComparer.OrdinalIgnoreCase);
+            var selected = new HashSet<string>(SelectedKeys, StringComparer.OrdinalIgnoreCase);
+            SelectedKeys.Clear();
+            foreach (var row in value.Where(r => r.Selectable))
+            {
+                bool unchanged = prior.TryGetValue(row.Key, out var old)
+                    && old.Identity == row.Identity && old.Modified == row.Modified && old.Bytes == row.Bytes
+                    && old.SelectedByDefault == row.SelectedByDefault;
+                if (unchanged ? selected.Contains(row.Key) : row.SelectedByDefault) SelectedKeys.Add(row.Key);
+            }
         }
         rows = value;
         Refilter();

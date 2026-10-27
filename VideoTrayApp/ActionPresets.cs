@@ -77,7 +77,7 @@ internal sealed class ActionPreset
                 : "Filenames: full content hash.");
             lines.Add($"Sources (direct files only): {string.Join("; ", settings.Sources)}\nCopy and verify only; sources unchanged; completed copies retained on cancellation.\nRun once, {ArchiveSpeed}; interval {ArchiveIntervalSeconds}s; I/O cap {ArchiveMegabytesPerSecond?.ToString() ?? "off"} MB/s; settle {ArchiveSettlingSeconds}s.");
         }
-        if (Action == PresetAction.SeekDuplications) lines.Add($"Directory B: {DirectoryB}\nInclude subfolders: {IncludeSubfolders}\nScan exact copies; always review individual paths and confirm selection. All start as Keep.");
+        if (Action == PresetAction.SeekDuplications) lines.Add($"Directory B: {DirectoryB}\nInclude subfolders: {IncludeSubfolders}\nDefault: keep A, recycle matching copies from B. Shared A/B paths and hard links stay kept. Always review paths and confirm selection.");
         if (Action == PresetAction.IdentifyClip) lines.Add($"Reference: {ReferenceClip}\nMatches: {IdentifyBehavior}; includes subfolders.");
         if (Action == PresetAction.RemoveDuplicates) lines.Add("Includes subfolders. Keep first copy alphabetically; recycle exact duplicates.");
         if (Action == PresetAction.ShuffleBatches)

@@ -42,7 +42,7 @@ All nine numeric PresetAction identities are unchanged. Working folder, tracking
 | Workflow | Retained contract / production presentation |
 | --- | --- |
 | Archive | Copies and verifies only; completed copies retained, owned incomplete files cleaned, pending work rediscovered. Pause keeps watching; Stop persists watch disabled. |
-| Seek duplications | All Keep initially; hard links stay Keep; one verified protected keeper per group. Cancel retains successful earlier recycling and reports untouched copies. Recovery is Windows Recycle Bin. |
+| Seek duplications | A defaults to Keep; matching B-only copies default to Recycle. Shared A/B paths and hard links default to Keep; hard links are locked Keep. Individual overrides survive unchanged refreshes; one verified protected keeper per group. Cancel retains successful earlier recycling and reports untouched copies. Recovery is Windows Recycle Bin. |
 | Remove duplicates | Alphabetical keeper remains authoritative. New workspace blocks partial-scan mutation and stages reviewed removals in an in-process transaction. Legacy manual adapter remains partial-progress behavior. |
 | Identify clip | Inspect-only mode available. Reference and physical aliases excluded. New workspace freezes suffix destinations, verifies files/reference, uses an in-process transaction, and blocks incomplete scans. Legacy manual adapter remains partial-progress behavior. |
 | Prepare Batch | Analysis freezes source filename shuffles before/after preparation, duplicate cleanup/refill, backups and duration numbering for the entire target, including starters. Reviewed and legacy adapters execute the same plan transactionally; backups retain pre-shuffle names. |

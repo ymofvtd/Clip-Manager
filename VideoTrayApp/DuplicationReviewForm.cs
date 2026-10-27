@@ -14,8 +14,8 @@ internal sealed class DuplicationReviewForm : Form
         ClientSize = new Size(1150, 620); MinimumSize = new Size(850, 480); StartPosition = FormStartPosition.CenterParent;
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 3, ColumnCount = 1 };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.Controls.Add(new Label { AutoSize = true, Text = $"{scan.Groups.Count} exact-identity groups spanning A and B. All copies start as Keep; neither side has priority.\n" +
-            $"Mark individual copies Recycle. Keep at least one per group. Hard links share one underlying file and stay kept.\nUnreadable files/folders: {scan.Errors.Count}" }, 0, 0);
+        layout.Controls.Add(new Label { AutoSize = true, Text = $"{scan.Groups.Count} exact-identity groups spanning A and B. Default: keep A, recycle matching copies from B.\n" +
+            $"Adjust individual choices before confirming. Keep at least one per group. Shared A/B paths and hard links stay kept by default.\nUnreadable files/folders: {scan.Errors.Count}" }, 0, 0);
         table.Columns.Add(new DataGridViewComboBoxColumn { Name = "Action", HeaderText = "Action", DataSource = new[] { "Keep", "Recycle" } });
         foreach (string name in new[] { "Group", "Side", "Full path", "Relative path", "Source folder", "Filename", "Bytes", "Duration", "Last write", "Underlying file" })
             table.Columns.Add(new DataGridViewTextBoxColumn { Name = name, HeaderText = name, ReadOnly = true });
@@ -31,7 +31,7 @@ internal sealed class DuplicationReviewForm : Form
             groupNumber++;
             foreach (var copy in group.Copies)
             {
-                int index = table.Rows.Add("Keep", groupNumber, copy.Side, copy.Path, copy.RelativePath, copy.Root,
+                int index = table.Rows.Add(copy.RecycleByDefault ? "Recycle" : "Keep", groupNumber, copy.Side, copy.Path, copy.RelativePath, copy.Root,
                     Path.GetFileName(copy.Path), copy.Size, copy.Duration, copy.LastWriteTime.ToLocalTime(),
                     copy.HardLink ? $"Hard link: {copy.Physical.Volume:X}:{copy.Physical.Index:X} ({copy.Physical.Links} aliases)" : "Separate file");
                 table.Rows[index].Tag = copy;

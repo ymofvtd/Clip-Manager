@@ -1,3 +1,9 @@
+# 2.2.7 Automatic Keep A / Recycle B selections
+
+Seek duplications now keeps directory A copies by default and automatically marks matching copies found only in B for recycling, including subfolders when enabled. Unique B clips, shared A/B paths and hard-link aliases stay untouched by these defaults. Individual Keep and Recycle overrides survive refreshes for unchanged files and directory roles. Review and run still confirms the exact selected paths and their verified keepers before any recycling.
+
+All 605 generated integration checks passed, including automatic selections across groups and subfolders, individual overrides, refresh and filtering, swapped directory roles, overlap and hard-link protection, cancelled confirmation and actual Recycle Bin operations on disposable clips.
+
 # 2.2.6 Automatic source shuffles for Prepare Batch
 
 Prepare Batch now shuffles eligible source filenames before preparation and reshuffles the remaining source clips afterward. The entire target batch, including existing starters, is numbered from shortest to longest. Backups keep the original pre-shuffle filenames, and Analyze previews both source shuffles without changing files. Cancellation or failure attempts to restore both shuffles, target numbering, backups and staged duplicate removals.

@@ -2,7 +2,11 @@ namespace VideoTrayApp;
 
 internal sealed record NeutralDuplicateGroup(ClipIdentity Identity, List<string> Paths);
 internal sealed record DuplicationCopy(string Path, string Side, string Root, string RelativePath,
-    long Size, TimeSpan Duration, DateTime LastWriteTime, PhysicalFileId Physical, bool HardLink);
+    long Size, TimeSpan Duration, DateTime LastWriteTime, PhysicalFileId Physical, bool HardLink)
+{
+    // Shared A/B paths belong to A too, so they must never default to recycling.
+    internal bool RecycleByDefault => Side == "B" && !HardLink;
+}
 internal sealed record DuplicationGroup(ClipIdentity Identity, List<DuplicationCopy> Copies);
 internal sealed record DuplicationScan(List<DuplicationGroup> Groups, List<string> Errors);
 internal sealed record DuplicationApplyResult(int Recycled, int Untouched, bool Cancelled, List<string> Errors)
