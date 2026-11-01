@@ -1,3 +1,9 @@
+# 2.2.8 Watched archive start notifications
+
+- Continuous watching shows **Archiving started** when an actual clip copy begins, including auto-resumed routes and tray startup.
+- One notification covers all watched routes until they have no pending clips for five minutes. Large batches, Slow scheduling, pauses, retries, routine scans and already archived clips do not generate repeated notifications.
+- Enabled by default; **Settings → General → Notify when watched archiving starts** controls this separately from operation completion notifications.
+
 # 2.2.7 Automatic Keep A / Recycle B selections
 
 Seek duplications now keeps directory A copies by default and automatically marks matching copies found only in B for recycling, including subfolders when enabled. Unique B clips, shared A/B paths and hard-link aliases stay untouched by these defaults. Individual Keep and Recycle overrides survive refreshes for unchanged files and directory roles. Review and run still confirms the exact selected paths and their verified keepers before any recycling.

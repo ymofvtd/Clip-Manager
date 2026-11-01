@@ -28,6 +28,8 @@ internal sealed class ArchiveManager : IDisposable
     private readonly ISet<string> extensions;
     private readonly string dataFolder;
     private readonly List<ArchiveRoute> routes = [];
+    private readonly ArchiveNotificationSession notificationSession = new(new ArchiveClock());
+    internal event Action<ArchiveRoute>? ArchivingStarted;
     internal IReadOnlyList<ArchiveRoute> Routes => routes;
     internal string LoadWarning { get; private set; } = "";
     internal bool Running => routes.Any(route => route.Worker.Running);
@@ -58,8 +60,19 @@ internal sealed class ArchiveManager : IDisposable
     }
 
     private string StorePath => Path.Combine(dataFolder, "archive_routes.json");
-    private ArchiveRoute Create(ArchiveRouteSettings settings) => new(settings,
-        new ArchiveWorker(coordinator, extensions, dataFolder, logFileName: $"archive_log_{settings.Id:N}.json"));
+    private ArchiveRoute Create(ArchiveRouteSettings settings)
+    {
+        var worker = new ArchiveWorker(coordinator, extensions, dataFolder, logFileName: $"archive_log_{settings.Id:N}.json");
+        var route = new ArchiveRoute(settings, worker);
+        worker.PendingChanged += pending => notificationSession.Observe(settings.Id,
+            worker.Settings.WatchContinuously && pending);
+        worker.CopyStarted += () =>
+        {
+            if (worker.Settings.WatchContinuously && notificationSession.TryStart(settings.Id))
+                ArchivingStarted?.Invoke(route);
+        };
+        return route;
+    }
 
     private void Persist(IEnumerable<ArchiveRouteSettings> configurations) =>
         AtomicJson.Save(StorePath, new ArchiveRouteStore { Routes = configurations.ToList() });
@@ -192,4 +205,40 @@ internal sealed class ArchiveManager : IDisposable
     }
 
     public void Dispose() { foreach (var route in routes) route.Worker.Dispose(); }
+}
+
+// One notification per burst across all watched routes. Pending work, including Slow
+// scheduling and retries, keeps the burst alive; empty metadata scans do not.
+internal sealed class ArchiveNotificationSession(IArchiveClock clock)
+{
+    internal static readonly TimeSpan QuietPeriod = TimeSpan.FromMinutes(5);
+    private readonly object gate = new();
+    private readonly HashSet<Guid> busyRoutes = [];
+    private DateTimeOffset? idleSince;
+    private bool notifyOnNextCopy = true;
+
+    internal void Observe(Guid route, bool pending)
+    {
+        lock (gate)
+        {
+            if (pending)
+            {
+                if (idleSince is { } idle && clock.UtcNow - idle >= QuietPeriod) notifyOnNextCopy = true;
+                busyRoutes.Add(route);
+                idleSince = null;
+            }
+            else if (busyRoutes.Remove(route) && busyRoutes.Count == 0) idleSince = clock.UtcNow;
+        }
+    }
+
+    internal bool TryStart(Guid route)
+    {
+        lock (gate)
+        {
+            Observe(route, pending: true);
+            if (!notifyOnNextCopy) return false;
+            notifyOnNextCopy = false;
+            return true;
+        }
+    }
 }

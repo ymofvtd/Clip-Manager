@@ -36,7 +36,7 @@ internal sealed class ClipArchiver
         }
     }
 
-    internal ArchiveClipResult Process(string source, IOperationProgress progress, CancellationToken ct)
+    internal ArchiveClipResult Process(string source, IOperationProgress progress, CancellationToken ct, Action? copyStarted = null)
     {
         string? temporary = null;
         ArchiveContent? occupiedContent = null;
@@ -72,6 +72,8 @@ internal sealed class ClipArchiver
             progress.SetIndeterminate($"Copying {Path.GetFileName(source)}...");
             using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024))
             {
+                ct.ThrowIfCancellationRequested();
+                copyStarted?.Invoke();
                 string hash = content.HashTo(output, (done, total) => progress.Report(
                     (int)(done * 100 / Math.Max(1, total)), 100,
                     $"Copying {Path.GetFileName(source)}: {done:N0}/{total:N0} bytes"), ct, limiter, identity?.Hash);

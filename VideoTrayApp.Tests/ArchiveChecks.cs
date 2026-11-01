@@ -140,6 +140,7 @@ internal static class ArchiveChecks
         RunTiming();
         RunWorker(root, write, exts);
         RunMultipleRoutes(root, write, exts);
+        ArchiveNotificationChecks.Run(root, write);
         RunInterrupt(root, write, exts);
         RunAvailabilityAndOverflow(root, write, exts);
         MeasureIndex(data, isolatedDest);

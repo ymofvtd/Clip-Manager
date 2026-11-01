@@ -11,6 +11,7 @@ internal sealed class UiPreferences
     public bool LaunchIntoTray { get; set; }
     public bool CloseToTray { get; set; } = true;
     public bool Notifications { get; set; }
+    public bool ArchiveStartNotifications { get; set; } = true;
     public bool SetupDismissed { get; set; }
     public Rectangle Bounds { get; set; }
     public bool Maximized { get; set; }

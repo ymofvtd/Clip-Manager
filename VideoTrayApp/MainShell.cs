@@ -106,6 +106,7 @@ internal sealed partial class MainShell : Form
         refresh.Tick += (_, _) => RefreshPresentation();
         SystemEvents.UserPreferenceChanged += SystemPreferencesChanged;
         SetupTray();
+        archives.ArchivingStarted += NotifyArchivingStarted;
         if (preferences.Bounds.Width > 0)
         {
             var screen = Screen.FromRectangle(preferences.Bounds);
@@ -294,6 +295,23 @@ internal sealed partial class MainShell : Form
         menu.Items.Add("Exit", null, async (_, _) => await ExitAsync());
         menu.Opening += (_, _) => RefreshPresentation(); DesktopTheme.StyleMenu(menu); tray.ContextMenuStrip = menu;
     }
+    private void NotifyArchivingStarted(ArchiveRoute route)
+    {
+        if (IsDisposed || Disposing || !IsHandleCreated) return;
+        string name = route.Configuration.Name;
+        try
+        {
+            BeginInvoke(() =>
+            {
+                if (shuttingDown || IsDisposed || Disposing || !preferences.ArchiveStartNotifications) return;
+                tray.BalloonTipTitle = "Archiving started";
+                tray.BalloonTipText = $"{name}: copying clips from your watched folders.";
+                tray.BalloonTipIcon = ToolTipIcon.Info;
+                tray.ShowBalloonTip(3000);
+            });
+        }
+        catch (InvalidOperationException) { /* The window may be closing. */ }
+    }
     private async Task StopArchiveAsync()
     {
         try
@@ -400,6 +418,7 @@ internal sealed partial class MainShell : Form
         if (disposing && !resourcesDisposed)
         {
             resourcesDisposed = true;
+            archives.ArchivingStarted -= NotifyArchivingStarted;
             SystemEvents.UserPreferenceChanged -= SystemPreferencesChanged;
             lifetime.Cancel(); refresh.Dispose(); durationTooltips.Dispose(); if (!jobs.Busy) jobs.Dispose(); tray.ContextMenuStrip?.Dispose(); tray.Dispose();
             folderRefresh?.Cancel(); folderRefresh?.Dispose(); folderRefresh = null;

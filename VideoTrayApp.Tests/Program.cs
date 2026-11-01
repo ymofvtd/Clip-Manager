@@ -13,6 +13,7 @@ string root = Path.Combine(Path.GetTempPath(), "ClipIdentifierTests-" + Guid.New
 Directory.CreateDirectory(root);
 try
 {
+    if (args.Contains("--archive-notifications-only")) { ArchiveNotificationChecks.Run(root, WriteMp4); return; }
     if (args.Contains("--monthly-only")) { MonthlyBatchChecks.Run(root, WriteMp4); return; }
     if (args.Contains("--prepare-only")) { BatchPreparationChecks.Run(root, WriteMp4); return; }
     if (args.Contains("--duplication-only")) { DuplicationChecks.Run(root, WriteMp4); return; }

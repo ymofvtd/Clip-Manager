@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.2.7
+2.2.8
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -35,6 +35,8 @@ Archive **copies and verifies** clips; it never moves, renames, deletes, recycle
 Choose **Run once** (Watch continuously unchecked) or **Watch continuously**, independently of **Fast** or **Slow**. Fast runs one clip at a time without an intentional interval or I/O cap. Slow defaults to a 120-second minimum interval between clip starts and an optional 20 MB/s aggregate limit across application-controlled content reads and writes, including hashing and verification. MB/s means 1,000,000 bytes per second; actual copying is slower because verification adds passes. Metadata and filesystem caching affect observed disk usage. Settling defaults to 10 seconds with unchanged size/time; locked or growing clips remain pending.
 
 Use **Start**, **Pause**, **Resume**, and **Stop**. Closing the window keeps active routes in the tray; Exit stops background work safely. Explicitly enabled continuous watching resumes independently for each route on later app launches. Stop disables that route's automatic resume; Start remembers the selected mode again. Watchers queue/debounce direct-folder arrivals and reconcile every five minutes and after overflow/errors. Each route's event queue is bounded at 4,096 paths; overflow schedules reconciliation. Unavailable sources receive backoff/reconciliation, and an unavailable/full destination suspends its route's copying with a persistent status warning. Run-once failures stop retrying a clip after three attempts; Start rediscovers unfinished work.
+
+Continuous watching shows **Archiving started** when it starts copying clips, including after automatic startup resumption. One notification covers the batch across all watched routes. Another is allowed after all watched routes have had no pending clips for five minutes; long copies, Slow intervals, settling, pauses and retries do not cause per-clip notifications. Routine scans and already archived clips stay silent. This is enabled by default and can be disabled in **Settings → General → Notify when watched archiving starts**, independently of operation completion notifications.
 
 The status window shows queued clips, byte progress, copied/verified and already-archived counts, failures/retries, last success, warnings, and a bounded log. Foreground clip operations take priority, interrupt an incomplete background copy, and requeue it; watchers stay subscribed. Completed verified copies survive cancellation. Restart reconciliation recovers a finalized copy even if publication was interrupted before its index save. Only exact temporary paths recorded as owned by this archiver are cleaned up. Archive writes use a non-video temporary extension to avoid repeated duration refreshes. Shuffle Batches can still move/rename archive clips; reconciliation finds their new locations and recopies missing content when a source survives.
 

@@ -31,6 +31,10 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
     private DateTimeOffset nextStatus;
     internal event Action<ArchiveStatus>? StatusChanged;
     internal event Action? ArchiveChanged;
+    internal event Action? CopyStarted;
+    // Queue transitions must reach the notification session even while paused or
+    // settling. Unlike UI status, they are ordered under gate and never throttled.
+    internal event Action<bool>? PendingChanged;
     internal ArchiveSettings Settings { get; private set; } = new();
     internal bool Running { get { lock (gate) return task is { IsCompleted: false }; } }
     internal bool ReadyForMonthlyBatch
@@ -61,6 +65,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
             stop = new();
             Settings = settings;
             queue.Clear(); log.Clear();
+            PendingChanged?.Invoke(false);
             copied = archived = failed = percent = unchanged = 0;
             current = warning = ""; paused = suspended = discoveryComplete = false; lastSuccess = null; reconcileRequested = true;
             task = Task.Run(() => Run(stop.Token));
@@ -217,7 +222,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
                             continue;
                         }
                         schedule.BeforeClip(workToken);
-                        var result = archiver!.Process(path, this, workToken);
+                        var result = archiver!.Process(path, this, workToken, () => CopyStarted?.Invoke());
                         if (result.Outcome is ArchiveOutcome.CopiedAndVerified or ArchiveOutcome.AlreadyArchived)
                         {
                             RemoveJob(path, job);
@@ -271,6 +276,7 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
             {
                 foreach (var watcher in watchers.Values) watcher.Dispose();
                 watchers.Clear(); cycle?.Dispose(); cycle = null; current = "";
+                PendingChanged?.Invoke(false);
             }
             // Publish after this task finishes so Running is accurate.
             try { AtomicJson.Save(Path.Combine(dataFolder, logFileName), log.ToArray()); } catch { }
@@ -294,7 +300,14 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
         if (!Directory.Exists(Settings.Destination)) throw new DirectoryNotFoundException(Settings.Destination);
     }
     private void RemoveJob(string path, Job job)
-    { lock (gate) if (queue.TryGetValue(path, out var currentJob) && ReferenceEquals(job, currentJob)) queue.Remove(path); }
+    {
+        lock (gate)
+            if (queue.TryGetValue(path, out var currentJob) && ReferenceEquals(job, currentJob))
+            {
+                queue.Remove(path);
+                if (queue.Count == 0) PendingChanged?.Invoke(false);
+            }
+    }
 
     internal void Enqueue(string path, bool debounce)
     {
@@ -310,7 +323,9 @@ internal sealed class ArchiveWorker : IDisposable, IOperationProgress
             }
             var job = new Job { Due = clock.UtcNow.AddSeconds(Settings.SettlingSeconds) };
             try { var info = new FileInfo(path); job.Size = info.Length; job.Time = info.LastWriteTimeUtc; } catch { }
+            bool wasEmpty = queue.Count == 0;
             queue[path] = job;
+            if (wasEmpty) PendingChanged?.Invoke(true);
         }
     }
     private void RefreshWatchers()

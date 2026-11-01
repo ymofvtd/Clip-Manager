@@ -74,6 +74,7 @@ internal sealed partial class MainShell
         DesktopTheme.Add(general, Preference("Launch into tray after setup", preferences.LaunchIntoTray, value => preferences.LaunchIntoTray = value));
         DesktopTheme.Add(general, Preference("Close window to tray (Exit stops the application)", preferences.CloseToTray, value => preferences.CloseToTray = value));
         DesktopTheme.Add(general, Preference("Notify on operation completion / problems", preferences.Notifications, value => preferences.Notifications = value));
+        DesktopTheme.Add(general, Preference("Notify when watched archiving starts (after 5 quiet minutes)", preferences.ArchiveStartNotifications, value => preferences.ArchiveStartNotifications = value));
         var theme = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180, AccessibleName = "Theme" };
         theme.Items.AddRange(["System", "Light", "Dark"]); theme.SelectedIndex = (int)preferences.Theme;
         theme.SelectedIndexChanged += (_, _) => { preferences.Theme = (AppTheme)theme.SelectedIndex; DesktopTheme.Current = preferences.Theme; DesktopTheme.Apply(this); SavePreferences(); };
