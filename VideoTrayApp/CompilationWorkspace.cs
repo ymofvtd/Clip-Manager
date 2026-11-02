@@ -6,6 +6,9 @@ internal sealed class CompilationWorkspace : UserControl
     private readonly CompilationSessions store;
     private readonly ComboBox sessions = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 350, AccessibleName = "Compilation sessions" };
     private readonly PathPicker destination, watchSource;
+    private readonly TextBox selectedFiles = new() { ReadOnly = true,
+        PlaceholderText = "Browse to select one or more MP4 clips.",
+        AccessibleName = "Selected compilation clips" };
     private readonly TextBox folderName = new() { Width = 260, AccessibleName = "Compilation folder name" };
     private readonly DetailsBox status = new() { Dock = DockStyle.Bottom, Height = 85, Multiline = true, ReadOnly = true,
         ScrollBars = ScrollBars.Vertical, AccessibleName = "Compilation status" };
@@ -37,12 +40,29 @@ internal sealed class CompilationWorkspace : UserControl
         destination = new("Compilation folder", recent: preferences.RecentPaths);
         watchSource = new("Watched source folder (MP4 clips directly inside this folder)", recent: preferences.RecentPaths);
         var fields = DesktopTheme.Stack(); fields.Padding = new Padding(24, 12, 24, 12);
-        DesktopTheme.Add(fields, DesktopTheme.Text("Choose a compilation folder and lock it in. Adding clips copies and verifies them, then shuffles all MP4s directly in the compilation into numbered filenames. Originals stay in place. Each saved session has its own folder and optional watched source."));
+        DesktopTheme.Add(fields, DesktopTheme.Text("Choose a compilation folder, browse for MP4 clips, then add them. Clips are copied and verified; originals stay in place. A watched source folder is optional."));
         DesktopTheme.Add(fields, destination);
         lockIn = DesktopTheme.Button("Lock in folder", LockIn); lockIn.Tag = CommandRole.Primary;
         rename = DesktopTheme.Button("Rename folder", async () => await RenameAsync());
         forget = DesktopTheme.Button("Forget session", Forget);
         DesktopTheme.Add(fields, DesktopTheme.Actions(lockIn, DesktopTheme.Text("Folder name"), folderName, rename, forget));
+        DesktopTheme.Add(fields, DesktopTheme.Text("Clips"));
+        add = DesktopTheme.Button("Browse clips…", async () =>
+        {
+            if (draft || store.Active is null || busy || shell.IsBusy) return;
+            using var picker = new OpenFileDialog { Title = "Select clips for " + store.Active.Name,
+                Filter = VideoFiles.PickerFilter, Multiselect = true, CheckFileExists = true };
+            if (picker.ShowDialog(shell) != DialogResult.OK) return;
+            selectedFiles.Text = string.Join("; ", picker.FileNames);
+            await AddAsync(picker.FileNames);
+        });
+        var clipPicker = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 2 };
+        clipPicker.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        clipPicker.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        selectedFiles.Dock = DockStyle.Fill;
+        clipPicker.Controls.Add(selectedFiles, 0, 0); clipPicker.Controls.Add(add, 1, 0);
+        DesktopTheme.Add(fields, clipPicker);
+        DesktopTheme.Add(fields, DesktopTheme.Text("Optional watched source"));
         DesktopTheme.Add(fields, watchSource);
         watch = DesktopTheme.Button("Watch this folder", () => Try(() =>
         {
@@ -58,13 +78,6 @@ internal sealed class CompilationWorkspace : UserControl
         }));
         DesktopTheme.Add(fields, DesktopTheme.Actions(watch, stopWatch));
         settingsPage.Controls.Add(fields);
-        add = DesktopTheme.Button("Add clip / clips…", async () =>
-        {
-            if (draft || store.Active is null || busy || shell.IsBusy) return;
-            using var picker = new OpenFileDialog { Title = "Add clips to " + store.Active.Name,
-                Filter = VideoFiles.PickerFilter, Multiselect = true, CheckFileExists = true };
-            if (picker.ShowDialog(shell) == DialogResult.OK) await AddAsync(picker.FileNames);
-        });
         addSelected = DesktopTheme.Button("Add selected clips", async () => await AddSelectedAsync()); addSelected.Tag = CommandRole.Primary;
         var sourceActions = DesktopTheme.Actions(DesktopTheme.Button("Select all visible", sourceClips.SelectVisible),
             DesktopTheme.Button("Clear selection", sourceClips.ClearSelection), addSelected);
@@ -87,7 +100,7 @@ internal sealed class CompilationWorkspace : UserControl
         compilationTab = DesktopTheme.Button("Compilation", () => ShowPage(compilationPage));
         settingsTab.Kind = sourceTab.Kind = compilationTab.Kind = ButtonKind.Tab;
         var header = DesktopTheme.Stack(); header.Padding = new Padding(20, 4, 16, 0);
-        DesktopTheme.Add(header, DesktopTheme.Actions(DesktopTheme.Text("Session"), sessions, DesktopTheme.Button("New session", NewSession), add));
+        DesktopTheme.Add(header, DesktopTheme.Actions(DesktopTheme.Text("Session"), sessions, DesktopTheme.Button("New session", NewSession)));
         active.Tag = TextRole.Secondary; total.Font = DesktopTheme.EmphasisFont; total.AccessibleName = "Compilation total duration";
         DesktopTheme.Add(header, DesktopTheme.Actions(active, total));
         DesktopTheme.Add(header, DesktopTheme.Actions(settingsTab, sourceTab, compilationTab));
@@ -162,7 +175,7 @@ internal sealed class CompilationWorkspace : UserControl
         try { var session = store.LockIn(destination.Value); shell.RememberPath(session.Folder); }
         catch { draft = store.Active is not null; throw; }
         RefreshSessions();
-        status.Text = "Folder locked in. Set a watched source, add files with the button, drop files here, or add search results to this compilation.";
+        status.Text = "Folder locked in. Browse clips to select and add files. Watching a source folder is optional.";
     });
 
     private void Forget() => Try(() =>
@@ -226,6 +239,7 @@ internal sealed class CompilationWorkspace : UserControl
                 : "Set a watched source folder in Session settings to choose clips here.";
             if (changed)
             {
+                selectedFiles.Clear();
                 total.Text = !draft && store.Active is not null ? "Total duration: calculating…" : "Total duration: —";
                 clips.SetRows([]); sourceClips.SetRows([]);
             }

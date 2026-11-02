@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.2.10
+2.2.11
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -96,7 +96,7 @@ Open **Batches → Preparing compilation**, choose a compilation folder, and **L
 
 In **Session settings**, choose a separate **Watched source folder**, then **Watch this folder**. The **Watched clips** tab displays MP4 files directly inside that folder, including their durations. Arrivals, edits, renames and deletions refresh automatically while the workspace is open; unchanged clip selections survive refreshes. Filter the list, click **Select** or press Space, use **Select all visible**, and **Add selected clips**. Selections hidden by a filter are also included. Watching helps you choose clips; copying starts when you add them. Subfolders and linked paths are excluded. Each session remembers its own watched source.
 
-You can also use **Add clip / clips…**, drop MP4 files onto the workspace, or use **Add to compilation** from Seek clips or Identify clip results. The active session receives the selected clips. Sources stay in place; copies are read back and verified by size, duration and SHA-256. Every successful add shuffles all MP4 clips directly in the compilation folder into padded numeric filenames such as `0001.mp4`, preserving extensions and skipping occupied folder names. Existing clips participate in every shuffle. Non-video files and subfolders stay in place. A clip can be added more than once; each add makes another copy.
+Use the **Clips** field in **Session settings** and click **Browse clips…** to select one or more MP4 files from your computer and add them to the compilation. The watched folder is optional. You can also drop MP4 files onto the workspace or use **Add to compilation** from Seek clips or Identify clip results. The active session receives the selected clips. Sources stay in place; copies are read back and verified by size, duration and SHA-256. Every successful add shuffles all MP4 clips directly in the compilation folder into padded numeric filenames such as `0001.mp4`, preserving extensions and skipping occupied folder names. Existing clips participate in every shuffle. Non-video files and subfolders stay in place. A clip can be added more than once; each add makes another copy.
 
 **Total duration** shows the combined playback length and clip count of the active compilation on every tab. The **Compilation** tab lists its current clips in filename order. Both the list and total refresh after additions and external folder changes. Unreadable files produce an explicitly partial total. Metadata scans run off the UI thread and reuse unchanged duration metadata. Unavailable watched folders remain saved and are retried automatically.
 
