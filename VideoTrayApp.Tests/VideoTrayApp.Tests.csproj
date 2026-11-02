@@ -5,13 +5,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>2.2.9</Version>
+    <Version>2.2.10</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
     <Compile Include="../VideoTrayApp/ClipDateLookup.cs" Link="ClipDateLookup.cs" />
     <Compile Include="../VideoTrayApp/ClipDateActionPlan.cs" Link="ClipDateActionPlan.cs" />
-    <Compile Include="../VideoTrayApp/ClipDateWorkspace.cs" Link="ClipDateWorkspace.cs" />
+    <Compile Include="../VideoTrayApp/ClipSeek*.cs" Link="%(Filename)%(Extension)" />
+    <Compile Include="../VideoTrayApp/Mp4FrameRate.cs" Link="Mp4FrameRate.cs" />
     <Compile Include="../VideoTrayApp/ClipDuration*.cs" Link="%(Filename)%(Extension)" />
     <Compile Include="../VideoTrayApp/Compilation*.cs" Link="%(Filename)%(Extension)" />
     <Compile Include="../VideoTrayApp/ClipIdentifier.cs" Link="ClipIdentifier.cs" />

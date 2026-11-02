@@ -35,7 +35,7 @@ internal sealed record IdentifyClipScan(PlannedFile Reference, IReadOnlyList<Pla
             changes.Add(new(file, target));
         }
         if (changes.Count == 0) throw new ArgumentException("Select at least one identified clip.");
-        // Share the same verified move/recycle transaction used by Find by date.
+        // Share the same verified move/recycle transaction used by Seek clips.
         return new(Reference, new ClipDateActionPlan(changes.AsReadOnly(), destination));
     }
 }

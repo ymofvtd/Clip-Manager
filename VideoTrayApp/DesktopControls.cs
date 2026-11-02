@@ -373,7 +373,7 @@ internal sealed class SourceFolderList : UserControl
 
 internal sealed record ContextRow(string Key, string Group, string Action, string Path, string Proposed,
     string Context, string Duration, string Size, bool Selectable = false, long Bytes = 0,
-    DateTimeOffset? Modified = null, string Identity = "", DateTimeOffset? Created = null, bool SelectedByDefault = false);
+    DateTimeOffset? Modified = null, string Identity = "", DateTimeOffset? Created = null, bool SelectedByDefault = false, decimal? FrameRate = null);
 
 // Materialize only visible grid cells. Selection belongs to stable keys, never row numbers.
 internal sealed class FileContextList : UserControl
@@ -425,7 +425,8 @@ internal sealed class FileContextList : UserControl
             var row = visible[e.RowIndex];
             e.Value = e.ColumnIndex switch { 0 => row.Group, 1 => row.Selectable ? this.lookup ? SelectedKeys.Contains(row.Key) ? "Selected" : "—" : SelectedKeys.Contains(row.Key) ? "Recycle" : "Keep" : row.Action,
                 2 => Path.GetFileName(row.Path), 3 => row.Context, 4 => row.Proposed, 5 => row.Duration, 6 => row.Size,
-                8 => row.Created?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "Unknown", _ => row.Modified?.ToLocalTime().ToString("g") ?? "" };
+                8 => row.Created?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "Unknown",
+                9 => row.FrameRate?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? "Unknown", _ => row.Modified?.ToLocalTime().ToString("g") ?? "" };
         };
         void Toggle(int index)
         {
@@ -502,7 +503,7 @@ internal sealed class FileContextList : UserControl
         {
             IComparable SortValue(ContextRow r) => sortColumn switch { 0 => r.Group, 1 => r.Selectable ? SelectedKeys.Contains(r.Key) ? "Recycle" : "Keep" : r.Action,
                 2 => System.IO.Path.GetFileName(r.Path), 3 => r.Context, 4 => r.Proposed, 5 => r.Duration, 6 => r.Bytes,
-                8 => r.Created ?? DateTimeOffset.MaxValue, _ => r.Modified ?? DateTimeOffset.MinValue };
+                8 => r.Created ?? DateTimeOffset.MaxValue, 9 => r.FrameRate ?? decimal.MaxValue, _ => r.Modified ?? DateTimeOffset.MinValue };
             visible = (descending ? visible.OrderByDescending(SortValue) : visible.OrderBy(SortValue)).ToList();
         }
         Table.RowCount = visible.Count; Table.Invalidate(); UpdateSummary(); UpdateDetails();

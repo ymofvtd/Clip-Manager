@@ -8,6 +8,8 @@ internal static class DurationCompilationChecks
     internal static void Run(string root, Action<string, uint, byte> write)
     {
         Duration(root, write);
+        Seek(root, write);
+        FrameRates(root, write);
         Compilation(root, write);
         Ui(root, write);
     }
@@ -62,6 +64,143 @@ internal static class DurationCompilationChecks
         try { ClipDurationLookup.Find(source, query, true, new TestProgress { OnMessage = _ => cancel.Cancel() }, cancel.Token); }
         catch (OperationCanceledException) { cancelled = true; }
         Check(cancelled, "Duration scans support cancellation");
+    }
+
+    private static void Seek(string root, Action<string, uint, byte> write)
+    {
+        string source = Folder(root, "seek-source"), nested = Folder(source, "nested");
+        var zone = TimeZoneInfo.CreateCustomTimeZone("Seek UTC+8", TimeSpan.FromHours(8), "Seek UTC+8", "Seek UTC+8");
+        var day = new DateOnly(2025, 3, 5);
+        DateTimeOffset start = new(2025, 3, 4, 16, 0, 0, TimeSpan.Zero), end = start.AddDays(1).AddSeconds(-1);
+        string Add(string folder, string name, uint duration, DateTimeOffset? date)
+        {
+            string path = Path.Combine(folder, name); write(path, duration, 110);
+            if (date is { } created)
+            {
+                byte[] bytes = File.ReadAllBytes(path);
+                BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(44), checked((uint)(created - new DateTimeOffset(1904, 1, 1, 0, 0, 0, TimeSpan.Zero)).TotalSeconds));
+                File.WriteAllBytes(path, bytes);
+            }
+            return path;
+        }
+        string first = Add(source, "start.mp4", 10, start), last = Add(nested, "end.MP4", 10, end);
+        Add(source, "before.mp4", 10, start.AddSeconds(-1));
+        string after = Add(source, "after.mp4", 10, end.AddSeconds(1));
+        string unknown = Add(source, "unknown.mp4", 10, null);
+        string otherDuration = Add(source, "longer.mp4", 16, start);
+        File.SetCreationTimeUtc(unknown, new DateTime(2025, 3, 5));
+        File.SetCreationTimeUtc(first, new DateTime(2026, 1, 1));
+        var snapshot = Snapshot(source);
+        var duration = DurationQuery.Parse("00:10:00", 30, DurationMatchMode.Exact);
+        var combined = new ClipSeekOptions(day, day, duration);
+        ClipSeekResult Find(ClipSeekOptions options, string? previous = null, bool recursive = true, TimeZoneInfo? timeZone = null)
+            => ClipSeekLookup.Find(source, options, recursive, timeZone ?? zone, new TestProgress(), CancellationToken.None, previous);
+        var result = Find(combined);
+        Check(result.Matches.Select(c => c.File.Path).ToHashSet().SetEquals([first, last]) && result.Eligible == 2 && result.Unknown == 1,
+            "Combined seeking applies duration AND inclusive local-date boundaries using embedded dates, regardless of filesystem dates");
+        Check(Find(combined with { IncludeUnknownDates = true }).Matches.Select(c => c.File.Path).ToHashSet().SetEquals([first, last, unknown]),
+            "Combined seeking can explicitly include undated clips that still match the duration filter");
+        Check(Find(new(day, day)).Matches.Select(c => c.File.Path).ToHashSet().SetEquals([first, last, otherDuration])
+            && Find(new(Duration: duration)).Eligible == 5 && Find(new()).Eligible == 6,
+            "Date-only, duration-only and unfiltered seeking remain independently available");
+        var one = Find(combined with { OneRandom = true });
+        var another = Find(combined with { OneRandom = true }, one.Matches.Single().File.Path);
+        Check(one.Eligible == 2 && one.Matches.Count == 1 && another.Matches.Count == 1
+            && one.Matches[0].File.Path != another.Matches[0].File.Path,
+            "Random seeking returns one eligible clip and rerolls within the combined filters");
+        Check(Find(combined, recursive: false).Matches.Single().File.Path == first
+            && Find(combined with { OneRandom = true }, last, timeZone: TimeZoneInfo.Utc).Matches.Single().File.Path == after,
+            "Unified seeking respects recursion and the selected time zone when applying dates");
+        Check(Find(combined with { Duration = duration with { Frames = 30000 } }).Matches.Count == 0,
+            "No clip is returned when date and duration criteria have no common match");
+        bool reversed = false, incomplete = false, cancelled = false;
+        try { Find(combined with { From = day.AddDays(1) }); } catch (ArgumentException) { reversed = true; }
+        try { Find(combined with { Through = null }); } catch (ArgumentException) { incomplete = true; }
+        using var cancellation = new CancellationTokenSource();
+        try { ClipSeekLookup.Find(source, combined, true, zone, new TestProgress { OnMessage = _ => cancellation.Cancel() }, cancellation.Token); }
+        catch (OperationCanceledException) { cancelled = true; }
+        Check(reversed && incomplete && cancelled && snapshot.SequenceEqual(Snapshot(source)),
+            "Unified seeking rejects invalid date ranges, supports cancellation, and preserves clip files");
+        File.WriteAllText(Path.Combine(source, "invalid.mp4"), "malformed");
+        var partial = Find(combined);
+        Check(partial.Errors.Count == 1 && partial.Eligible == 2 && partial.Scanned == 7,
+            "Unified seeking distinguishes incomplete scans from no matches");
+        var plan = ClipDateActionPlan.Create(result.Matches.Select(c => c.File).ToArray(), Folder(root, "seek-move-review"), new TestProgress(), CancellationToken.None);
+        Check(plan.Changes.Count == 2 && plan.Changes.All(c => File.Exists(c.File.Path)),
+            "Unified results retain the metadata guards needed for verified move and recycle actions");
+    }
+
+    private static void FrameRates(string root, Action<string, uint, byte> write)
+    {
+        string source = Folder(root, "seek-frame-rates");
+        string Add(string name, uint scale, (uint Count, uint Delta)[] timing, bool audio = false)
+        {
+            string path = Path.Combine(source, name); write(path, 2, 111);
+            AddFrameRateTrack(path, scale, timing, audio); return path;
+        }
+        string rate58 = Add("58.mp4", 58000, [(116, 1000)]);
+        string rate5997 = Add("59.97.mp4", 59970, [(120, 1000)]);
+        string rate5994 = Add("59.94.mp4", 60000, [(120, 1001)]);
+        string variable = Add("variable.mp4", 60000, [(60, 1000), (60, 1001)]);
+        string audio = Add("audio-only.mp4", 48000, [(96000, 1)], audio: true);
+        string unknown = Path.Combine(source, "unknown.mp4"); write(unknown, 2, 112);
+        string broken = Add("bad-timing.mp4", 58000, [(116, 1000)]);
+        byte[] damaged = File.ReadAllBytes(broken);
+        int stts = System.Text.Encoding.ASCII.GetString(damaged).IndexOf("stts", StringComparison.Ordinal);
+        BinaryPrimitives.WriteUInt32BigEndian(damaged.AsSpan(stts + 8), 2); File.WriteAllBytes(broken, damaged);
+        decimal? Read(string path) { using var stream = File.OpenRead(path); return Mp4FrameRate.TryRead(stream, CancellationToken.None); }
+        Check(Read(rate58) == 58m && Read(rate5997) == 59.97m && Mp4FrameRate.Rounded(Read(rate5994)!.Value) == 59.94m,
+            "MP4 sample timing detects 58, 59.97 and 60000/1001 FPS without rounding to integer frame rates");
+        Check(Mp4FrameRate.Rounded(Read(variable)!.Value) == 59.97m && Read(audio) is null && Read(unknown) is null && Read(broken) is null,
+            "Variable frame rates use their timing-weighted average; audio tracks, missing timing and malformed tables stay unknown");
+        AddFrameRateTrack(audio, 58000, [(116, 1000)]);
+        Check(Read(audio) == 58m, "Frame-rate discovery skips an audio track and finds the following video track");
+        var snapshot = Snapshot(source);
+        var discovery = Mp4FrameRate.Discover(source, false, new TestProgress(), CancellationToken.None);
+        Check(discovery.Rates.SequenceEqual([58m, 59.94m, 59.97m]) && discovery.Unknown == 2 && discovery.Scanned == 7,
+            "Detected FPS options reflect the actual folder, group decimal rates to three places, and report unknown rates");
+        var query = DurationQuery.Parse("00:02:00", 30, DurationMatchMode.Exact);
+        ClipSeekResult Find(ClipSeekOptions options) => ClipSeekLookup.Find(source, options, false, TimeZoneInfo.Utc, new TestProgress(), CancellationToken.None);
+        var specific = Find(new(Duration: query, FrameRate: 59.97m));
+        Check(specific.Matches.Select(c => c.File.Path).ToHashSet().SetEquals([rate5997, variable]),
+            "A selected decimal FPS filters actual clip metadata independently of the timecode interpretation rate");
+        var all = Find(new());
+        Check(all.Eligible == 7 && all.Matches.Any(c => c.File.Path == unknown) && all.Matches.Any(c => c.File.Path == broken),
+            "All frame rates includes unusual, variable, and unknown FPS clips without a frame-rate restriction");
+        var automatic = DurationQuery.ParseAutomatic("00:01:29", DurationMatchMode.Exact);
+        Check(automatic.Matches(TimeSpan.FromSeconds(1.5), 58) && !automatic.Matches(TimeSpan.FromSeconds(1.5), 59.97m)
+            && !automatic.Matches(TimeSpan.FromSeconds(1.5)) && automatic.Format(TimeSpan.FromSeconds(1.5), 58) == "00:01:29",
+            "Automatic MM:SS:FF uses each clip's own FPS and does not invent a rate for nonzero frames when metadata is absent");
+        Check(DurationQuery.ParseAutomatic("00:02:00", DurationMatchMode.Exact).Matches(TimeSpan.FromSeconds(2))
+            && !DurationQuery.ParseAutomatic("00:02:00", DurationMatchMode.Exact).Matches(TimeSpan.FromSeconds(2.1))
+            && DurationQuery.Parse("00:01:15", 30, DurationMatchMode.Exact).Matches(TimeSpan.FromSeconds(1.5), 58),
+            "Unknown FPS supports exact whole-second timecodes; explicit timecode FPS remains independent of actual clip FPS");
+        Check(Find(new(Duration: DurationQuery.ParseAutomatic("00:02:00", DurationMatchMode.Exact), FrameRate: 58)).Matches.Count == 2
+            && snapshot.SequenceEqual(Snapshot(source)), "Detected FPS filtering combines with automatic duration matching without changing clip bytes");
+    }
+
+    private static void AddFrameRateTrack(string path, uint scale, (uint Count, uint Delta)[] timing, bool audio = false)
+    {
+        static byte[] Atom(string name, byte[] payload)
+        {
+            byte[] bytes = new byte[8 + payload.Length]; BinaryPrimitives.WriteUInt32BigEndian(bytes, (uint)bytes.Length);
+            System.Text.Encoding.ASCII.GetBytes(name).CopyTo(bytes, 4); payload.CopyTo(bytes, 8); return bytes;
+        }
+        byte[] mediaHeader = new byte[24]; BinaryPrimitives.WriteUInt32BigEndian(mediaHeader.AsSpan(12), scale);
+        BinaryPrimitives.WriteUInt32BigEndian(mediaHeader.AsSpan(16), checked(timing.Aggregate(0u, (sum, t) => sum + t.Count * t.Delta)));
+        byte[] handler = new byte[24]; System.Text.Encoding.ASCII.GetBytes(audio ? "soun" : "vide").CopyTo(handler, 8);
+        byte[] samples = new byte[8 + timing.Length * 8]; BinaryPrimitives.WriteUInt32BigEndian(samples.AsSpan(4), (uint)timing.Length);
+        for (int i = 0; i < timing.Length; i++)
+        {
+            BinaryPrimitives.WriteUInt32BigEndian(samples.AsSpan(8 + i * 8), timing[i].Count);
+            BinaryPrimitives.WriteUInt32BigEndian(samples.AsSpan(12 + i * 8), timing[i].Delta);
+        }
+        byte[] track = Atom("trak", Atom("mdia", Atom("mdhd", mediaHeader).Concat(Atom("hdlr", handler))
+            .Concat(Atom("minf", Atom("stbl", Atom("stts", samples)))).ToArray()));
+        byte[] original = File.ReadAllBytes(path);
+        uint oldMovieSize = BinaryPrimitives.ReadUInt32BigEndian(original.AsSpan(24));
+        byte[] movie = Atom("moov", original.AsSpan(32, (int)oldMovieSize - 8).ToArray().Concat(track).ToArray());
+        File.WriteAllBytes(path, original.AsSpan(0, 24).ToArray().Concat(movie).Concat(original.AsSpan(24 + (int)oldMovieSize).ToArray()).ToArray());
     }
 
     private static void Compilation(string root, Action<string, uint, byte> write)
@@ -158,7 +297,11 @@ internal static class DurationCompilationChecks
                 new UiPreferences { SetupDismissed = true, CloseToTray = false }.Save(data);
                 File.WriteAllText(Path.Combine(data, "working_folder.txt"), source);
                 string first = Path.Combine(source, "one.mp4"); write(first, 2, 131);
-                write(Path.Combine(source, "two.mp4"), 3, 132);
+                byte[] dated = File.ReadAllBytes(first);
+                BinaryPrimitives.WriteUInt32BigEndian(dated.AsSpan(44), checked((uint)(new DateTimeOffset(DateTime.Today.AddHours(12)).ToUniversalTime()
+                    - new DateTimeOffset(1904, 1, 1, 0, 0, 0, TimeSpan.Zero)).TotalSeconds)); File.WriteAllBytes(first, dated);
+                AddFrameRateTrack(first, 58000, [(116, 1000)]);
+                string second = Path.Combine(source, "two.mp4"); write(second, 3, 132); AddFrameRateTrack(second, 59970, [(180, 1000)]);
                 using var shell = new MainShell(data); shell.Show(); Application.DoEvents();
                 shell.Navigate("Batches"); Button(shell, "Preparing compilation").PerformClick(); Application.DoEvents();
                 var workspace = Descendants(shell).OfType<CompilationWorkspace>().Single();
@@ -187,13 +330,39 @@ internal static class DurationCompilationChecks
                 string external = Path.Combine(output, "external.mp4"); write(external, 5, 134);
                 PumpUntil(() => Total(workspace).Contains("00:00:07"));
                 Check(Total(workspace).Contains("2 clips"), "External changes to the compilation folder update its total duration automatically");
-                shell.Navigate("Find & clean"); Button(shell, "Find by duration").PerformClick(); Application.DoEvents();
-                var duration = Descendants(shell).OfType<ClipDurationWorkspace>().Single();
-                Descendants(duration).OfType<TextBox>().Single(t => t.AccessibleName == "Duration MM:SS:FF").Text = "00:02:00";
+                shell.Navigate("Find & clean"); Button(shell, "Seek clips").PerformClick(); Application.DoEvents();
+                var duration = Descendants(shell).OfType<ClipSeekWorkspace>().Single();
+                Wait(duration.DetectFrameRatesAsync());
+                var frameFilter = Descendants(duration).OfType<ComboBox>().Single(c => c.AccessibleName == "Clip frame rate filter");
+                Check(frameFilter.Text == "All frame rates" && frameFilter.Items.Contains("58") && frameFilter.Items.Contains("59.97")
+                    && Descendants(duration).OfType<ComboBox>().Single(c => c.AccessibleName == "Timecode frame rate").Text == "Automatic (clip FPS)",
+                    "Seek clips defaults to all frame rates and offers the actual 58 and 59.97 FPS clips detected in the folder");
+                Descendants(duration).OfType<CheckBox>().Single(c => c.Text == "Filter by creation date").Checked = false;
+                Descendants(duration).OfType<CheckBox>().Single(c => c.Text == "Filter by duration").Checked = true;
+                Descendants(duration).OfType<ComboBox>().Single(c => c.AccessibleName == "Seek clips result mode").SelectedIndex = 1;
+                var durationInput = Descendants(duration).OfType<TextBox>().Single(t => t.AccessibleName == "Duration MM:SS:FF");
+                durationInput.Text = "00:03:00"; frameFilter.Text = "59.97";
                 Wait(duration.FindAsync());
                 var match = Descendants(duration).OfType<FileContextList>().Single();
+                Check(match.Rows.Single().Path == second && match.Rows[0].FrameRate == 59.97m,
+                    "Selecting a detected fractional FPS combines with duration filtering and displays the clip's actual rate");
+                frameFilter.Text = "All frame rates"; durationInput.Text = "00:02:00";
+                Wait(duration.FindAsync());
                 Check(match.Rows.Count == 1 && match.Rows[0].Path == first && match.Visible,
-                    "Find by duration is reachable and returns exactly one native random result");
+                    "Seek clips supports duration-only filtering and returns exactly one native random result");
+                Check(!Descendants(shell).OfType<Button>().Any(b => b.Text is "Find by duration" or "Find by date"),
+                    "One Seek clips tool replaces the separate date and duration tools");
+                Descendants(duration).OfType<CheckBox>().Single(c => c.Text == "Filter by creation date").Checked = true;
+                Wait(duration.FindAsync());
+                Check(match.Rows.Single().Path == first && match.Rows[0].Created is not null,
+                    "The Seek clips UI applies date and duration filters together and shows embedded creation dates");
+                durationInput.Text = "00:03:00"; Wait(duration.FindAsync());
+                Check(match.Rows.Count == 0, "Combined UI filters exclude undated duration matches by default");
+                var includeUnknown = Descendants(duration).OfType<CheckBox>().Single(c => c.Text.StartsWith("Also show"));
+                includeUnknown.Checked = true; Wait(duration.FindAsync());
+                Check(match.Rows.Single().Path == second && match.Rows[0].Created is null,
+                    "The unified UI can explicitly include undated clips while still enforcing duration");
+                includeUnknown.Checked = false; durationInput.Text = "00:02:00"; Wait(duration.FindAsync());
                 Button(match, "Add to compilation").PerformClick();
                 PumpUntil(() => Directory.GetFiles(output).Count(VideoFiles.IsMp4) == 3 && !shell.IsBusy);
                 Check(File.Exists(first), "Duration results can be added directly to the active compilation without moving sources");
@@ -224,8 +393,8 @@ internal static class DurationCompilationChecks
                     Screenshot(shell, Path.Combine(screenshots, "compilation-watched.png"));
                     Button(workspace, "Compilation").PerformClick(); Application.DoEvents(); Screenshot(shell, Path.Combine(screenshots, "compilation-contents.png"));
                     Button(workspace, "Session settings").PerformClick(); Application.DoEvents(); Screenshot(shell, Path.Combine(screenshots, "compilation-settings.png"));
-                    shell.Navigate("Find & clean"); Button(shell, "Find by duration").PerformClick(); Application.DoEvents(); Screenshot(shell, Path.Combine(screenshots, "find-duration.png"));
-                    Button(duration, "Search settings").PerformClick(); Application.DoEvents(); Screenshot(shell, Path.Combine(screenshots, "find-duration-settings.png"));
+                    shell.Navigate("Find & clean"); Button(shell, "Seek clips").PerformClick(); Application.DoEvents(); Screenshot(shell, Path.Combine(screenshots, "seek-clips-results.png"));
+                    Button(duration, "Search settings").PerformClick(); Application.DoEvents(); Screenshot(shell, Path.Combine(screenshots, "seek-clips-settings.png"));
                 }
                 shell.Close(); PumpUntil(() => shell.IsDisposed);
             }

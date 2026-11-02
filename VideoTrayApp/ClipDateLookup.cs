@@ -44,7 +44,7 @@ internal static class ClipDateLookup
     }
 
     // Returns the atom's end, leaving the stream at its payload. Every atom stays in its parent.
-    private static long? FindAtom(Stream stream, long end, uint type, CancellationToken ct)
+    internal static long? FindAtom(Stream stream, long end, uint type, CancellationToken ct)
     {
         Span<byte> header = stackalloc byte[8];
         while (stream.Position < end)

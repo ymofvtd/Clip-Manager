@@ -220,10 +220,10 @@ internal static class DateLookupChecks
                 File.WriteAllText(Path.Combine(data, "working_folder.txt"), source);
                 using var shell = new MainShell(data); shell.Show(); Application.DoEvents();
                 shell.Navigate("Find & clean");
-                Descendants(shell).OfType<Button>().Single(b => b.Text == "Find by date").PerformClick();
+                Descendants(shell).OfType<Button>().Single(b => b.Text == "Seek clips").PerformClick();
                 Application.DoEvents();
-                var workspace = Descendants(shell).OfType<ClipDateWorkspace>().Single();
-                Check(workspace.Visible, "Find by date is reachable in the native Find & clean tool group");
+                var workspace = Descendants(shell).OfType<ClipSeekWorkspace>().Single();
+                Check(workspace.Visible, "Seek clips retains date search in the native Find & clean tool group");
                 foreach (var picker in Descendants(workspace).OfType<DateTimePicker>()) picker.Value = new DateTime(2025, 3, 5);
                 Descendants(workspace).OfType<CheckBox>().Single(c => c.Text.StartsWith("Also show")).Checked = true;
                 var task = workspace.FindAsync(); var timeout = Stopwatch.StartNew();

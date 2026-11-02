@@ -23,8 +23,7 @@ internal sealed partial class MainShell
         pages[name] = tabs;
         if (name == "Find & clean")
         {
-            tabs.Add("FindByDate", "Find by date", () => new ClipDateWorkspace(this, () => workingFolder, preferences));
-            tabs.Add("FindByDuration", "Find by duration", () => new ClipDurationWorkspace(this, () => workingFolder, preferences));
+            tabs.Add("SeekClips", "Seek clips", () => new ClipSeekWorkspace(this, () => workingFolder, preferences));
         }
         if (name == "Batches")
         {
