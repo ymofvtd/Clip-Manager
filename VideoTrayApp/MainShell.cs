@@ -12,6 +12,7 @@ internal sealed partial class MainShell : Form
     private readonly FolderDurationTracker tracker = new(VideoExtensions);
     private readonly ArchiveManager archives;
     private readonly JobController jobs;
+    internal CompilationSessions Compilations { get; }
     private readonly NotifyIcon tray = new();
     private readonly System.Windows.Forms.Timer refresh = new() { Interval = 300 };
     private readonly CancellationTokenSource lifetime = new();
@@ -49,7 +50,9 @@ internal sealed partial class MainShell : Form
     internal MainShell(string? folder = null)
     {
         dataFolder = folder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClipsManager");
+        Compilations = new(dataFolder);
         preferences = UiPreferences.Load(dataFolder, out persistentWarning);
+        if (Compilations.Warning.Length > 0) persistentWarning += "\n" + Compilations.Warning;
         history = new(dataFolder); persistentWarning += "\n" + history.Warning;
         jobs = new(coordinator, history, dataFolder); archives = new(coordinator, VideoExtensions, dataFolder);
         persistentWarning += "\n" + archives.LoadWarning;

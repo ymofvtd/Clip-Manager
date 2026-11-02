@@ -279,9 +279,16 @@ internal sealed class DetailsBox : TextBox
 internal sealed class PathPicker : UserControl
 {
     private readonly TextBox input = new() { Dock = DockStyle.Fill };
+    private readonly DesktopButton browse;
     private readonly Label validation = DesktopTheme.Text("");
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal string Value { get => input.Text.Trim(); set => input.Text = value; }
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal bool ReadOnly
+    {
+        get => input.ReadOnly;
+        set { input.ReadOnly = value; browse.Enabled = !value; AllowDrop = !value; }
+    }
     internal event EventHandler? ValueChanged;
     internal PathPicker(string role, bool file = false, IEnumerable<string>? recent = null)
     {
@@ -291,7 +298,7 @@ internal sealed class PathPicker : UserControl
         var row = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 4 };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         for (int i = 0; i < 3; i++) row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var browse = DesktopTheme.Button("&Browse…", () =>
+        browse = DesktopTheme.Button("&Browse…", () =>
         {
             if (file)
             {
@@ -383,6 +390,8 @@ internal sealed class FileContextList : UserControl
     private bool descending;
     private readonly bool lookup;
     private readonly bool contextOnly;
+    private readonly FlowLayoutPanel actions;
+    private string? contextSummary;
     internal HashSet<string> SelectedKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
     internal event Action? SelectionChanged;
     internal IReadOnlyList<ContextRow> Rows => rows;
@@ -438,12 +447,27 @@ internal sealed class FileContextList : UserControl
         filter.TextChanged += (_, _) => Refilter();
         var toggle = DesktopTheme.Button(this.lookup ? "Select / unselect row" : "Keep / Recycle selected row", () => Toggle(Table.CurrentCell?.RowIndex ?? -1));
         toggle.Visible = !contextOnly;
-        var actions = DesktopTheme.Actions(toggle,
+        actions = DesktopTheme.Actions(toggle,
             DesktopTheme.Button("Open clip", () => External(row => DesktopTheme.Open(row.Path))),
             DesktopTheme.Button("Open containing folder", () => External(row => DesktopTheme.Open(Path.GetDirectoryName(row.Path)!))),
             DesktopTheme.Button("Copy path", () => External(row => Clipboard.SetText(row.Path))));
         actions.Dock = DockStyle.Bottom; summary.Dock = DockStyle.Bottom;
         Controls.Add(Table); Controls.Add(filter); Controls.Add(details); Controls.Add(actions); Controls.Add(summary);
+    }
+    internal void SetContextSummary(string text) { contextSummary = text; UpdateSummary(); }
+    internal void AttachCompilation(MainShell shell)
+    {
+        var add = DesktopTheme.Button("Add to compilation", async () =>
+        {
+            var selected = rows.Where(r => SelectedKeys.Contains(r.Key)).Select(r => r.Path).ToArray();
+            int index = Table.CurrentCell?.RowIndex ?? -1;
+            if (selected.Length == 0 && index >= 0 && index < visible.Count) selected = [visible[index].Path];
+            if (selected.Length == 0) { details.Text = "Choose a clip or select clips to add to the active compilation."; return; }
+            var outcome = await shell.AddToCompilationAsync(selected);
+            await UiThread.Switch(this);
+            if (!IsDisposed) details.Text = outcome?.Details ?? "Another operation is running. Add the clips again when it finishes.";
+        });
+        actions.Controls.Add(add);
     }
     internal void SetRows(IReadOnlyList<ContextRow> value, bool reset = true)
     {
@@ -483,7 +507,8 @@ internal sealed class FileContextList : UserControl
         }
         Table.RowCount = visible.Count; Table.Invalidate(); UpdateSummary(); UpdateDetails();
     }
-    private void UpdateSummary() => summary.Text = contextOnly ? $"{rows.Count:N0} clips • {visible.Count:N0} visible. All reviewed clips are included in the batch."
+    private void UpdateSummary() => summary.Text = contextSummary is not null ? $"{rows.Count:N0} clips • {visible.Count:N0} visible. " + contextSummary
+        : contextOnly ? $"{rows.Count:N0} clips • {visible.Count:N0} visible. All reviewed clips are included in the batch."
         : lookup ? $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected (including hidden rows). Click Select or press Space to toggle." : $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected for recycling (including hidden rows). Space toggles eligible rows.";
     private void UpdateDetails()
     {

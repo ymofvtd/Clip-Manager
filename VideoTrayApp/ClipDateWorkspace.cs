@@ -25,6 +25,7 @@ internal sealed class ClipDateWorkspace : UserControl
     internal ClipDateWorkspace(MainShell shell, Func<string> workingFolder, UiPreferences preferences)
     {
         this.shell = shell;
+        results.AttachCompilation(shell);
         Font = DesktopTheme.BodyFont; Dock = DockStyle.Fill;
         source = new("Search folder", recent: preferences.RecentPaths) { Value = workingFolder() };
         var fields = DesktopTheme.Stack(); fields.Padding = new Padding(24, 12, 24, 12);

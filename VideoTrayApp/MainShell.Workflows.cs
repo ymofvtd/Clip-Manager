@@ -22,14 +22,28 @@ internal sealed partial class MainShell
         }
         pages[name] = tabs;
         if (name == "Find & clean")
+        {
             tabs.Add("FindByDate", "Find by date", () => new ClipDateWorkspace(this, () => workingFolder, preferences));
+            tabs.Add("FindByDuration", "Find by duration", () => new ClipDurationWorkspace(this, () => workingFolder, preferences));
+        }
         if (name == "Batches")
+        {
             tabs.Add("BestOfMonth", "Best of the month", () => monthlyPage = new MonthlyBatchWorkspace(this, preferences, monthlySettings, workingFolder));
+            tabs.Add("PreparingCompilation", "Preparing compilation", () => new CompilationWorkspace(this, preferences));
+        }
     }
     internal void OpenTool(PresetAction action)
     {
         string name = DestinationFor(action); Navigate(name);
         if (pages[name] is ToolGroupWorkspace tabs) tabs.Select(action);
+    }
+    internal Task<JobOutcome?> AddToCompilationAsync(IEnumerable<string> paths)
+    {
+        if (Compilations.Active is not { } session)
+            return Task.FromResult<JobOutcome?>(new(JobState.Failed, "First open Batches → Preparing compilation, choose a folder, and Lock in folder. Then add your selected clips."));
+        string[] selected = paths.ToArray();
+        return RunJobAsync("Add to compilation", $"Session: {session.Name}\nFolder: {session.Folder}\nSelected clips:\n" + string.Join("\n", selected), false,
+            (progress, ct) => JobOutcome.Complete(CompilationPreparer.Add(session, selected, progress, ct)));
     }
     internal async Task<JobOutcome?> RunJobAsync(string title, string context, bool analyze,
         Func<IOperationProgress, CancellationToken, JobOutcome> work)

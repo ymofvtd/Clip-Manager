@@ -8,6 +8,7 @@ internal sealed partial class WorkflowWorkspace
 
     private FlowLayoutPanel BuildIdentifyCommands()
     {
+        review.AttachCompilation(shell);
         moveSelected = DesktopTheme.Button("Move selected…", async () => await ChooseIdentifyMoveAsync());
         deleteSelected = DesktopTheme.Button("Delete selected…", async () => await ActOnIdentifiedAsync(null));
         deleteSelected.Tag = CommandRole.Recycle;

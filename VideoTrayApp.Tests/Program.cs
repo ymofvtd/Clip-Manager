@@ -13,6 +13,7 @@ string root = Path.Combine(Path.GetTempPath(), "ClipIdentifierTests-" + Guid.New
 Directory.CreateDirectory(root);
 try
 {
+    if (args.Contains("--duration-compilation-only")) { DurationCompilationChecks.Run(root, WriteMp4); return; }
     if (args.Contains("--archive-notifications-only")) { ArchiveNotificationChecks.Run(root, WriteMp4); return; }
     if (args.Contains("--monthly-only")) { MonthlyBatchChecks.Run(root, WriteMp4); return; }
     if (args.Contains("--prepare-only")) { BatchPreparationChecks.Run(root, WriteMp4); return; }
@@ -20,6 +21,7 @@ try
     RenameChecks.Run(root, WriteMp4);
     if (args.Contains("--rename-only")) return;
     Mp4Checks.Run(root, WriteMp4);
+    DurationCompilationChecks.Run(root, WriteMp4);
     DateLookupChecks.Run(root, WriteMp4);
     if (args.Contains("--date-only")) return;
     MonthlyBatchChecks.Run(root, WriteMp4);

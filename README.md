@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.2.8
+2.2.9
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -56,6 +56,12 @@ Directory **A** defaults to **Keep**; matching duplicate copies found only in di
 
 Both kept and selected copies are verified again immediately before recycling. A kept copy stays open against writes/deletion throughout its group. A missing/changed keeper skips that group; a changed selected copy stays untouched. Only the Recycle Bin is used; unavailable recycling reports an error with no permanent-delete fallback. Cancellation stops further deletions and reports completed versus untouched copies; earlier successful recycling is not automatically reversed. Unreadable paths and cancelled scans are reported separately from a complete scan with no duplicates. Presets can save A/B paths and recursion, but always open the individual review and final confirmation.
 
+## Find by duration
+
+Open **Find & clean → Find by duration**, choose a directory, and enter **MM:SS:FF** (minutes, seconds, frames). Set **Frames / second** to interpret the frame field; the default is 30 and fractional rates such as 29.97 are supported. Choose **Exact duration (nearest frame)**, **Within 5 seconds shorter or longer**, **Up to 5 seconds shorter**, or **Up to 5 seconds longer**. Ranges include their endpoints and compare durations at the selected frame rate. Subfolders are optional and included by default; linked paths are excluded.
+
+**Find random clip** reads MP4 duration metadata and returns one random matching clip. **Find another random clip** chooses again, avoiding the previous clip when another match exists. Results show the duration, filename, folder and size, and let you open the clip, open its folder, copy its path, or **Add to compilation**. Read errors and partial searches are reported separately from no matches. Searches support cancellation and make no clip changes.
+
 ## Identify clip
 
 To look up clips by date without a reference video, open **Find & clean → Find by date**. Choose a folder, an inclusive **From / Through** range, and **Find clips**. Subfolders are included by default; links/junctions are excluded. Results show the embedded MP4 movie creation date in your local time zone, filename, folder, size and date source. You can sort results, filter paths, open clips or their folders, and copy paths.
@@ -81,6 +87,18 @@ Open **Batches → Prepare Batch** and configure the source, destination parent,
 Analyze freezes both source filename mappings, the random selection, duplicate cleanup/refill, backup paths and target numbering without changing files. It resolves the highest numbered immediate `c_` folder, or the exact new batch folder. The review includes both source shuffles and changes to existing target filenames. Execution verifies the reviewed source and starter inventories again. Destination copies are kept first during duplicate cleanup; otherwise the first source clip in the shuffled order is kept. Refills use that same order until no duplicates remain.
 
 Final selected clips are backed up under their **original pre-shuffle filenames** in the source's `Backup` folder. All surviving target MP4 files, including existing starters, receive numeric filenames (`1`, `2`, `3`, ...) from shortest to longest. Occupied non-video numbers are skipped across extensions; MP4 extensions are preserved. Equal-duration starters retain their original order, followed by selected clips in their shuffled order. Backup folders and unselected clips are excluded from duplicate cleanup. Selection settings control which source clips participate in both shuffles; Archives includes source subfolders. The last clip may take the batch past the requested duration. Cancellation or failure attempts to restore both source shuffles, target names, backups and recycled clips. The source and its Backup folder cannot be used as the destination.
+
+## Preparing compilation
+
+Open **Batches → Preparing compilation**, choose a compilation folder, and **Lock in folder**. Create several independent sessions with **New session** and switch between them using the session selector. Each session retains its destination and optional watched source, and the active session is restored after restart. **Rename folder** changes the actual folder name and updates its saved path. **Forget session** removes only the session entry, retaining the folder and clips.
+
+In **Session settings**, choose a separate **Watched source folder**, then **Watch this folder**. The **Watched clips** tab displays MP4 files directly inside that folder, including their durations. Arrivals, edits, renames and deletions refresh automatically while the workspace is open; unchanged clip selections survive refreshes. Filter the list, click **Select** or press Space, use **Select all visible**, and **Add selected clips**. Selections hidden by a filter are also included. Watching helps you choose clips; copying starts when you add them. Subfolders and linked paths are excluded. Each session remembers its own watched source.
+
+You can also use **Add clip / clips…**, drop MP4 files onto the workspace, or use **Add to compilation** from duration, date or Identify clip results. The active session receives the selected clips. Sources stay in place; copies are read back and verified by size, duration and SHA-256. Every successful add shuffles all MP4 clips directly in the compilation folder into padded numeric filenames such as `0001.mp4`, preserving extensions and skipping occupied folder names. Existing clips participate in every shuffle. Non-video files and subfolders stay in place. A clip can be added more than once; each add makes another copy.
+
+**Total duration** shows the combined playback length and clip count of the active compilation on every tab. The **Compilation** tab lists its current clips in filename order. Both the list and total refresh after additions and external folder changes. Unreadable files produce an explicitly partial total. Metadata scans run off the UI thread and reuse unchanged duration metadata. Unavailable watched folders remain saved and are retried automatically.
+
+Compilation adds share the foreground operation controls and Activity history. Cancellation or failure attempts to restore the complete previous compilation and clean up owned temporary copies. Forced termination or power loss can leave pending files for inspection. Sessions are stored in `%APPDATA%/ClipsManager/compilation_sessions.json`.
 
 ## Best of the month
 
