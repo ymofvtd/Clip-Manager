@@ -258,8 +258,11 @@ internal sealed class PresetEditorForm : Form
             Add("Batch destination", new Label { AutoSize = true, Text = "Automatically use the highest numbered c_ folder\nin the destination. If none exists, create a new folder.\nLeave the name blank for batch_1, batch_2, etc.\nThe c_ folder does not need to exist when you save." });
             Number("Duration (minutes)", preset.DurationMinutes, 1, 10080, v => preset.DurationMinutes = v);
             Choice("Select clips", preset.Selection, v => preset.Selection = v);
+            var createBackup = new CheckBox { Text = "Back up selected clips to source's Backup folder", Checked = preset.CreateBackup, AutoSize = true };
+            Add("Backup", createBackup);
+            saveValues.Add(() => preset.CreateBackup = createBackup.Checked);
             Add("Selection help", new Label { AutoSize = true, Text = "Numbered MP4: numbered top-level MP4 files.\nAll MP4 files: all top-level MP4 files.\nArchives: MP4 files in target and subfolders, excluding Backup.\nEach mode uses a random order." });
-            Add("Batch naming", new Label { AutoSize = true, Text = "Shuffle source filenames before preparation and again afterward.\nEntire target batch: 1, 2, 3, ... from shortest to longest.\nOccupied non-video numbers are skipped; backups use original names." });
+            Add("Batch naming", new Label { AutoSize = true, Text = "Shuffle source filenames before preparation and again afterward.\nEntire target batch: 1, 2, 3, ... from shortest to longest.\nOccupied non-video numbers are skipped; optional backups use original names." });
         }
         if (preset.Action == PresetAction.ShuffleBatches)
         {

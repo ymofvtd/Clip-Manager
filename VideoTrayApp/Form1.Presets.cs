@@ -186,7 +186,7 @@ public partial class Form1
                 var candidates = preset.Selection == BatchSelection.NumberedMp4 ? null
                     : ListPresetBatchCandidates(target, destination, preset.Destination, preset.Selection, ct);
                 return ClipBatchPreparer.Prepare(target, destination, TimeSpan.FromMinutes(preset.DurationMinutes),
-                    DefaultVideoExts, progress, ct, candidates: candidates);
+                    DefaultVideoExts, progress, ct, candidates: candidates, createBackup: preset.CreateBackup);
         }
         return $"{ActionPreset.Label(preset.Action)} completed.";
     }

@@ -5,7 +5,7 @@ internal static class ClipBatchPreparer
     internal static string Prepare(string sourceFolder, string destinationFolder, TimeSpan durationLimit,
         ISet<string> videoExtensions, IOperationProgress progress, CancellationToken ct,
         string numberedExtension = ".mp4", Random? shuffleRandom = null,
-        IReadOnlyList<string>? candidates = null)
+        IReadOnlyList<string>? candidates = null, bool createBackup = true)
     {
         VideoFiles.RequireMp4("clip" + numberedExtension);
         sourceFolder = Path.GetFullPath(sourceFolder);
@@ -18,7 +18,7 @@ internal static class ClipBatchPreparer
                 && Path.GetFileNameWithoutExtension(path).All(char.IsAsciiDigit)).ToList();
         var plan = PrepareBatchPlan.AnalyzeCandidates(sourceFolder, Path.GetDirectoryName(destinationFolder) ?? destinationFolder,
             new(destinationFolder, false), durationLimit, paths, videoExtensions, progress, ct, shuffleRandom,
-            candidates is null ? BatchSelection.NumberedMp4 : null);
+            candidates is null ? BatchSelection.NumberedMp4 : null, createBackup);
         return plan.Execute(progress, ct);
     }
 }

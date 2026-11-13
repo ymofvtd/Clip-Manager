@@ -198,6 +198,32 @@ internal static class UxChecks
                     Check(configure.Selected && !reviewTab.Selected && !contexts.Visible, workspace.Action + ": Configure switches back without discarding review rows");
                     reviewTab.PerformClick(); Application.DoEvents();
                     Check(contexts.Visible && contexts.Rows.Count > 0 && reviewTab.Selected, workspace.Action + ": Review files restores the retained preview");
+                    if (workspace.Action == PresetAction.PrepareBatch)
+                    {
+                        var backup = Descendants(workspace).OfType<CheckBox>().Single(c => c.AccessibleName == "Back up selected clips");
+                        Check(backup.Checked && contexts.Rows.Any(r => r.Action == "Backup / move" && r.Proposed.Contains("Backup:")),
+                            "Prepare Batch enables backups by default and previews their exact paths");
+                        backup.Checked = false;
+                        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                        var run = (Button)typeof(WorkflowWorkspace).GetField("run", flags)!.GetValue(workspace)!;
+                        var savedDraft = (ActionPreset)typeof(WorkflowWorkspace).GetMethod("Draft", flags)!.Invoke(workspace, [])!;
+                        Check(!run.Enabled && !savedDraft.CreateBackup,
+                            "Changing the backup checkbox invalidates the old review and is included when saving a preset");
+                        analysis = workspace.AnalyzeAsync();
+                        while (!analysis.IsCompleted) { Application.DoEvents(); Thread.Sleep(2); }
+                        analysis.GetAwaiter().GetResult();
+                        var result = Descendants(workspace).Single(c => c.AccessibleName == "Operation result and recovery details");
+                        Check(contexts.Rows.Any(r => r.Action == "Move") && contexts.Rows.All(r => r.Action != "Backup / move" && !r.Proposed.Contains("Backup:"))
+                            && result.Text.Contains("Backup: disabled") && run.Enabled,
+                            "Prepare Batch preview and summary show moves without backups when unchecked");
+                        toolDraft.CreateBackup = false; workspace.ApplyPreset(toolDraft);
+                        Check(!backup.Checked, "Applying a Prepare Batch preset restores its disabled backup preference");
+                        toolDraft.CreateBackup = true; workspace.ApplyPreset(toolDraft);
+                        Check(backup.Checked, "Applying a Prepare Batch preset restores its enabled backup preference");
+                        analysis = workspace.AnalyzeAsync();
+                        while (!analysis.IsCompleted) { Application.DoEvents(); Thread.Sleep(2); }
+                        analysis.GetAwaiter().GetResult();
+                    }
                     Check(snapshot.SequenceEqual(Snapshot(source)), workspace.Action + ": workspace analysis preserves the configured source files");
                     Capture(shell, Path.Combine(images, "review-" + workspace.Action.ToString().ToLowerInvariant() + ".png"));
                 }

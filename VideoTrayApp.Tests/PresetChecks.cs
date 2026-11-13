@@ -27,6 +27,11 @@ internal static class PresetChecks
         store.Save(config);
         Check(PresetStore.Load(config).DefaultFor(preset.Action)?.Name == "Edited" && store.DefaultFor(preset.Action)?.DurationMinutes == 45,
             "Editing a preset preserves its default identity");
+        edited.CreateBackup = false;
+        store.Save(config);
+        var noBackupPreset = PresetStore.Load(config).DefaultFor(preset.Action)!;
+        Check(!noBackupPreset.CreateBackup && !noBackupPreset.Clone().CreateBackup && noBackupPreset.Summary(source).Contains("Backup: disabled"),
+            "Prepare Batch backup opt-out survives saving, restart and cloning and appears in the preset summary");
         store.Defaults.Remove(preset.Action);
         store.Save(config);
         Check(PresetStore.Load(config).DefaultFor(preset.Action) is null, "Always ask persists as the action default");
@@ -252,6 +257,8 @@ internal static class PresetChecks
         }));
         var legacy = PresetStore.Load(config).Presets.Single();
         legacy.Validate(parent);
+        Check(legacy.CreateBackup && legacy.Summary(parent).Contains(Path.Combine(parent, "Backup")),
+            "Older Prepare Batch presets keep backups enabled with the source Backup location in their summary");
         Check(BatchDestinationResolver.Resolve(legacy, parent).Create, "Existing presets adopt automatic subfolder creation without the old checkbox");
     }
 
@@ -284,6 +291,16 @@ internal static class PresetChecks
                     using var editor = new PresetEditorForm(new ActionPreset { Action = action, Target = workingFolder }, workingFolder);
                     editor.CreateControl();
                     Check(Descendants(editor).OfType<Button>().Any(b => b.Text == "Save preset"), $"{ActionPreset.Label(action)} preset editor constructs successfully");
+                    if (action == PresetAction.PrepareBatch)
+                    {
+                        var backup = Descendants(editor).OfType<CheckBox>().Single(c => c.AccessibleName == "Backup");
+                        Check(backup.Checked, "Prepare Batch preset editor enables backups by default");
+                        backup.Checked = false;
+                        typeof(Control).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                            .Invoke(Descendants(editor).OfType<Button>().Single(b => b.Text == "Save preset"), [EventArgs.Empty]);
+                        Check(editor.DialogResult == DialogResult.OK && !editor.Preset.CreateBackup,
+                            "Prepare Batch preset editor saves the unchecked backup option");
+                    }
                 }
             }
             catch (Exception ex) { error = ex; }

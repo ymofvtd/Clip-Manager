@@ -148,7 +148,7 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
     ReadOnlyCollection<PlannedFile> Guards, TimeSpan StarterDuration, TimeSpan TotalDuration, int StarterCount,
     ReadOnlyCollection<string> StarterPaths, ReadOnlyDictionary<string, TimeSpan> Durations, ReadOnlyCollection<string> Extensions,
     ReadOnlyCollection<RenameChange> SourceShuffle, ReadOnlyCollection<RenameChange> RemainingShuffle,
-    ReadOnlyCollection<PlannedChange> StarterChanges, BatchSelection? Selection)
+    ReadOnlyCollection<PlannedChange> StarterChanges, BatchSelection? Selection, bool CreateBackup)
 {
     internal static PrepareBatchPlan Analyze(ActionPreset preset, string source, ISet<string> extensions,
         IOperationProgress progress, CancellationToken ct, Random? random = null)
@@ -158,7 +158,7 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
         var batch = BatchDestinationResolver.Resolve(preset, source);
         var candidates = ListCandidates(source, preset.Destination, batch.Path, preset.Selection, extensions, ct);
         return AnalyzeCandidates(source, preset.Destination, batch, TimeSpan.FromMinutes(preset.DurationMinutes),
-            candidates, extensions, progress, ct, random, preset.Selection);
+            candidates, extensions, progress, ct, random, preset.Selection, preset.CreateBackup);
     }
 
     private static List<string> ListCandidates(string source, string parent, string destination, BatchSelection selection,
@@ -178,14 +178,14 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
 
     internal static PrepareBatchPlan AnalyzeCandidates(string source, string parent, BatchDestination batch, TimeSpan limit,
         IEnumerable<string> paths, ISet<string> extensions, IOperationProgress progress, CancellationToken ct,
-        Random? random = null, BatchSelection? selection = null)
+        Random? random = null, BatchSelection? selection = null, bool createBackup = true)
     {
         source = Path.GetFullPath(source);
         parent = Path.GetFullPath(parent);
         ActionPreset.ValidateFolder(source);
         batch.Validate(source, parent);
         string backupFolder = Path.Combine(source, "Backup");
-        if (Directory.Exists(backupFolder)) ActionPreset.ValidateFolder(backupFolder);
+        if (createBackup && Directory.Exists(backupFolder)) ActionPreset.ValidateFolder(backupFolder);
         if (limit <= TimeSpan.Zero) throw new ArgumentException("Batch duration must be positive.");
         var candidates = paths.Where(VideoFiles.IsMp4).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.OrdinalIgnoreCase).ToList();
@@ -247,10 +247,15 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
                 starterChanges.Add(new(guards[path], target, Duration: Duration(path)));
                 continue;
             }
-            string backup = Path.Combine(source, "Backup", Path.GetFileName(path));
-            for (int suffix = 1; backups.Contains(backup) || File.Exists(backup) || Directory.Exists(backup); suffix++)
-                backup = Path.Combine(source, "Backup", Path.GetFileNameWithoutExtension(path) + "__" + suffix + Path.GetExtension(path));
-            backups.Add(backup); changes.Add(new(guards[path], target, backup, Duration(path)));
+            string? backup = null;
+            if (createBackup)
+            {
+                backup = Path.Combine(backupFolder, Path.GetFileName(path));
+                for (int suffix = 1; backups.Contains(backup) || File.Exists(backup) || Directory.Exists(backup); suffix++)
+                    backup = Path.Combine(backupFolder, Path.GetFileNameWithoutExtension(path) + "__" + suffix + Path.GetExtension(path));
+                backups.Add(backup);
+            }
+            changes.Add(new(guards[path], target, backup, Duration(path)));
         }
         var selectedSet = selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var remaining = candidates.Where(p => !deleted.Contains(p) && !selectedSet.Contains(p)).ToList();
@@ -259,7 +264,7 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
         return new(source, parent, batch, changes.AsReadOnly(), groups.AsReadOnly(), guards.Values.ToList().AsReadOnly(), starterDuration,
             TimeSpan.FromTicks(starters.Concat(selected).Where(p => !deleted.Contains(p)).Sum(p => Duration(p).Ticks)), starters.Count,
             starters.AsReadOnly(), new(durations), extensions.ToList().AsReadOnly(), sourceShuffle.AsReadOnly(),
-            remainingShuffle.AsReadOnly(), starterChanges.AsReadOnly(), selection);
+            remainingShuffle.AsReadOnly(), starterChanges.AsReadOnly(), selection, createBackup);
     }
 
     private static void Shuffle(List<string> paths, Random random, CancellationToken ct)
@@ -291,7 +296,7 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
     private string ExecuteCore(IOperationProgress progress, CancellationToken ct)
     {
         Batch.Validate(Source, Parent);
-        if (Directory.Exists(Path.Combine(Source, "Backup"))) ActionPreset.ValidateFolder(Path.Combine(Source, "Backup"));
+        if (CreateBackup && Directory.Exists(Path.Combine(Source, "Backup"))) ActionPreset.ValidateFolder(Path.Combine(Source, "Backup"));
         if (Selection is { } selection && !SourceShuffle.Select(c => c.File.Path).ToHashSet(StringComparer.OrdinalIgnoreCase)
             .SetEquals(ListCandidates(Source, Parent, Batch.Path, selection, Extensions.ToHashSet(StringComparer.OrdinalIgnoreCase), ct)))
             throw new IOException("The reviewed source videos changed. Analyze again before preparing the batch.");
@@ -317,14 +322,16 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
         var duplicates = new DuplicateClipResult(DuplicateGroups.Select(g => new DuplicateClipGroup(g.Identity,
             PreparedPath(g.Keep), g.Duplicates.Select(PreparedPath).ToList())).ToList(), []);
         ClipDuplicateCleaner.Apply(duplicates, progress, ct, stopBatchOnError: true);
-        if (Changes.Count > 0) OperationTransaction.CreateDirectory(Path.Combine(Source, "Backup"));
+        if (CreateBackup && Changes.Count > 0) OperationTransaction.CreateDirectory(Path.Combine(Source, "Backup"));
         int moved = 0;
         foreach (var change in Changes)
         {
             ct.ThrowIfCancellationRequested();
-            progress.Report(moved, Changes.Count, $"Backing up {Path.GetFileName(change.File.Path)}...");
+            if (change.Backup is not null)
+                progress.Report(moved, Changes.Count, $"Backing up {Path.GetFileName(change.File.Path)}...");
             (change.File with { Path = PreparedPath(change.File.Path) }).Verify(ct);
-            OperationTransaction.Copy(PreparedPath(change.File.Path), change.Backup!);
+            if (change.Backup is { } backup)
+                OperationTransaction.Copy(PreparedPath(change.File.Path), backup);
             progress.Report(moved++, Changes.Count, $"Moving {Path.GetFileName(change.File.Path)}...");
         }
         var targetRenames = Changes.Concat(StarterChanges).Select(change =>
@@ -348,7 +355,9 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
         progress.SetIndeterminate("Reshuffling remaining source filenames after preparing batch...");
         new RenamePlan(remainingRenames.AsReadOnly()).Apply(progress, ct);
         progress.SetIndeterminate("Source reshuffle completed.");
-        return $"Moved and backed up: {moved}\nDuplicates sent to Recycle Bin: {duplicates.DuplicateCount}\nBatch: {Batch.Path}\nBackup: {Path.Combine(Source, "Backup")}\nSource reshuffled before preparation: {SourceShuffle.Count}; after preparation: {RemainingShuffle.Count}.\nEntire batch numbered shortest to longest. Reviewed selection and destinations were used.";
+        string movedSummary = CreateBackup ? $"Moved and backed up: {moved}" : $"Moved: {moved}";
+        string backupSummary = CreateBackup ? Path.Combine(Source, "Backup") : "disabled";
+        return $"{movedSummary}\nDuplicates sent to Recycle Bin: {duplicates.DuplicateCount}\nBatch: {Batch.Path}\nBackup: {backupSummary}\nSource reshuffled before preparation: {SourceShuffle.Count}; after preparation: {RemainingShuffle.Count}.\nEntire batch numbered shortest to longest. Reviewed selection and destinations were used.";
     }
 }
 

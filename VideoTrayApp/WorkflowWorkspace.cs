@@ -9,6 +9,7 @@ internal sealed partial class WorkflowWorkspace : UserControl
     private readonly PathPicker source, destination, reference, directoryB;
     private readonly CheckBox useWorking = new() { Text = "Use current working folder", AutoSize = true };
     private readonly CheckBox recursive = new() { Text = "Include subfolders", AutoSize = true, Checked = true };
+    private readonly CheckBox createBackup = new() { Text = "Back up selected clips to source's Backup folder", AutoSize = true, Checked = true, AccessibleName = "Back up selected clips" };
     private readonly ComboBox selection = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 250, AccessibleName = "Batch selection" };
     private IdentifyBehavior identifyBehavior = IdentifyBehavior.Move;
     private readonly NumericUpDown minutes = new() { Minimum = 1, Maximum = 10080, Value = 30, Width = 100, AccessibleName = "Target minutes" };
@@ -60,6 +61,7 @@ internal sealed partial class WorkflowWorkspace : UserControl
             DesktopTheme.Add(fields, destination);
             DesktopTheme.Add(fields, DesktopTheme.Actions(DesktopTheme.Text("Target minutes"), minutes, selection));
             DesktopTheme.Add(fields, DesktopTheme.Actions(DesktopTheme.Text("New batch name (optional)"), batchName));
+            DesktopTheme.Add(fields, createBackup);
         }
         if (action == PresetAction.ShuffleBatches) DesktopTheme.Add(fields, DesktopTheme.Actions(DesktopTheme.Text("Maximum minutes per batch"), minutes));
         if (action is PresetAction.ShuffleAndName or PresetAction.NameByTens)
@@ -101,6 +103,7 @@ internal sealed partial class WorkflowWorkspace : UserControl
         foreach (var input in new[] { minutes, startNumber, padding, randomLength }) input.ValueChanged += (_, _) => InvalidatePlan();
         foreach (var input in new[] { prefix, batchName }) input.TextChanged += (_, _) => InvalidatePlan();
         selection.SelectedIndexChanged += (_, _) => InvalidatePlan(); recursive.CheckedChanged += (_, _) => InvalidatePlan();
+        createBackup.CheckedChanged += (_, _) => InvalidatePlan();
         review.SelectionChanged += () => { run.Enabled = !busy && execution is not null; RefreshIdentifyActions(); };
         ReloadPresets();
         try
@@ -140,7 +143,7 @@ internal sealed partial class WorkflowWorkspace : UserControl
         Destination = destination.Value, ReferenceClip = reference.Value, DirectoryB = directoryB.Value,
         IncludeSubfolders = recursive.Checked, DurationMinutes = (int)minutes.Value, Selection = (BatchSelection)selection.SelectedIndex,
         Start = (int)startNumber.Value, Padding = (int)padding.Value, Prefix = prefix.Text, RandomLength = (int)randomLength.Value,
-        BatchFolderName = batchName.Text, IdentifyBehavior = identifyBehavior
+        BatchFolderName = batchName.Text, CreateBackup = createBackup.Checked, IdentifyBehavior = identifyBehavior
     };
     internal void ApplyPreset(ActionPreset preset)
     {
@@ -149,7 +152,7 @@ internal sealed partial class WorkflowWorkspace : UserControl
         recursive.Checked = preset.IncludeSubfolders; minutes.Value = Math.Clamp(preset.DurationMinutes, 1, 10080);
         selection.SelectedIndex = Math.Clamp((int)preset.Selection, 0, 2); startNumber.Value = Math.Max(0, preset.Start);
         padding.Value = Math.Clamp(preset.Padding, 0, 64); prefix.Text = preset.Prefix; randomLength.Value = Math.Clamp(preset.RandomLength, 4, 64);
-        batchName.Text = preset.BatchFolderName; identifyBehavior = preset.IdentifyBehavior;
+        batchName.Text = preset.BatchFolderName; createBackup.Checked = preset.CreateBackup; identifyBehavior = preset.IdentifyBehavior;
         InvalidatePlan(); result.Text = $"Preset “{preset.Name}” applied. Review the resolved folders and analyze before running.";
     }
     private void ReloadPresets()
@@ -231,15 +234,18 @@ internal sealed partial class WorkflowWorkspace : UserControl
                     var preparedPaths = prepare.SourceShuffle.ToDictionary(c => c.File.Path, c => c.Destination, StringComparer.OrdinalIgnoreCase);
                     rows = prepare.SourceShuffle.Select(c => new ContextRow("before:" + c.File.Path, "1. Source shuffle", "Rename", c.File.Path,
                             c.Destination, Path.GetDirectoryName(c.File.Path)!, "", FormatSize(c.File.Length), Bytes: c.File.Length))
-                        .Concat(prepare.Changes.Select(c => ChangeRow(c, "Backup / move")))
+                        .Concat(prepare.Changes.Select(c => ChangeRow(c, c.Backup is null ? "Move" : "Backup / move")))
                         .Concat(prepare.StarterChanges.Select(c => ChangeRow(c, "Rename")))
                         .Concat(prepare.DuplicateGroups.SelectMany((g, i) => g.Duplicates.Select(path => new ContextRow(path, (i + 1).ToString(), "Recycle", path,
                             "Recycle; keeper: " + g.Keep, Path.GetDirectoryName(path)!, Duration(g.Identity.Duration), FormatSize(g.Identity.Size), Bytes: g.Identity.Size))))
                         .Concat(prepare.RemainingShuffle.Select(c => new ContextRow("after:" + c.File.Path, "3. Source reshuffle", "Rename", preparedPaths[c.File.Path],
                             c.Destination, Path.GetDirectoryName(c.File.Path)!, "", FormatSize(c.File.Length), Bytes: c.File.Length))).ToArray();
                     nextExecution = (p, token) => JobOutcome.Complete(prepare.Execute(p, token));
-                    summary = $"Batch: {prepare.Batch.Path} ({(prepare.Batch.Create ? "create" : "existing starter folder")})\nStarters: {prepare.StarterCount}, {Duration(prepare.StarterDuration)}. Planned total: {Duration(prepare.TotalDuration)}.\nShuffle {prepare.SourceShuffle.Count} source clips before preparation and {prepare.RemainingShuffle.Count} remaining clips afterward.\nMove/backup {prepare.Changes.Count}; recycle {prepare.DuplicateGroups.Sum(g => g.Duplicates.Count)}. Number the entire target batch shortest to longest. Originals backed up under {Path.Combine(draft.Target, "Backup")}.";
-                    recovery = "Cancellation or failure attempts to restore both source shuffles, target numbering, recycled clips and backups. Blocked recovery retains recovery files.";
+                    summary = $"Batch: {prepare.Batch.Path} ({(prepare.Batch.Create ? "create" : "existing starter folder")})\nStarters: {prepare.StarterCount}, {Duration(prepare.StarterDuration)}. Planned total: {Duration(prepare.TotalDuration)}.\nShuffle {prepare.SourceShuffle.Count} source clips before preparation and {prepare.RemainingShuffle.Count} remaining clips afterward.\nMove {prepare.Changes.Count}; recycle {prepare.DuplicateGroups.Sum(g => g.Duplicates.Count)}. Number the entire target batch shortest to longest. "
+                        + (prepare.CreateBackup ? $"Originals backed up under {Path.Combine(draft.Target, "Backup")}." : "Backup: disabled. No backup copies will be created.");
+                    recovery = "Cancellation or failure attempts to restore both source shuffles, target numbering and recycled clips"
+                        + (prepare.CreateBackup ? ", and remove new backups." : ". Backup copies are disabled.")
+                        + " Blocked recovery retains recovery files.";
                     break;
                 case PresetAction.SeekDuplications:
                     var scan = ClipDuplicationSeeker.Find(draft.Target, draft.DirectoryB, draft.IncludeSubfolders, MainShell.VideoExtensions, progress, ct);
@@ -351,7 +357,7 @@ internal sealed partial class WorkflowWorkspace : UserControl
         PresetAction.SeekDuplications => "Compare folders (Seek duplications). Exact size, duration and full SHA-256 identity only. By default, keep directory A and mark matching copies from B for recycling. Review and confirm before files change. Shared A/B paths and hard links stay kept.",
         PresetAction.RemoveDuplicates => "Clean one folder (Remove duplicates). Includes subfolders, excludes links. Keeps the first full path alphabetically per exact-identity group. Use Compare folders for individual choices.",
         PresetAction.IdentifyClip => "Identify clip. Search recursively for exact SHA-256 content and duration matches, then select results to move to an isolation folder or delete through Windows Recycle Bin. Reference clip stays untouched.",
-        PresetAction.PrepareBatch => "Prepare Batch. Shuffle source filenames, select and refill without exact duplicates, back up final clips, number the entire target batch shortest to longest, then reshuffle remaining source filenames. Analyze previews all changes without changing files.",
+        PresetAction.PrepareBatch => "Prepare Batch. Shuffle source filenames, select and refill without exact duplicates, optionally back up final clips, number the entire target batch shortest to longest, then reshuffle remaining source filenames. Analyze previews all changes without changing files.",
         PresetAction.ShuffleBatches => "Shuffle Batches. Pool recursive archive MP4 files, excluding Backup and links, pack intact clips into duration-limited batches and number shortest to longest. No duplicate cleanup or backups.",
         PresetAction.NameByTens => "Name by 10s. Numbering advances by ten (0, 10, 20…). This is a numbering step, not a duration filter. MP4 extensions are preserved.",
         PresetAction.ShuffleAndName => "Shuffle & Name. Randomize clips, then number in steps of ten with optional padding and prefix. MP4 extensions are preserved.",

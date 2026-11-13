@@ -1,3 +1,7 @@
+# 2.2.12 Optional Prepare Batch backups
+
+Prepare Batch now offers **Back up selected clips** in its workspace and preset editor. Backups remain enabled by default, including for older presets. Uncheck the option to prepare batches without creating backup copies or a `Backup` folder. Reviews and results show whether backups are enabled, and cancellation or failure still attempts to restore moves, source shuffles, target numbering and recycled duplicates.
+
 # 2.2.8 Watched archive start notifications
 
 - Continuous watching shows **Archiving started** when an actual clip copy begins, including auto-resumed routes and tray startup.

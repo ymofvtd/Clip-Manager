@@ -106,6 +106,75 @@ internal static class BatchPreparationChecks
         ReviewedInventory(root, write);
         RecursiveSources(root, write);
         RepeatedManualPreparation(root, write);
+        OptionalBackups(root, write);
+    }
+
+    private static void OptionalBackups(string parent, Action<string, uint, byte> write)
+    {
+        foreach (string backupState in new[] { "absent", "existing", "occupied by file" })
+        {
+            string root = Directory.CreateDirectory(Path.Combine(parent, "optional-backup-" + backupState)).FullName;
+            string source = Directory.CreateDirectory(Path.Combine(root, "source")).FullName;
+            string output = Directory.CreateDirectory(Path.Combine(root, "output")).FullName;
+            string destination = Directory.CreateDirectory(Path.Combine(output, "c_1")).FullName;
+            string backup = Path.Combine(source, "Backup");
+            if (backupState == "existing")
+            {
+                Directory.CreateDirectory(backup);
+                write(Path.Combine(backup, "saved.mp4"), 1, 210);
+            }
+            else if (backupState == "occupied by file") File.WriteAllText(backup, "unrelated file");
+            for (int i = 1; i <= 6; i++) write(Path.Combine(source, $"{i * 10}.mp4"), 30, (byte)(210 + i));
+            File.Copy(Path.Combine(source, "20.mp4"), Path.Combine(destination, "starter.mp4"));
+            var preset = new ActionPreset { Action = PresetAction.PrepareBatch, Target = source, Destination = output,
+                Selection = BatchSelection.Archives, DurationMinutes = 2, CreateBackup = false };
+            PrepareBatchPlan Analyze() => PrepareBatchPlan.Analyze(preset, source, Extensions, new TestProgress(), CancellationToken.None, new RotateOrderRandom());
+            var original = Snapshot(root);
+            var plan = Analyze();
+            Check(!plan.CreateBackup && plan.Changes.Count > 0 && plan.Changes.All(c => c.Backup is null)
+                && plan.DuplicateGroups.Count > 0 && original.SequenceEqual(Snapshot(root)),
+                $"Backup disabled ({backupState}): analysis freezes moves and duplicate refill without backup paths or mutations");
+            foreach (bool cancel in new[] { true, false })
+            {
+                bool reshuffling = false, failed = false;
+                using var cancellation = new CancellationTokenSource();
+                try
+                {
+                    plan.Execute(new TestProgress { OnMessage = message =>
+                    {
+                        if (message.StartsWith("Reshuffling remaining source filenames")) reshuffling = true;
+                        if (reshuffling && message.StartsWith("Renaming reviewed files"))
+                        {
+                            if (cancel) cancellation.Cancel();
+                            else throw new IOException("Injected failure without backups");
+                        }
+                    } }, cancellation.Token);
+                }
+                catch (Exception ex) when (ex is IOException or OperationCanceledException) { failed = true; }
+                Check(reshuffling && failed && original.SequenceEqual(Snapshot(root)),
+                    $"Backup disabled ({backupState}): {(cancel ? "cancellation" : "failure")} restores moves, shuffles and duplicate clips");
+                plan = Analyze();
+            }
+            var messages = new List<string>();
+            // Changing the editable preset cannot alter an already reviewed plan.
+            preset.CreateBackup = true;
+            string result = plan.Execute(new TestProgress { OnMessage = messages.Add }, CancellationToken.None);
+            Check(plan.Changes.All(c => Hash(c.Destination) == c.File.Hash) && result.Contains($"Moved: {plan.Changes.Count}")
+                && result.Contains("Backup: disabled") && !result.Contains("backed up")
+                && !messages.Any(m => m.StartsWith("Backing up")),
+                $"Backup disabled ({backupState}): execution moves reviewed content and reports no backup work");
+            Check(backupState == "absent" ? !Directory.Exists(backup) && !File.Exists(backup)
+                : backupState == "existing" ? Directory.GetFileSystemEntries(backup).Length == 1 && File.Exists(Path.Combine(backup, "saved.mp4"))
+                : File.ReadAllText(backup) == "unrelated file",
+                $"Backup disabled ({backupState}): preparation leaves the Backup path untouched");
+        }
+        string adapterSource = Directory.CreateDirectory(Path.Combine(parent, "no-backup-adapter-source")).FullName;
+        string adapterOutput = Directory.CreateDirectory(Path.Combine(parent, "no-backup-adapter-output")).FullName;
+        write(Path.Combine(adapterSource, "10.mp4"), 30, 220);
+        string adapterResult = ClipBatchPreparer.Prepare(adapterSource, adapterOutput, TimeSpan.FromMinutes(1), Extensions,
+            new TestProgress(), CancellationToken.None, createBackup: false);
+        Check(File.Exists(Path.Combine(adapterOutput, "1.mp4")) && !Directory.Exists(Path.Combine(adapterSource, "Backup"))
+            && adapterResult.Contains("Backup: disabled"), "Prepare adapter honors the optional backup setting");
     }
 
     private static void ReviewedInventory(string root, Action<string, uint, byte> write)
