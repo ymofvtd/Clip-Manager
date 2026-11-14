@@ -215,10 +215,12 @@ internal sealed partial class WorkflowWorkspace : UserControl
                 case PresetAction.ShuffleRandom:
                     var rename = RenamePlan.Analyze(draft.Target, Action, draft.Start, draft.Padding, draft.Prefix, draft.RandomLength, MainShell.VideoExtensions, progress, ct);
                     rows = rename.Changes.Select(c => new ContextRow(c.File.Path, "", "Rename", c.File.Path,
-                        c.Destination, Path.GetDirectoryName(c.File.Path)!, "", FormatSize(c.File.Length), Bytes: c.File.Length,
+                        c.Destination, Path.GetDirectoryName(c.File.Path)!, c.Duration is { } duration ? Duration(duration) : "", FormatSize(c.File.Length), Bytes: c.File.Length,
                         Modified: c.File.LastWrite, Identity: $"File identity: {c.File.Physical.Volume:X8}:{c.File.Physical.Index:X16}; reviewed size and timestamps")).ToArray();
                     nextExecution = (p, token) => JobOutcome.Complete(rename.Execute(p, token));
-                    summary = rename.Changes.Count == 0 ? "No top-level MP4 files found. Nothing to rename." : $"{rename.Changes.Count} files reviewed. Run uses this exact mapping; refresh generates a new random mapping.";
+                    summary = rename.Changes.Count == 0 ? "No top-level MP4 files found. Nothing to rename." : $"{rename.Changes.Count} files reviewed. Run uses this exact mapping. "
+                        + (Action == PresetAction.ShuffleAndName ? "Number shortest to longest; equal-duration clips retain their shuffled order."
+                            : "Refresh generates a new mapping.");
                     recovery = "Cancellation or failure attempts in-process rollback. Forced termination is outside this guarantee.";
                     break;
                 case PresetAction.ShuffleBatches:
@@ -235,13 +237,12 @@ internal sealed partial class WorkflowWorkspace : UserControl
                     rows = prepare.SourceShuffle.Select(c => new ContextRow("before:" + c.File.Path, "1. Source shuffle", "Rename", c.File.Path,
                             c.Destination, Path.GetDirectoryName(c.File.Path)!, "", FormatSize(c.File.Length), Bytes: c.File.Length))
                         .Concat(prepare.Changes.Select(c => ChangeRow(c, c.Backup is null ? "Move" : "Backup / move")))
-                        .Concat(prepare.StarterChanges.Select(c => ChangeRow(c, "Rename")))
                         .Concat(prepare.DuplicateGroups.SelectMany((g, i) => g.Duplicates.Select(path => new ContextRow(path, (i + 1).ToString(), "Recycle", path,
                             "Recycle; keeper: " + g.Keep, Path.GetDirectoryName(path)!, Duration(g.Identity.Duration), FormatSize(g.Identity.Size), Bytes: g.Identity.Size))))
                         .Concat(prepare.RemainingShuffle.Select(c => new ContextRow("after:" + c.File.Path, "3. Source reshuffle", "Rename", preparedPaths[c.File.Path],
                             c.Destination, Path.GetDirectoryName(c.File.Path)!, "", FormatSize(c.File.Length), Bytes: c.File.Length))).ToArray();
                     nextExecution = (p, token) => JobOutcome.Complete(prepare.Execute(p, token));
-                    summary = $"Batch: {prepare.Batch.Path} ({(prepare.Batch.Create ? "create" : "existing starter folder")})\nStarters: {prepare.StarterCount}, {Duration(prepare.StarterDuration)}. Planned total: {Duration(prepare.TotalDuration)}.\nShuffle {prepare.SourceShuffle.Count} source clips before preparation and {prepare.RemainingShuffle.Count} remaining clips afterward.\nMove {prepare.Changes.Count}; recycle {prepare.DuplicateGroups.Sum(g => g.Duplicates.Count)}. Number the entire target batch shortest to longest. "
+                    summary = $"Batch: {prepare.Batch.Path} ({(prepare.Batch.Create ? "create" : "existing starter folder")})\nStarters: {prepare.StarterCount}, {Duration(prepare.StarterDuration)}. Planned total: {Duration(prepare.TotalDuration)}.\nShuffle {prepare.SourceShuffle.Count} source clips before preparation and {prepare.RemainingShuffle.Count} remaining clips afterward.\nMove {prepare.Changes.Count}; recycle {prepare.DuplicateGroups.Sum(g => g.Duplicates.Count)}. Number incoming clips shortest to longest; preserve existing starter filenames. "
                         + (prepare.CreateBackup ? $"Originals backed up under {Path.Combine(draft.Target, "Backup")}." : "Backup: disabled. No backup copies will be created.");
                     recovery = "Cancellation or failure attempts to restore both source shuffles, target numbering and recycled clips"
                         + (prepare.CreateBackup ? ", and remove new backups." : ". Backup copies are disabled.")
@@ -357,10 +358,10 @@ internal sealed partial class WorkflowWorkspace : UserControl
         PresetAction.SeekDuplications => "Compare folders (Seek duplications). Exact size, duration and full SHA-256 identity only. By default, keep directory A and mark matching copies from B for recycling. Review and confirm before files change. Shared A/B paths and hard links stay kept.",
         PresetAction.RemoveDuplicates => "Clean one folder (Remove duplicates). Includes subfolders, excludes links. Keeps the first full path alphabetically per exact-identity group. Use Compare folders for individual choices.",
         PresetAction.IdentifyClip => "Identify clip. Search recursively for exact SHA-256 content and duration matches, then select results to move to an isolation folder or delete through Windows Recycle Bin. Reference clip stays untouched.",
-        PresetAction.PrepareBatch => "Prepare Batch. Shuffle source filenames, select and refill without exact duplicates, optionally back up final clips, number the entire target batch shortest to longest, then reshuffle remaining source filenames. Analyze previews all changes without changing files.",
+        PresetAction.PrepareBatch => "Prepare Batch. Shuffle source filenames, select and refill without exact duplicates, optionally back up final clips, number incoming clips shortest to longest while preserving existing starter filenames, then reshuffle remaining source filenames. Analyze previews all changes without changing files.",
         PresetAction.ShuffleBatches => "Shuffle Batches. Pool recursive archive MP4 files, excluding Backup and links, pack intact clips into duration-limited batches and number shortest to longest. No duplicate cleanup or backups.",
         PresetAction.NameByTens => "Name by 10s. Numbering advances by ten (0, 10, 20…). This is a numbering step, not a duration filter. MP4 extensions are preserved.",
-        PresetAction.ShuffleAndName => "Shuffle & Name. Randomize clips, then number in steps of ten with optional padding and prefix. MP4 extensions are preserved.",
+        PresetAction.ShuffleAndName => "Shuffle & Name. Number clips from shortest to longest in steps of ten with optional padding and prefix. Equal-duration clips retain their shuffled order. MP4 extensions are preserved.",
         _ => "Shuffle Random. Rename clips using a fixed reviewed random mapping, preserving MP4 extensions. Refresh preview explicitly to generate another mapping."
     };
 }

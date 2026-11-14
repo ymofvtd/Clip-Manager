@@ -1,3 +1,9 @@
+# 2.2.13 Preserve batch starters and order Shuffle & Name by duration
+
+Prepare Batch now preserves existing filenames when refilling a `c_` folder. Only incoming clips are numbered from shortest to longest, skipping every occupied number, including existing MP4 names. Clips moved in earlier preparations keep their names on subsequent runs. Existing duplicate cleanup, source shuffles, backups and rollback still apply.
+
+Shuffle & Name now numbers clips from shortest to longest, retaining shuffled order for equal durations. Starting number, increments of ten, padding, prefix and MP4 extension casing are preserved. Analyze reads duration metadata, shows durations with the reviewed mapping and stops before renaming if a clip has an unreadable duration.
+
 # 2.2.12 Optional Prepare Batch backups
 
 Prepare Batch now offers **Back up selected clips** in its workspace and preset editor. Backups remain enabled by default, including for older presets. Uncheck the option to prepare batches without creating backup copies or a `Backup` folder. Reviews and results show whether backups are enabled, and cancellation or failure still attempts to restore moves, source shuffles, target numbering and recycled duplicates.

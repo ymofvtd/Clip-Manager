@@ -2,6 +2,8 @@
 
 Date: 2026-10-13. All fixtures in the automated checks are generated under a unique temporary directory. No production library is used.
 
+Version 2.2.13 batch and naming fixes: Release builds passed without warnings or errors. All 558 functional integration checks passed with `--skip-ux`, including starter filename preservation across refills, occupied numeric names, duration ordering with shuffled ties, reviewed execution, backups and rollback. The UX suite completed in one full run; other full runs intermittently failed its existing 100 ms warm-navigation assertion during a synthetic progress burst. Generated screenshots were kept in temporary working directories and the updated naming review was visually inspected.
+
 Version 2.1.16 Archive cache: the full integration run passed 313 checks, including UX, Archive, batch operations and folder tracking. The final focused Archive run passed 63 checks, including two additional cache-cancellation/invalid-stamp cases. A saved 1,000-clip archive reload and reconciliation charged zero video-content bytes; watching skipped unchanged historical sources and copied a new arrival. Replaced/changed files with preserved length/write time, missing/moved copies, legacy indexes, occupied targets, crash recovery, overflow and foreground interruptions remain covered. Release publish succeeded. Full-suite screenshots were generated in a separate temporary working directory; existing visual baselines were not rewritten for this Archive change.
 
 Version 2.1.15 visual refresh: Release build and portable publish succeeded without warnings or errors; all 90 UX checks passed. Added checks cover analysis selecting Review files, switching Configure/Review without losing results, and compact separation of tool choices and view tabs. Light, dark and compact screenshots were regenerated and visually inspected. This refresh did not rerun the full domain suite or certify physical High Contrast/Narrator/multiple-monitor DPI behavior.
@@ -13,6 +15,7 @@ dotnet build -c Release
 dotnet run --project VideoTrayApp.Tests -c Release -- --ux-only
 dotnet run --project VideoTrayApp.Tests -c Release -- --archive-only
 dotnet run --project VideoTrayApp.Tests -c Release
+dotnet run --project VideoTrayApp.Tests -c Release -- --skip-ux # Domain checks without UI timing/captures
 dotnet publish VideoTrayApp/VideoTrayApp.csproj -c Release
 ```
 

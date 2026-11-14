@@ -4,7 +4,7 @@ namespace VideoTrayApp;
 
 internal enum PresetAction { PrepareBatch, ShuffleAndName, NameByTens, ShuffleRandom, Archive, IdentifyClip, RemoveDuplicates, ShuffleBatches, SeekDuplications }
 internal enum BatchSelection { NumberedMp4, AllVideos, Archives }
-// Retained for loading saved presets; Prepare Batch always numbers clips by duration.
+// Retained for loading saved presets; Prepare Batch always numbers incoming clips by duration.
 internal enum BatchNaming { Preserve, NumberByTens, Random }
 internal enum IdentifyBehavior { Move, Recycle }
 
@@ -65,11 +65,13 @@ internal sealed class ActionPreset
         {
             lines.Add("Use the highest numbered c_ folder, or create a new batch if none exists.");
             lines.Add($"New folder name: {(string.IsNullOrWhiteSpace(BatchFolderName) ? "batch_1, batch_2, ... (next available)" : BatchFolderName)}");
-            lines.Add($"Duration: {DurationMinutes} minutes\nSelection: {Selection}\nShuffle source filenames before preparation and reshuffle remaining clips afterward.\nNaming: entire batch 1, 2, 3, ... shortest to longest (occupied non-video numbers skipped)");
+            lines.Add($"Duration: {DurationMinutes} minutes\nSelection: {Selection}\nShuffle source filenames before preparation and reshuffle remaining clips afterward.\nNaming: incoming clips 1, 2, 3, ... shortest to longest; existing starter filenames preserved (all occupied numbers skipped)");
             lines.Add(CreateBackup ? $"Backup: {Path.Combine(ResolveTarget(workingFolder), "Backup")}, using original filenames" : "Backup: disabled");
         }
         if (Action is PresetAction.ShuffleAndName or PresetAction.NameByTens)
             lines.Add($"Start: {Start}; padding: {Padding}; prefix: {Prefix}");
+        if (Action == PresetAction.ShuffleAndName)
+            lines.Add("Number shortest to longest; equal-duration clips retain their shuffled order.");
         if (Action == PresetAction.ShuffleRandom)
             lines.Add($"Random name length: {RandomLength}");
         if (Action == PresetAction.Archive)

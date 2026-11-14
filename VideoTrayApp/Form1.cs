@@ -790,68 +790,14 @@ namespace VideoTrayApp
             }
         }
 
-        //
-        // Implementation of ShuffleAndNameStepTen (two-pass: randomize ids then rename by tens)
-        //
+        // Use the same duration-ordered, reviewed rename plan as the main workspace.
         private void ShuffleAndNameStepTen(string folder, int start, int pad, string prefix, IOperationProgress? progress = null, CancellationToken cancellationToken = default)
         {
-            var dir = new DirectoryInfo(folder);
-            if (!dir.Exists) throw new DirectoryNotFoundException(folder);
-
-            var files = dir.EnumerateFiles()
-                .Where(fi => !fi.Name.StartsWith(".") && DefaultVideoExts.Contains(fi.Extension))
-                .OrderBy(fi => fi.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (files.Count == 0) return;
-
-            var rng = new Random();
-            var usedIds = new HashSet<string>();
-            var stage1Map = new List<(string Original, string RandomName)>();
-            int processed = 0;
-            int total = files.Count * 2;
-            progress?.Report(0, total, "Shuffling videos (stage 1)...");
-
-            foreach (var fi in files)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                processed++;
-                progress?.Report(processed, total, $"Stage 1: {fi.Name}");
-
-                string rid;
-                do
-                {
-                    rid = GenId(rng, 10);
-                } while (!usedIds.Add(rid));
-
-                var newName = rid + fi.Extension;
-                var newPath = Path.Combine(folder, newName);
-                newPath = EnsureUniquePath(newPath);
-                OperationTransaction.Move(fi.FullName, newPath);
-                stage1Map.Add((fi.Name, Path.GetFileName(newPath)));
-            }
-
-            var producedNames = new HashSet<string>(stage1Map.Select(t => t.RandomName));
-            var randomizedFiles = dir.EnumerateFiles()
-                .Where(f => producedNames.Contains(f.Name))
-                .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            long seq = start;
-            progress?.Report(processed, total, "Naming videos (stage 2)...");
-            foreach (var current in randomizedFiles)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                processed++;
-                progress?.Report(processed, total, $"Stage 2: {current.Name}");
-
-                string numStr = pad > 0 ? seq.ToString().PadLeft(pad, '0') : seq.ToString();
-                var finalName = $"{prefix}{numStr}{current.Extension}";
-                var finalPath = Path.Combine(folder, finalName);
-                finalPath = EnsureUniquePath(finalPath);
-                OperationTransaction.Move(current.FullName, finalPath);
-                seq += 10;
-            }
+            progress ??= new EmbeddedOperationProgress(this);
+            var plan = RenamePlan.Analyze(folder, PresetAction.ShuffleAndName, start, pad, prefix, 12,
+                DefaultVideoExts, progress, cancellationToken);
+            if (OperationTransaction.IsActive) plan.Apply(progress, cancellationToken);
+            else plan.Execute(progress, cancellationToken);
         }
 
         //

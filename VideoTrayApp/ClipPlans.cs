@@ -51,7 +51,7 @@ internal sealed record RenameFile(string Path, long Length, DateTime Created, Da
     }
 }
 
-internal sealed record RenameChange(RenameFile File, string Destination);
+internal sealed record RenameChange(RenameFile File, string Destination, TimeSpan? Duration = null);
 internal sealed record RenamePlan(ReadOnlyCollection<RenameChange> Changes)
 {
     internal static RenamePlan Analyze(string folder, PresetAction mode, int start, int padding, string prefix,
@@ -66,6 +66,25 @@ internal sealed record RenamePlan(ReadOnlyCollection<RenameChange> Changes)
         if (mode == PresetAction.NameByTens) paths.Sort((a, b) => NaturalCompare(Path.GetFileName(a), Path.GetFileName(b)));
         if (mode != PresetAction.NameByTens)
             for (int i = paths.Count - 1; i > 0; i--) { int j = random.Next(i + 1); (paths[i], paths[j]) = (paths[j], paths[i]); }
+        var reviewedFiles = new Dictionary<string, RenameFile>(StringComparer.OrdinalIgnoreCase);
+        var durations = new Dictionary<string, TimeSpan>(StringComparer.OrdinalIgnoreCase);
+        if (mode == PresetAction.ShuffleAndName)
+        {
+            foreach (string path in paths)
+            {
+                ct.ThrowIfCancellationRequested();
+                progress.SetIndeterminate("Reading clip duration: " + Path.GetFileName(path));
+                var file = RenameFile.Read(path, ct);
+                using var video = TagLib.File.Create(path);
+                TimeSpan duration = video.Properties.Duration;
+                if (duration <= TimeSpan.Zero) throw new InvalidDataException("Cannot read a valid video duration: " + path);
+                file.Verify(ct);
+                reviewedFiles[path] = file;
+                durations[path] = duration;
+            }
+            // Stable ordering preserves the shuffled order among clips of equal duration.
+            paths = paths.OrderBy(p => durations[p]).ToList();
+        }
         var originals = paths.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var destinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var changes = new List<RenameChange>();
@@ -88,7 +107,8 @@ internal sealed record RenamePlan(ReadOnlyCollection<RenameChange> Changes)
             string target = Path.Combine(folder, stem + Path.GetExtension(paths[i]));
             if (!destinations.Add(target) || Directory.Exists(target) || File.Exists(target) && !originals.Contains(target))
                 throw new IOException($"Proposed filename is occupied: {target}");
-            changes.Add(new(RenameFile.Read(paths[i], ct), target));
+            changes.Add(new(reviewedFiles.TryGetValue(paths[i], out var file) ? file : RenameFile.Read(paths[i], ct),
+                target, durations.TryGetValue(paths[i], out var duration) ? duration : null));
         }
         return new(changes.AsReadOnly());
     }
@@ -148,7 +168,7 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
     ReadOnlyCollection<PlannedFile> Guards, TimeSpan StarterDuration, TimeSpan TotalDuration, int StarterCount,
     ReadOnlyCollection<string> StarterPaths, ReadOnlyDictionary<string, TimeSpan> Durations, ReadOnlyCollection<string> Extensions,
     ReadOnlyCollection<RenameChange> SourceShuffle, ReadOnlyCollection<RenameChange> RemainingShuffle,
-    ReadOnlyCollection<PlannedChange> StarterChanges, BatchSelection? Selection, bool CreateBackup)
+    BatchSelection? Selection, bool CreateBackup)
 {
     internal static PrepareBatchPlan Analyze(ActionPreset preset, string source, ISet<string> extensions,
         IOperationProgress progress, CancellationToken ct, Random? random = null)
@@ -231,22 +251,16 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
             foreach (var path in duplicates.Groups.SelectMany(g => g.Duplicates)) deleted.Add(path);
             selected.RemoveAll(deleted.Contains);
         }
-        var starterSet = starters.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var occupied = batch.Create ? new HashSet<BigInteger>() : Directory.EnumerateFileSystemEntries(batch.Path).Where(p => !starterSet.Contains(p))
+        // Reserve every existing entry, including starter MP4 filenames, across extensions.
+        var occupied = batch.Create ? new HashSet<BigInteger>() : Directory.EnumerateFileSystemEntries(batch.Path)
             .Select(Path.GetFileNameWithoutExtension).Where(n => !string.IsNullOrEmpty(n) && n.All(char.IsAsciiDigit)).Select(n => BigInteger.Parse(n!)).ToHashSet();
         var backups = new HashSet<string>(StringComparer.OrdinalIgnoreCase); BigInteger sequence = 1;
         var changes = new List<PlannedChange>();
-        var starterChanges = new List<PlannedChange>();
-        foreach (string path in starters.Where(p => !deleted.Contains(p)).Concat(selected).OrderBy(Duration))
+        foreach (string path in selected.OrderBy(Duration))
         {
             while (occupied.Contains(sequence)) sequence++;
             string target = Path.Combine(batch.Path, sequence + Path.GetExtension(path)); occupied.Add(sequence++);
-            if (Directory.Exists(target) || File.Exists(target) && !starterSet.Contains(target)) throw new IOException("Batch destination collision: " + target);
-            if (starterSet.Contains(path))
-            {
-                starterChanges.Add(new(guards[path], target, Duration: Duration(path)));
-                continue;
-            }
+            if (Directory.Exists(target) || File.Exists(target)) throw new IOException("Batch destination collision: " + target);
             string? backup = null;
             if (createBackup)
             {
@@ -264,7 +278,7 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
         return new(source, parent, batch, changes.AsReadOnly(), groups.AsReadOnly(), guards.Values.ToList().AsReadOnly(), starterDuration,
             TimeSpan.FromTicks(starters.Concat(selected).Where(p => !deleted.Contains(p)).Sum(p => Duration(p).Ticks)), starters.Count,
             starters.AsReadOnly(), new(durations), extensions.ToList().AsReadOnly(), sourceShuffle.AsReadOnly(),
-            remainingShuffle.AsReadOnly(), starterChanges.AsReadOnly(), selection, createBackup);
+            remainingShuffle.AsReadOnly(), selection, createBackup);
     }
 
     private static void Shuffle(List<string> paths, Random random, CancellationToken ct)
@@ -304,8 +318,8 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
             Directory.EnumerateFiles(Batch.Path).Where(p => VideoFiles.IsMp4(p) && Extensions.Contains(Path.GetExtension(p), StringComparer.OrdinalIgnoreCase))))
             throw new IOException("The reviewed starter folder's videos changed. Analyze again before preparing the batch: " + Batch.Path);
         foreach (var guard in Guards) guard.Verify(ct);
-        foreach (var change in Changes.Concat(StarterChanges))
-            if (Directory.Exists(change.Destination) || File.Exists(change.Destination) && !StarterPaths.Contains(change.Destination, StringComparer.OrdinalIgnoreCase)
+        foreach (var change in Changes)
+            if (Directory.Exists(change.Destination) || File.Exists(change.Destination)
                 || change.Backup is not null && (File.Exists(change.Backup) || Directory.Exists(change.Backup)))
                 throw new IOException("A reviewed move or backup destination is now occupied: " + change.Destination);
         progress.SetIndeterminate("Shuffling source filenames before preparing batch...");
@@ -334,13 +348,13 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
                 OperationTransaction.Copy(PreparedPath(change.File.Path), backup);
             progress.Report(moved++, Changes.Count, $"Moving {Path.GetFileName(change.File.Path)}...");
         }
-        var targetRenames = Changes.Concat(StarterChanges).Select(change =>
+        var targetRenames = Changes.Select(change =>
         {
             string path = PreparedPath(change.File.Path);
             (change.File with { Path = path }).Verify(ct);
             return new RenameChange(RenameFile.Read(path, ct), change.Destination);
         }).ToList();
-        progress.SetIndeterminate("Numbering the entire target batch from shortest to longest...");
+        progress.SetIndeterminate("Numbering incoming batch clips from shortest to longest...");
         new RenamePlan(targetRenames.AsReadOnly()).Apply(progress, ct);
         var remainingRenames = RemainingShuffle.Select(change =>
         {
@@ -357,7 +371,7 @@ internal sealed record PrepareBatchPlan(string Source, string Parent, BatchDesti
         progress.SetIndeterminate("Source reshuffle completed.");
         string movedSummary = CreateBackup ? $"Moved and backed up: {moved}" : $"Moved: {moved}";
         string backupSummary = CreateBackup ? Path.Combine(Source, "Backup") : "disabled";
-        return $"{movedSummary}\nDuplicates sent to Recycle Bin: {duplicates.DuplicateCount}\nBatch: {Batch.Path}\nBackup: {backupSummary}\nSource reshuffled before preparation: {SourceShuffle.Count}; after preparation: {RemainingShuffle.Count}.\nEntire batch numbered shortest to longest. Reviewed selection and destinations were used.";
+        return $"{movedSummary}\nDuplicates sent to Recycle Bin: {duplicates.DuplicateCount}\nBatch: {Batch.Path}\nBackup: {backupSummary}\nSource reshuffled before preparation: {SourceShuffle.Count}; after preparation: {RemainingShuffle.Count}.\nIncoming clips numbered shortest to longest; existing starter filenames preserved. Reviewed selection and destinations were used.";
     }
 }
 

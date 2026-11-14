@@ -262,7 +262,7 @@ internal sealed class PresetEditorForm : Form
             Add("Backup", createBackup);
             saveValues.Add(() => preset.CreateBackup = createBackup.Checked);
             Add("Selection help", new Label { AutoSize = true, Text = "Numbered MP4: numbered top-level MP4 files.\nAll MP4 files: all top-level MP4 files.\nArchives: MP4 files in target and subfolders, excluding Backup.\nEach mode uses a random order." });
-            Add("Batch naming", new Label { AutoSize = true, Text = "Shuffle source filenames before preparation and again afterward.\nEntire target batch: 1, 2, 3, ... from shortest to longest.\nOccupied non-video numbers are skipped; optional backups use original names." });
+            Add("Batch naming", new Label { AutoSize = true, Text = "Shuffle source filenames before preparation and again afterward.\nIncoming clips: 1, 2, 3, ... from shortest to longest.\nExisting starter filenames are preserved; all occupied numbers are skipped.\nOptional backups use original names." });
         }
         if (preset.Action == PresetAction.ShuffleBatches)
         {
@@ -273,6 +273,7 @@ internal sealed class PresetEditorForm : Form
             Number("Starting number", preset.Start, 0, int.MaxValue, v => preset.Start = v);
         if (preset.Action == PresetAction.ShuffleAndName)
         {
+            Add("Clip order", new Label { AutoSize = true, Text = "Number shortest to longest in steps of ten.\nEqual-duration clips retain their shuffled order." });
             Number("Padding width", preset.Padding, 0, 64, v => preset.Padding = v);
             TextField("Filename prefix", preset.Prefix, v => preset.Prefix = v);
         }

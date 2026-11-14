@@ -7,6 +7,7 @@ internal static class BatchPreparationChecks
 
     internal static void Run(string parent, Action<string, uint, byte> write)
     {
+        PreserveStarterNames(parent, write);
         string root = Directory.CreateDirectory(Path.Combine(parent, "prepare-shuffles")).FullName;
         string source = Directory.CreateDirectory(Path.Combine(root, "source")).FullName;
         string destination = Directory.CreateDirectory(Path.Combine(root, "c_10")).FullName;
@@ -95,10 +96,10 @@ internal static class BatchPreparationChecks
             && File.ReadAllText(Path.Combine(backup, "30.mp4")) == "existing backup"
             && plan.Changes.Single(c => Path.GetFileName(c.File.Path) == "30.mp4").Backup == Path.Combine(backup, "30__1.mp4"),
             "Backups retain the original pre-shuffle filenames/content and safely suffix occupied names");
-        Check(new[] { "1.mp4", "3.mp4", "5.mp4" }.Select(p => ClipIdentifier.ReadIdentity(Path.Combine(destination, p), CancellationToken.None).Duration)
-            .SequenceEqual(new[] { TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(4) })
-            && !File.Exists(Path.Combine(destination, "long-starter.mp4")),
-            "The entire target batch, including existing starters, is numbered shortest to longest around occupied numbers");
+        Check(new[] { "1.mp4", "3.mp4" }.Select(p => ClipIdentifier.ReadIdentity(Path.Combine(destination, p), CancellationToken.None).Duration)
+            .SequenceEqual(new[] { TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(3) })
+            && Hash(Path.Combine(destination, "long-starter.mp4")) == hashes[Path.Combine(source, "20.mp4")],
+            "Only incoming clips are numbered shortest to longest around occupied numbers; starters keep their names and bytes");
         Check(File.Exists(Path.Combine(source, "unnumbered.mp4")) && File.Exists(Path.Combine(nested, "10.mp4"))
             && File.ReadAllText(Path.Combine(destination, "2.txt")) == "keep notes" && Directory.Exists(Path.Combine(destination, "4.mp4")),
             "Selection exclusions, source subfolders and target non-video entries remain intact");
@@ -107,6 +108,51 @@ internal static class BatchPreparationChecks
         RecursiveSources(root, write);
         RepeatedManualPreparation(root, write);
         OptionalBackups(root, write);
+    }
+
+    private static void PreserveStarterNames(string parent, Action<string, uint, byte> write)
+    {
+        string root = Directory.CreateDirectory(Path.Combine(parent, "preserve-starter-names")).FullName;
+        string source = Directory.CreateDirectory(Path.Combine(root, "source")).FullName;
+        string output = Directory.CreateDirectory(Path.Combine(root, "output")).FullName;
+        string destination = Directory.CreateDirectory(Path.Combine(output, "c_20")).FullName;
+        write(Path.Combine(destination, "01.MP4"), 20, 230);
+        write(Path.Combine(destination, "3.mp4"), 1, 231);
+        write(Path.Combine(destination, "opener.mp4"), 10, 232);
+        File.WriteAllText(Path.Combine(destination, "2.txt"), "notes");
+        Directory.CreateDirectory(Path.Combine(destination, "4.mp4"));
+        uint[] durations = [8, 2, 6, 3, 5, 4, 7, 9];
+        for (int i = 0; i < durations.Length; i++)
+            write(Path.Combine(source, $"clip-{i}{(i == 0 ? ".MP4" : ".mp4")}"), durations[i], (byte)(240 + i));
+        var preset = new ActionPreset { Target = source, Destination = output, Selection = BatchSelection.AllVideos,
+            DurationMinutes = 1, CreateBackup = false };
+        PrepareBatchPlan Analyze() => PrepareBatchPlan.Analyze(preset, source, Extensions,
+            new TestProgress(), CancellationToken.None, new RotateOrderRandom());
+        List<PlannedFile> Existing() => Directory.GetFiles(destination).Select(p => PlannedFile.Read(p, CancellationToken.None)).ToList();
+        bool Preserved(List<PlannedFile> files) => files.All(f => File.Exists(f.Path) && PlannedFile.Read(f.Path, CancellationToken.None) == f);
+
+        var existing = Existing();
+        var plan = Analyze();
+        Check(plan.Changes.Count > 0 && plan.Changes.All(c => int.Parse(Path.GetFileNameWithoutExtension(c.Destination)) >= 5)
+            && Preserved(existing), "Prepare preview reserves existing numeric clips, notes and folders without changing starters");
+        plan.Execute(new TestProgress(), CancellationToken.None);
+        Check(Preserved(existing) && plan.Changes.All(c => Hash(c.Destination) == c.File.Hash)
+            && plan.Changes.Select(c => c.Duration).SequenceEqual(plan.Changes.Select(c => c.Duration).Order()),
+            "Refilling c_ preserves numeric and named starter paths, identities, timestamps and bytes while ordering incoming clips");
+
+        var full = Snapshot(destination);
+        plan = Analyze();
+        Check(plan.Changes.Count == 0, "A full starter batch selects no incoming clips");
+        plan.Execute(new TestProgress(), CancellationToken.None);
+        Check(full.SequenceEqual(Snapshot(destination)), "Preparing an already full c_ folder leaves every target filename and byte unchanged");
+
+        existing = Existing();
+        preset.DurationMinutes = 2;
+        plan = Analyze();
+        Check(plan.Changes.Count > 0, "A repeated preparation can refill the same c_ folder");
+        plan.Execute(new TestProgress(), CancellationToken.None);
+        Check(Preserved(existing) && plan.Changes.All(c => Hash(c.Destination) == c.File.Hash),
+            "Repeated refills preserve both original starters and clips moved by earlier preparations");
     }
 
     private static void OptionalBackups(string parent, Action<string, uint, byte> write)

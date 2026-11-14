@@ -7,6 +7,7 @@ internal static class RenameChecks
 {
     internal static void Run(string parent, Action<string, uint, byte> write)
     {
+        DurationOrder(parent, write);
         var progress = new TestProgress();
         var ct = CancellationToken.None;
         RenamePlan Analyze(string folder, PresetAction mode = PresetAction.ShuffleAndName) =>
@@ -38,7 +39,7 @@ internal static class RenameChecks
             long executeMs = timer.ElapsedMilliseconds;
             ulong executionReads = ReadBytes() - before;
             Console.WriteLine($"MEASURE: {mode}, 32 MiB: preview {previewMs} ms / {previewReads} bytes read; execution {executeMs} ms / {executionReads} bytes read.");
-            Check(previewReads < 256 * 1024 && executionReads < 256 * 1024, mode + ": preview and execution do not read video contents");
+            Check(previewReads < 256 * 1024 && executionReads < 256 * 1024, mode + ": preview and execution avoid reading full video contents");
             Check(plan.Changes.All(c => Hash(c.Destination) == originals[c.File.Path]
                 && Path.GetExtension(c.Destination) == Path.GetExtension(c.File.Path)), mode + ": exact reviewed mapping, contents and extension casing survive");
             Check(excluded.All(pair => Hash(pair.Key) == pair.Value), mode + ": excluded files remain untouched");
@@ -47,7 +48,8 @@ internal static class RenameChecks
         var changed = Analyze(source);
         string target = changed.Changes[0].File.Path;
         DateTime written = File.GetLastWriteTimeUtc(target);
-        using (var stream = new FileStream(target, FileMode.Open, FileAccess.Write)) stream.WriteByte(99);
+        using (var stream = new FileStream(target, FileMode.Open, FileAccess.Write))
+        { stream.Position = stream.Length - 1; stream.WriteByte(99); }
         File.SetLastWriteTimeUtc(target, written);
         var snapshot = Snapshot(source);
         Check(changed.Changes[0].File.Stamp is not null, "Rename tests have filesystem change stamps");
@@ -119,6 +121,42 @@ internal static class RenameChecks
         aliasPlan.Execute(progress, ct);
         Check(aliasPlan.Changes.All(c => PhysicalFile.Read(c.Destination) == c.File.Physical),
             "Renaming multiple hard-link aliases preserves their shared file identity");
+    }
+
+    private static void DurationOrder(string parent, Action<string, uint, byte> write)
+    {
+        string folder = Directory.CreateDirectory(Path.Combine(parent, "rename-duration-order")).FullName;
+        uint[] durations = [2, 8, 5, 2, 12, 1, 4, 10, 3, 6, 7, 9];
+        for (int i = 0; i < durations.Length; i++)
+            write(Path.Combine(folder, $"clip-{i:D2}{(i % 2 == 0 ? ".MP4" : ".mp4")}"), durations[i], (byte)(180 + i));
+        var original = Snapshot(folder);
+        var plan = RenamePlan.Analyze(folder, PresetAction.ShuffleAndName, 100, 4, "clip_", 12,
+            MainShell.VideoExtensions, new TestProgress(), CancellationToken.None, new RotateOrderRandom());
+        Check(SameSnapshot(folder, original) && plan.Changes.Select(c => c.Duration)
+            .SequenceEqual(durations.Order().Select(d => (TimeSpan?)TimeSpan.FromSeconds(d))),
+            "Shuffle & Name preview orders clips shortest to longest without changing files");
+        Check(plan.Changes.Where(c => c.Duration == TimeSpan.FromSeconds(2)).Select(c => Path.GetFileName(c.File.Path))
+            .SequenceEqual(["clip-03.mp4", "clip-00.MP4"]), "Equal-duration clips retain their shuffled order");
+        Check(plan.Changes.Select(c => Path.GetFileNameWithoutExtension(c.Destination))
+            .SequenceEqual(Enumerable.Range(0, durations.Length).Select(i => $"clip_{100 + 10 * i:D4}")),
+            "Duration numbering preserves the starting number, step of ten, padding and prefix above nine clips");
+        plan.Execute(new TestProgress(), CancellationToken.None);
+        Check(plan.Changes.All(c => Hash(c.Destination) == original[c.File.Path]
+            && ClipIdentifier.ReadIdentity(c.Destination, CancellationToken.None).Duration == c.Duration
+            && Path.GetExtension(c.File.Path) == Path.GetExtension(c.Destination)),
+            "Shuffle & Name executes the exact duration-ordered mapping with original bytes and extensions");
+
+        File.WriteAllText(Path.Combine(folder, "invalid.mp4"), "not a video");
+        original = Snapshot(folder);
+        bool rejected = false;
+        try
+        {
+            RenamePlan.Analyze(folder, PresetAction.ShuffleAndName, 0, 0, "", 12,
+                MainShell.VideoExtensions, new TestProgress(), CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is TagLib.CorruptFileException or TagLib.UnsupportedFormatException or InvalidDataException)
+        { rejected = true; }
+        Check(rejected && SameSnapshot(folder, original), "Unreadable duration stops Shuffle & Name before any filename changes");
     }
 
     private static bool Rejected(Action action)
