@@ -2,6 +2,7 @@ namespace VideoTrayApp;
 
 internal sealed partial class MainShell
 {
+    private CompilationHistoryWorkspace? saveCompilationPage, clipRecencyPage;
     private static string DestinationFor(PresetAction action) => action switch
     {
         PresetAction.PrepareBatch or PresetAction.ShuffleBatches => "Batches",
@@ -24,17 +25,28 @@ internal sealed partial class MainShell
         if (name == "Find & clean")
         {
             tabs.Add("SeekClips", "Seek clips", () => new ClipSeekWorkspace(this, () => workingFolder, preferences));
+            tabs.Add("CheckClipsRecency", "Check clips recency", () => clipRecencyPage = new CompilationHistoryWorkspace(this, false, workingFolder, preferences));
         }
         if (name == "Batches")
         {
             tabs.Add("BestOfMonth", "Best of the month", () => monthlyPage = new MonthlyBatchWorkspace(this, preferences, monthlySettings, workingFolder));
             tabs.Add("PreparingCompilation", "Preparing compilation", () => new CompilationWorkspace(this, preferences));
+            tabs.Add("SaveCompilationState", "Save compilation state", () => saveCompilationPage = new CompilationHistoryWorkspace(this, true, Compilations.Active?.Folder ?? workingFolder, preferences));
         }
     }
     internal void OpenTool(PresetAction action)
     {
         string name = DestinationFor(action); Navigate(name);
         if (pages[name] is ToolGroupWorkspace tabs) tabs.Select(action);
+    }
+    internal void OpenCompilationHistory(bool saving, string folder)
+    {
+        string destination = saving ? "Batches" : "Find & clean";
+        Navigate(destination);
+        if (pages[destination] is not ToolGroupWorkspace tabs) return;
+        string key = saving ? "SaveCompilationState" : "CheckClipsRecency";
+        tabs.Select(key);
+        if (tabs.Workspace(key) is CompilationHistoryWorkspace workspace) workspace.SetFolder(folder);
     }
     internal Task<JobOutcome?> AddToCompilationAsync(IEnumerable<string> paths)
     {

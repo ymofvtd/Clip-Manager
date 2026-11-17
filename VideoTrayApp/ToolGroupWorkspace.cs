@@ -31,6 +31,7 @@ internal sealed class ToolGroupWorkspace : UserControl
         if (factories.Count == 1) Select(key);
     }
     internal void Select(PresetAction action) => Select(action.ToString());
+    internal UserControl? Workspace(string key) => workspaces.GetValueOrDefault(key);
     internal void Select(string action)
     {
         if (!workspaces.ContainsKey(action) && factories.TryGetValue(action, out var create))

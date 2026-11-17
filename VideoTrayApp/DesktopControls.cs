@@ -395,6 +395,7 @@ internal sealed class FileContextList : UserControl
     internal HashSet<string> SelectedKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
     internal event Action? SelectionChanged;
     internal IReadOnlyList<ContextRow> Rows => rows;
+    internal string ModifiedTimeDescription = "Exact modified time";
     internal FileContextList(bool lookup = false, bool selection = false, bool contextOnly = false)
     {
         this.lookup = lookup || selection;
@@ -516,7 +517,7 @@ internal sealed class FileContextList : UserControl
         int index = Table.CurrentCell?.RowIndex ?? -1;
         details.Text = index >= 0 && index < visible.Count ? visible[index].Path + Environment.NewLine + visible[index].Proposed +
             Environment.NewLine + visible[index].Identity + (visible[index].Created is { } created ? "\nEmbedded creation time (UTC): " + created.ToString("O") : "")
-            + (visible[index].Modified is { } modified ? "\nExact modified time: " + modified.ToString("O") : "") : "Select a row to inspect its exact path.";
+            + (visible[index].Modified is { } modified ? "\n" + ModifiedTimeDescription + ": " + modified.ToString("O") : "") : "Select a row to inspect its exact path.";
     }
     private void External(Action<ContextRow> action)
     {

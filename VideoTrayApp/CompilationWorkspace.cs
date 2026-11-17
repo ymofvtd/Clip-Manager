@@ -86,7 +86,11 @@ internal sealed class CompilationWorkspace : UserControl
         sourcePage.Controls.Add(sourceClips); sourcePage.Controls.Add(sourceHeader);
         var targetActions = DesktopTheme.Actions(DesktopTheme.Button("Open compilation folder", () => Try(() =>
             { if (!draft && store.Active is { } s) DesktopTheme.Open(s.Folder); })),
-            DesktopTheme.Button("Refresh clips and duration", async () => await RefreshCatalogsAsync()));
+            DesktopTheme.Button("Refresh clips and duration", async () => await RefreshCatalogsAsync()),
+            DesktopTheme.Button("Save compilation state", () =>
+            { if (!draft && !busy && !shell.IsBusy && store.Active is { } s) shell.OpenCompilationHistory(true, s.Folder); }),
+            DesktopTheme.Button("Check clips recency", () =>
+            { if (!draft && !busy && !shell.IsBusy && store.Active is { } s) shell.OpenCompilationHistory(false, s.Folder); }));
         targetActions.Padding = new Padding(20, 0, 0, 0);
         compilationPage.Controls.Add(clips); compilationPage.Controls.Add(targetActions);
         foreach (int column in new[] { 0, 1, 4, 7 }) clips.Table.Columns[column].Visible = false;

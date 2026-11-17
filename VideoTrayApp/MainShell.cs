@@ -13,6 +13,7 @@ internal sealed partial class MainShell : Form
     private readonly ArchiveManager archives;
     private readonly JobController jobs;
     internal CompilationSessions Compilations { get; }
+    internal CompilationHistory CompilationHistory { get; }
     private readonly NotifyIcon tray = new();
     private readonly System.Windows.Forms.Timer refresh = new() { Interval = 300 };
     private readonly CancellationTokenSource lifetime = new();
@@ -51,6 +52,7 @@ internal sealed partial class MainShell : Form
     {
         dataFolder = folder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClipsManager");
         Compilations = new(dataFolder);
+        CompilationHistory = new(dataFolder);
         preferences = UiPreferences.Load(dataFolder, out persistentWarning);
         if (Compilations.Warning.Length > 0) persistentWarning += "\n" + Compilations.Warning;
         history = new(dataFolder); persistentWarning += "\n" + history.Warning;
@@ -239,6 +241,7 @@ internal sealed partial class MainShell : Form
         archivePage?.RefreshStatus();
         foreach (var workspace in workflows.Values) workspace.SetBusy(jobs.Busy);
         monthlyPage?.SetBusy(jobs.Busy);
+        saveCompilationPage?.SetBusy(jobs.Busy); clipRecencyPage?.SetBusy(jobs.Busy);
         if (tray.ContextMenuStrip is { } menu)
         {
             menu.Items[2].Enabled = state.Running && !state.Paused;

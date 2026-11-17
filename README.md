@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.2.13
+2.2.14
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -101,6 +101,18 @@ Use the **Clips** field in **Session settings** and click **Browse clips…** to
 **Total duration** shows the combined playback length and clip count of the active compilation on every tab. The **Compilation** tab lists its current clips in filename order. Both the list and total refresh after additions and external folder changes. Unreadable files produce an explicitly partial total. Metadata scans run off the UI thread and reuse unchanged duration metadata. Unavailable watched folders remain saved and are retried automatically.
 
 Compilation adds share the foreground operation controls and Activity history. Cancellation or failure attempts to restore the complete previous compilation and clean up owned temporary copies. Forced termination or power loss can leave pending files for inspection. Sessions are stored in `%APPDATA%/ClipsManager/compilation_sessions.json`.
+
+## Save compilation state and check clips recency
+
+After finishing or publishing a compilation, open **Batches → Save compilation state**. Choose the folder containing its individual MP4 clips, optionally enter a compilation name, then **Save compilation state**. You can also open it from the **Compilation** tab in Preparing compilation; the active folder is filled in automatically. Choose the individual source clips used in the compilation, rather than its single exported video. Subfolders are excluded by default; enable **Include subfolders** when needed.
+
+Each explicit save appends a snapshot with the compilation name/folder, current UTC save time, clip filenames, sizes and full SHA-256 content hashes to `%APPDATA%/ClipsManager/compilation_history.json`. The history is shared across all folders and sessions and survives app restarts and updates. Earlier snapshots are retained. Saving the same compilation again records another use at the new save time. Adding clips or locking in a session does not record a publication automatically.
+
+Before preparing another compilation, open **Find & clean → Check clips recency**, choose any candidate folder, and **Check clips recency**. Clips present in any saved compilation within the preceding **30 × 24 hours**, including the exact cutoff, are flagged **RECENT**. Renamed and relocated byte-identical copies still match. Results show the latest compilation and its local save time; selected-file details include the saved folder, hash and number of recent compilation records containing the clip. The default view shows flagged clips only. Uncheck **Show only recent clips** to also see **Over 30 days** and **No saved use**. The Compilation tab also offers a shortcut to check its current folder.
+
+Both actions leave clip files in place and support cancellation through the foreground operation controls. Checking does not update usage dates or change the log. Saves publish the complete snapshot atomically; unreadable clips, cancellation or folder changes during hashing retain previous history. A partial check explicitly reports unreadable files/folders. Invalid or unsupported history blocks both actions without overwriting the log; repair or restore that file before continuing. Keep a backup of the JSON history with your clips if moving to another computer.
+
+History starts when you begin saving compilations. **No saved use** means no match in this log, not proof that a clip was never published. Exact hashes detect unchanged copies; edited, trimmed or re-encoded versions have different hashes and are outside this check's scope.
 
 ## Best of the month
 
