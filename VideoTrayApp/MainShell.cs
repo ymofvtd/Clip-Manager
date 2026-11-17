@@ -249,6 +249,7 @@ internal sealed partial class MainShell : Form
             menu.Items[4].Enabled = state.Running;
         }
         CheckMonthlyBatch();
+        CheckCompilationCleanup();
     }
     private void TrackArchiveActivities()
     {

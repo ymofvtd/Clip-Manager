@@ -3,6 +3,30 @@ namespace VideoTrayApp;
 internal sealed partial class MainShell
 {
     private CompilationHistoryWorkspace? saveCompilationPage, clipRecencyPage;
+    private DateTimeOffset nextCompilationCleanup;
+    private bool compilationCleanupRunning;
+
+    private async void CheckCompilationCleanup()
+    {
+        if (compilationCleanupRunning || jobs.Busy || DateTimeOffset.UtcNow < nextCompilationCleanup) return;
+        compilationCleanupRunning = true; nextCompilationCleanup = DateTimeOffset.UtcNow.AddHours(1);
+        var token = lifetime.Token;
+        try
+        {
+            int removed = await Task.Run(() => CompilationHistory.Cleanup(token), token);
+            await UiThread.Switch(this);
+            if (!IsDisposed && !shuttingDown && removed > 0 && saveCompilationPage is { Visible: true } page)
+                await page.ReloadHistoryAsync();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            await UiThread.Switch(this);
+            if (!IsDisposed && !shuttingDown)
+                persistentWarning += "\nCompilation history cleanup needs attention: " + ex.Message;
+        }
+        finally { compilationCleanupRunning = false; }
+    }
     private static string DestinationFor(PresetAction action) => action switch
     {
         PresetAction.PrepareBatch or PresetAction.ShuffleBatches => "Batches",

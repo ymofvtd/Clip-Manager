@@ -510,6 +510,7 @@ internal sealed class FileContextList : UserControl
         Table.RowCount = visible.Count; Table.Invalidate(); UpdateSummary(); UpdateDetails();
     }
     private void UpdateSummary() => summary.Text = contextSummary is not null ? $"{rows.Count:N0} clips • {visible.Count:N0} visible. " + contextSummary
+        + (lookup && !contextOnly ? $" {SelectedKeys.Count:N0} selected (including hidden rows)." : "")
         : contextOnly ? $"{rows.Count:N0} clips • {visible.Count:N0} visible. All reviewed clips are included in the batch."
         : lookup ? $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected (including hidden rows). Click Select or press Space to toggle." : $"{rows.Count:N0} results • {visible.Count:N0} visible • {SelectedKeys.Count:N0} selected for recycling (including hidden rows). Space toggles eligible rows.";
     private void UpdateDetails()
