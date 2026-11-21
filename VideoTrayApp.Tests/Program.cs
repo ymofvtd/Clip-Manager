@@ -13,6 +13,17 @@ string root = Path.Combine(Path.GetTempPath(), "ClipIdentifierTests-" + Guid.New
 Directory.CreateDirectory(root);
 try
 {
+    if (args is ["--transcription-smoke", var media, var models])
+    {
+        await TranscriptionChecks.SmokeAsync(root, media, models);
+        return;
+    }
+    if (args is ["--transcription-benchmark", var clip, var benchmarkModels])
+    {
+        await TranscriptionChecks.BenchmarkAsync(root, clip, benchmarkModels);
+        return;
+    }
+    if (args.Contains("--transcription-only")) { await TranscriptionChecks.RunAsync(root); return; }
     if (args.Contains("--compilation-history-only")) { CompilationHistoryChecks.Run(root, WriteMp4); return; }
     if (args.Contains("--duration-compilation-only")) { DurationCompilationChecks.Run(root, WriteMp4); return; }
     if (args.Contains("--archive-notifications-only")) { ArchiveNotificationChecks.Run(root, WriteMp4); return; }
@@ -22,6 +33,7 @@ try
     RenameChecks.Run(root, WriteMp4);
     if (args.Contains("--rename-only")) return;
     Mp4Checks.Run(root, WriteMp4);
+    await TranscriptionChecks.RunAsync(root);
     DurationCompilationChecks.Run(root, WriteMp4);
     CompilationHistoryChecks.Run(root, WriteMp4);
     DateLookupChecks.Run(root, WriteMp4);

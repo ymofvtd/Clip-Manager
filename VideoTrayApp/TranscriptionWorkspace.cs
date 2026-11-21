@@ -30,7 +30,7 @@ internal sealed class TranscriptionWorkspace : UserControl
         DesktopTheme.Add(fields, clip);
         DesktopTheme.Add(fields, folder);
         DesktopTheme.Add(fields, recursive);
-        DesktopTheme.Add(fields, DesktopTheme.Text("Transcription runs on this PC with no profanity filter. The first run downloads a speech model (about 148 MB)."));
+        DesktopTheme.Add(fields, DesktopTheme.Text("Transcription runs on this PC with no profanity filter. The first run with speech downloads about 149 MB of models."));
         DesktopTheme.Add(fields, DesktopTheme.Actions(start));
         DesktopTheme.Add(fields, result);
         var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };

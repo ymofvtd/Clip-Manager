@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.2.16
+2.2.17
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -60,7 +60,33 @@ Both kept and selected copies are verified again immediately before recycling. A
 
 Open **Find & clean → Transcribe clips**. Choose **One clip** to select an MP4 or **Folder** to transcribe every MP4 directly inside a folder. Enable **Include subfolders** to process nested clips too. Choose **Transcribe**. Each result is a UTF-8 file beside its video, for example `Clip 01.mp4` produces `Clip 01.transcript.txt`. Existing transcripts are skipped. Clips with no detected speech appear in the results without a transcript file. Cancel stops the run and keeps completed transcripts.
 
-The first transcription with audio downloads the multilingual Whisper Base model (about 148 MB) to `%APPDATA%/ClipsManager/models`. The app detects the spoken language automatically and processes audio on your PC. Transcript text comes from the recognizer with no added profanity filter. Recognition can miss or mishear words. The tool uses Windows Media Foundation to read the MP4 audio track. The Whisper runtime requires the [Microsoft Visual C++ Redistributable (x64)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#latest-supported-redistributable-version).
+Clips Manager uses Windows Media Foundation to decode the MP4 audio and runs speech detection and recognition on your CPU. The first run with non-silent audio downloads Silero VAD (about 0.9 MB). The first run with detected speech downloads multilingual Whisper Base (about 148 MB). Both are cached in `%APPDATA%\ClipsManager\models`. The Whisper runtime requires the [Microsoft Visual C++ Redistributable (x64)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#latest-supported-redistributable-version).
+
+The transcript prefixes each line with its start and end time in the MP4. Clips Manager detects language per speech chunk and prefers English when the result is ambiguous. It transcribes speech in its detected language without translation or profanity filtering. Chunks that still look unreliable after a retry appear as `[Uncertain audio]` and are flagged in the job results. Timing, language probabilities, retries, and decode errors for the latest run are in `%APPDATA%\ClipsManager\transcription.log`.
+
+For CPU or vocabulary tuning, create `%APPDATA%\ClipsManager\transcription_settings.json`. Any omitted settings use their defaults. For example, this enables Twitch vocabulary hints and sets an eight-thread decode.
+
+```json
+{
+  "Threads": 8,
+  "SpeechPaddingMs": 320,
+  "RepetitionLimit": 5,
+  "EmotePrompt": "KEKW, PogChamp, Pog, LUL, monkaS, Sadge, Copium, Kappa, PepeLaugh"
+}
+```
+
+`Threads` accepts 1 through the available logical CPU count. `SpeechPaddingMs` accepts 0–1,000 and `RepetitionLimit` accepts 3–20. The optional English `EmotePrompt` accepts up to 256 characters and defaults to empty.
+
+### Transcription tests
+
+Run the deterministic checks with `dotnet run --project VideoTrayApp.Tests -- --transcription-only`. For a real-audio smoke test, use Windows PowerShell with FFmpeg on `PATH` and a cached multilingual Base model. The script creates MP4 fixtures from real English, French, and Spanish recordings, instrumental music, silence, and a synthesized Twitch vocabulary sample. The instrumental excerpt is [Carefree by Kevin MacLeod](https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1400037), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+```powershell
+$fixtures = .\VideoTrayApp.Tests\MakeTranscriptionFixtures.ps1
+$models = "$env:APPDATA\ClipsManager\models"
+dotnet run --project VideoTrayApp.Tests -- --transcription-smoke $fixtures $models
+dotnet run --project VideoTrayApp.Tests -- --transcription-benchmark (Join-Path $fixtures "english.mp4") $models
+```
 
 ## Seek clips
 
