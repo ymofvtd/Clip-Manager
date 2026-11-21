@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.2.15
+2.2.16
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -55,6 +55,12 @@ Open **Find & clean → Seek duplications** and configure directories A and B. S
 Directory **A** defaults to **Keep**; matching duplicate copies found only in directory **B** are automatically marked **Recycle**, including matches in subfolders. Unique B clips are untouched. Shared A/B paths and hard-link aliases default to Keep. The table shows group, A/B and folder context, filename, size, duration, and modified time; selected-file details reveal full paths and content/physical identities. Use **Open clip**, **Open containing folder**, or **Copy path**, then adjust individual copies with **Keep / Recycle selected row** or Space. Leave at least one kept copy per group. Filtering and sorting preserve hidden choices; refreshing preserves both Keep and Recycle choices for unchanged file identities and directory roles. **Review and run** confirms exact selected paths, keeper context, and known content bytes before recycling. Analysis only marks choices; files change after confirmation.
 
 Both kept and selected copies are verified again immediately before recycling. A kept copy stays open against writes/deletion throughout its group. A missing/changed keeper skips that group; a changed selected copy stays untouched. Only the Recycle Bin is used; unavailable recycling reports an error with no permanent-delete fallback. Cancellation stops further deletions and reports completed versus untouched copies; earlier successful recycling is not automatically reversed. Unreadable paths and cancelled scans are reported separately from a complete scan with no duplicates. Presets can save A/B paths and recursion, but always open the individual review and final confirmation.
+
+## Transcribe clips
+
+Open **Find & clean → Transcribe clips**. Choose **One clip** to select an MP4 or **Folder** to transcribe every MP4 directly inside a folder. Enable **Include subfolders** to process nested clips too. Choose **Transcribe**. Each result is a UTF-8 file beside its video, for example `Clip 01.mp4` produces `Clip 01.transcript.txt`. Existing transcripts are skipped. Clips with no detected speech appear in the results without a transcript file. Cancel stops the run and keeps completed transcripts.
+
+The first transcription with audio downloads the multilingual Whisper Base model (about 148 MB) to `%APPDATA%/ClipsManager/models`. The app detects the spoken language automatically and processes audio on your PC. Transcript text comes from the recognizer with no added profanity filter. Recognition can miss or mishear words. The tool uses Windows Media Foundation to read the MP4 audio track. The Whisper runtime requires the [Microsoft Visual C++ Redistributable (x64)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#latest-supported-redistributable-version).
 
 ## Seek clips
 

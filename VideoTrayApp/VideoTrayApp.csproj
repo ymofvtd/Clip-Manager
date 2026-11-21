@@ -8,16 +8,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
 
     <!-- Versioning - bump this before releases -->
-    <Version>2.2.15</Version>
-    <AssemblyVersion>2.2.15.0</AssemblyVersion>
-    <FileVersion>2.2.15.0</FileVersion>
+    <Version>2.2.16</Version>
+    <AssemblyVersion>2.2.16.0</AssemblyVersion>
+    <FileVersion>2.2.16.0</FileVersion>
     <AssemblyName>ClipsManager</AssemblyName>
 
     <!-- Single File Deployment - produces one portable .exe -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Whisper locates native DLLs relative to the extracted app directory. -->
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
 
     <!-- Application Icon -->
     <ApplicationIcon>icon.ico</ApplicationIcon>
@@ -30,6 +31,16 @@
 
   <ItemGroup>
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
+    <PackageReference Include="NAudio.Wasapi" Version="3.3.0" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" GeneratePathProperty="true" ExcludeAssets="build;buildTransitive" />
+    <PackageReference Include="Whisper.net.Runtime.NoAvx" Version="1.9.1" GeneratePathProperty="true" ExcludeAssets="build;buildTransitive" />
+  </ItemGroup>
+
+  <!-- Preserve Whisper's Windows x64 runtime layout in the single-file bundle. -->
+  <ItemGroup>
+    <None Include="$(PkgWhisper_net_Runtime)/build/win-x64/*.dll" Link="runtimes/win-x64/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(PkgWhisper_net_Runtime_NoAvx)/build/win-x64/*.dll" Link="runtimes/noavx/win-x64/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

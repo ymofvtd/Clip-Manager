@@ -49,6 +49,7 @@ internal sealed partial class MainShell
         if (name == "Find & clean")
         {
             tabs.Add("SeekClips", "Seek clips", () => new ClipSeekWorkspace(this, () => workingFolder, preferences));
+            tabs.Add("TranscribeClips", "Transcribe clips", () => transcriptionPage = new TranscriptionWorkspace(this, workingFolder, preferences));
             tabs.Add("CheckClipsRecency", "Check clips recency", () => clipRecencyPage = new CompilationHistoryWorkspace(this, false, workingFolder, preferences));
         }
         if (name == "Batches")

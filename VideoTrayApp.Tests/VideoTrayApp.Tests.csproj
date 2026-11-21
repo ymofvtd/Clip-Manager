@@ -5,10 +5,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>2.2.15</Version>
+    <Version>2.2.16</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
+    <PackageReference Include="NAudio.Wasapi" Version="3.3.0" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime.NoAvx" Version="1.9.1" />
+    <Compile Include="../VideoTrayApp/Transcription*.cs" Link="%(Filename)%(Extension)" />
     <Compile Include="../VideoTrayApp/ClipDateLookup.cs" Link="ClipDateLookup.cs" />
     <Compile Include="../VideoTrayApp/ClipDateActionPlan.cs" Link="ClipDateActionPlan.cs" />
     <Compile Include="../VideoTrayApp/ClipSeek*.cs" Link="%(Filename)%(Extension)" />

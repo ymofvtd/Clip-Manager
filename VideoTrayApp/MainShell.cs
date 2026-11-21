@@ -42,6 +42,7 @@ internal sealed partial class MainShell : Form
     private bool resourcesDisposed;
     private Task? trackingInitialization;
     private ArchiveWorkspace? archivePage;
+    private TranscriptionWorkspace? transcriptionPage;
     private readonly Dictionary<Guid, JobRecord> archiveActivities = [];
     internal bool IsBusy => jobs.Busy;
     internal ArchiveWorker Archive => archives.Routes[0].Worker;
@@ -240,6 +241,7 @@ internal sealed partial class MainShell : Form
             (history.Entries.LastOrDefault() is { } recent ? $"\nRecent outcome: {recent.Action} — {DesktopTheme.StateLabel(recent.State)}. Open Activity for counts and recovery details." : "");
         archivePage?.RefreshStatus();
         foreach (var workspace in workflows.Values) workspace.SetBusy(jobs.Busy);
+        transcriptionPage?.SetBusy(jobs.Busy);
         monthlyPage?.SetBusy(jobs.Busy);
         saveCompilationPage?.SetBusy(jobs.Busy); clipRecencyPage?.SetBusy(jobs.Busy);
         if (tray.ContextMenuStrip is { } menu)
