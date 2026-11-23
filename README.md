@@ -6,7 +6,7 @@ All clip operations and duration tracking process only `.mp4` files (case-insens
 
 ## Current Version
 
-2.2.17
+2.2.19
 
 The native desktop redesign replaces the main window with **Overview**, **Archive**, **Batches**, **Find & clean**, **Rename & shuffle**, **Activity**, and **Settings**. All nine actions remain available. Configure a tool, **Analyze / refresh preview**, inspect exact paths and proposed actions, then **Review and run**. Opening a destination or applying a preset never starts file changes. Results and recovery details stay in Activity. Light, Dark, System and Windows High Contrast share native controls.
 
@@ -58,7 +58,9 @@ Both kept and selected copies are verified again immediately before recycling. A
 
 ## Transcribe clips
 
-Open **Find & clean → Transcribe clips**. Choose **One clip** to select an MP4 or **Folder** to transcribe every MP4 directly inside a folder. Enable **Include subfolders** to process nested clips too. Choose **Transcribe**. Each result is a UTF-8 file beside its video, for example `Clip 01.mp4` produces `Clip 01.transcript.txt`. Existing transcripts are skipped. Clips with no detected speech appear in the results without a transcript file. Cancel stops the run and keeps completed transcripts.
+Open **Find & clean → VOD workspace** and select the folder containing your VODs and **Open Clip Library.cmd**. **Transcribe VODs** opens the existing transcription tool with that folder selected. **Open Clip Library** launches review and Premiere export. **Open Premiere exports** opens the workspace’s `Finished` folder. Clips Manager remembers the workspace after a successful action.
+
+Open **Find & clean → Transcribe clips**. Choose **One clip** to select an MP4 or **Folder** to transcribe every MP4 directly inside a folder. Enable **Include subfolders** to process nested clips too. Choose **Transcribe**. Each result is a UTF-8 file beside its video. For example, `Clip 01.mp4` produces `Clip 01.transcript.txt`. If an older transcript lacks timestamps, select its MP4 and transcribe again to save `Clip 01.transcript.timestamped.txt` alongside the original. The app skips clips that already have timestamped output. Clips with no detected speech appear in the results without a new transcript file. Cancel stops the run and keeps completed transcripts.
 
 Clips Manager uses Windows Media Foundation to decode the MP4 audio and runs speech detection and recognition on your CPU. The first run with non-silent audio downloads Silero VAD (about 0.9 MB). The first run with detected speech downloads multilingual Whisper Base (about 148 MB). Both are cached in `%APPDATA%\ClipsManager\models`. The Whisper runtime requires the [Microsoft Visual C++ Redistributable (x64)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#latest-supported-redistributable-version).
 

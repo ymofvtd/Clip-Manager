@@ -50,6 +50,8 @@ internal sealed partial class MainShell
         {
             tabs.Add("SeekClips", "Seek clips", () => new ClipSeekWorkspace(this, () => workingFolder, preferences));
             tabs.Add("TranscribeClips", "Transcribe clips", () => transcriptionPage = new TranscriptionWorkspace(this, workingFolder, preferences));
+            tabs.Add("VodWorkspace", "VOD workspace", () => new VodWorkspace(preferences.VodWorkspaceFolder ?? "", workingFolder,
+                preferences.RecentPaths, SaveVodWorkspace, OpenVodTranscription));
             tabs.Add("CheckClipsRecency", "Check clips recency", () => clipRecencyPage = new CompilationHistoryWorkspace(this, false, workingFolder, preferences));
         }
         if (name == "Batches")
@@ -63,6 +65,19 @@ internal sealed partial class MainShell
     {
         string name = DestinationFor(action); Navigate(name);
         if (pages[name] is ToolGroupWorkspace tabs) tabs.Select(action);
+    }
+    private void SaveVodWorkspace(string folder)
+    {
+        preferences.VodWorkspaceFolder = folder;
+        RememberPath(folder);
+        SavePreferences();
+    }
+    private void OpenVodTranscription(string folder)
+    {
+        if (IsBusy) throw new InvalidOperationException("Wait for the current operation to finish before switching folders.");
+        if (pages["Find & clean"] is not ToolGroupWorkspace tabs) return;
+        tabs.Select("TranscribeClips");
+        transcriptionPage?.UseVodFolder(folder);
     }
     internal void OpenCompilationHistory(bool saving, string folder)
     {

@@ -16,6 +16,7 @@ internal sealed class UiPreferences
     public Rectangle Bounds { get; set; }
     public bool Maximized { get; set; }
     public string Destination { get; set; } = "Overview";
+    public string? VodWorkspaceFolder { get; set; }
     public List<string> RecentPaths { get; set; } = [];
     public Dictionary<string, int[]> TableWidths { get; set; } = [];
     private bool preserveCorruptFile;

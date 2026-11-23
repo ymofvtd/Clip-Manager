@@ -25,7 +25,7 @@ internal sealed class TranscriptionWorkspace : UserControl
 
         var fields = DesktopTheme.Stack();
         fields.Padding = new Padding(24, 12, 24, 12);
-        DesktopTheme.Add(fields, DesktopTheme.Text("Save a .transcript.txt file beside each MP4. Existing transcripts are skipped."));
+        DesktopTheme.Add(fields, DesktopTheme.Text("Save a timestamped .transcript.txt file beside each MP4. Older plain-text transcripts get a separate .transcript.timestamped.txt copy."));
         DesktopTheme.Add(fields, DesktopTheme.Actions(oneClip, folderMode));
         DesktopTheme.Add(fields, clip);
         DesktopTheme.Add(fields, folder);
@@ -55,6 +55,13 @@ internal sealed class TranscriptionWorkspace : UserControl
         oneClip.Enabled = folderMode.Enabled = recursive.Enabled = !busy;
         clip.ReadOnly = folder.ReadOnly = busy;
         start.Enabled = !busy && (folderMode.Checked ? folder.Value.Length > 0 : VideoFiles.IsMp4(clip.Value));
+    }
+
+    internal void UseVodFolder(string path)
+    {
+        folder.Value = path;
+        recursive.Checked = false;
+        folderMode.Checked = true;
     }
 
     private async Task RunAsync()

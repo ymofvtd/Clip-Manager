@@ -1,12 +1,13 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using Whisper.net;
 using static VideoTrayApp.TranscriptionAudio;
 
 namespace VideoTrayApp;
 
-internal static class Transcription
+internal static partial class Transcription
 {
     private const int MissingAudioStream = unchecked((int)0xC00D36B3); // MF_E_INVALIDSTREAMNUMBER
     private const string Uncertain = "[Uncertain audio]";
@@ -70,8 +71,19 @@ internal static class Transcription
                     using var input = File.Open(clip, FileMode.Open, FileAccess.Read, FileShare.Read);
                     if (Path.Exists(output))
                     {
-                        existing++;
-                        continue;
+                        if (!File.Exists(output) || HasTimestamps(output, ct))
+                        {
+                            existing++;
+                            continue;
+                        }
+
+                        output = Path.ChangeExtension(clip, ".transcript.timestamped.txt");
+                        if (Path.Exists(output))
+                        {
+                            existing++;
+                            details.Add($"Existing timestamped copy: {output}");
+                            continue;
+                        }
                     }
 
                     Log($"Opening {clip}");
@@ -94,7 +106,7 @@ internal static class Transcription
                             $"{stage}: {name} ({examined:c} / {audioEnd:c})");
                     }
 
-                    var (transcript, uncertain) = await ProcessClipAsync(audio, whisper, settings, Report, Log, ct).ConfigureAwait(false);
+                    var (transcript, uncertain) = await ProcessClipAsync(audio, audioEnd, whisper, settings, Report, Log, ct).ConfigureAwait(false);
                     ct.ThrowIfCancellationRequested();
                     if (transcript.Length == 0)
                     {
@@ -143,7 +155,7 @@ internal static class Transcription
         }
     }
 
-    private static async Task<(string Transcript, int Uncertain)> ProcessClipAsync(TranscriptionAudio audio,
+    private static async Task<(string Transcript, int Uncertain)> ProcessClipAsync(TranscriptionAudio audio, TimeSpan audioEnd,
         TranscriptionWhisper whisper, TranscriptionSettings settings, Action<long, string> report, Action<string> log, CancellationToken ct)
     {
         var time = Stopwatch.StartNew();
@@ -255,6 +267,12 @@ internal static class Transcription
         void Append(TimeSpan start, TimeSpan end, string text)
         {
             if (start < writtenThrough) start = writtenThrough;
+            // The decoder may return a little padding after the declared audio track.
+            if (audioEnd > TimeSpan.Zero)
+            {
+                if (start >= audioEnd) return;
+                if (end > audioEnd) end = audioEnd;
+            }
             if (end < start) end = start;
             transcript.AppendLine($"[{Timestamp(start)} - {Timestamp(end)}] {text}");
             writtenThrough = end;
@@ -263,6 +281,23 @@ internal static class Transcription
 
     private static string Timestamp(TimeSpan time) =>
         $"{(long)time.TotalHours:D2}:{time.Minutes:D2}:{time.Seconds:D2}.{time.Milliseconds:D3}";
+
+    private static bool HasTimestamps(string path, CancellationToken ct)
+    {
+        ArchivePaths.RejectLinks(path);
+        bool hasTimedLine = false;
+        foreach (string line in File.ReadLines(path))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            if (!TimestampPrefix().IsMatch(line)) return false;
+            hasTimedLine = true;
+        }
+        return hasTimedLine;
+    }
+
+    [GeneratedRegex(@"^\[[0-9]{2,}:[0-5][0-9]:[0-5][0-9]\.[0-9]{3} - [0-9]{2,}:[0-5][0-9]:[0-5][0-9]\.[0-9]{3}\] ")]
+    private static partial Regex TimestampPrefix();
 
     private static async Task<bool> SaveAsync(string output, string transcript, CancellationToken ct)
     {

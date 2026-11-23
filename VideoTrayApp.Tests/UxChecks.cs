@@ -165,6 +165,20 @@ internal static class UxChecks
                 }
                 foreach (var action in Enum.GetValues<PresetAction>().Where(a => a != PresetAction.Archive)) shell.OpenTool(action);
                 Check(Enum.GetValues<PresetAction>().All(a => a == PresetAction.Archive || Descendants(shell).OfType<WorkflowWorkspace>().Any(w => w.Action == a)), "All nine actions remain reachable through integrated workspaces");
+                string vodFolder = Directory.CreateDirectory(Path.Combine(data, "vod-workspace")).FullName;
+                string clipLibrary = Directory.CreateDirectory(Path.Combine(vodFolder, "Clip Library")).FullName;
+                File.WriteAllText(Path.Combine(clipLibrary, "Open Clip Library.cmd"), "");
+                shell.Navigate("Find & clean");
+                var find = Descendants(shell).OfType<ToolGroupWorkspace>().Single(group => group.AccessibleName == "Find & clean tools");
+                find.Select("VodWorkspace");
+                var vod = (VodWorkspace)find.Workspace("VodWorkspace")!;
+                Descendants(vod).OfType<PathPicker>().Single().Value = vodFolder;
+                Descendants(vod).OfType<Button>().Single(button => button.Text == "Transcribe VODs").PerformClick();
+                Application.DoEvents();
+                var transcription = (TranscriptionWorkspace)find.Workspace("TranscribeClips")!;
+                Check(transcription.Visible && Descendants(transcription).OfType<PathPicker>().Any(picker => picker.Visible && picker.Value == vodFolder)
+                    && UiPreferences.Load(data, out _).VodWorkspaceFolder == vodFolder,
+                    "VOD workspace opens transcription on the selected folder and remembers it");
                 string comparison = Directory.CreateDirectory(Path.Combine(data, "comparison")).FullName;
                 string reference = Directory.GetFiles(source, "*.mp4")[0];
                 File.Copy(reference, Path.Combine(comparison, "other-copy.mp4"));

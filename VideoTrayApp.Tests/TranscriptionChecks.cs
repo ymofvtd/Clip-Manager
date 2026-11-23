@@ -74,6 +74,19 @@ internal static class TranscriptionChecks
         var result = await Transcription.RunAsync(corrupt, false, false, folder, new TestProgress(), CancellationToken.None);
         Check(result.State == JobState.Failed && !File.Exists(Output(corrupt)) && File.ReadAllText(Path.Combine(folder, "transcription.log")).Contains("Failed"),
             "decoder errors are logged and produce no transcript");
+
+        const string original = "Original plain-text transcript.";
+        await File.WriteAllTextAsync(Output(corrupt), original);
+        var failedUpdate = await Transcription.RunAsync(corrupt, false, false, folder, new TestProgress(), CancellationToken.None);
+        Check(failedUpdate.State == JobState.Failed && await File.ReadAllTextAsync(Output(corrupt)) == original
+            && !File.Exists(TimestampedCopy(corrupt)), "a failed timestamp upgrade preserves the original");
+
+        const string timed = "[123:00:00.000 - 123:00:02.500] Already timestamped.";
+        await File.WriteAllTextAsync(Output(corrupt), timed);
+        var skipped = await Transcription.RunAsync(corrupt, false, false, folder, new TestProgress(), CancellationToken.None);
+        Check(skipped.State == JobState.Completed && skipped.Details.Contains("Existing: 1")
+            && await File.ReadAllTextAsync(Output(corrupt)) == timed && !File.Exists(TimestampedCopy(corrupt)),
+            "an existing timestamped transcript is skipped without reading audio");
         Console.WriteLine("Transcription checks passed.");
     }
 
@@ -112,12 +125,29 @@ internal static class TranscriptionChecks
         var tooShort = await Run("short-audio");
         Check(tooShort.Outcome.State == JobState.Completed && tooShort.Transcript.Length > 0,
             "audio that intentionally ends before the video still transcribes");
+        var shortAudioEnds = Regex.Matches(tooShort.Transcript, @" - (\d\d:\d\d:\d\d\.\d{3})\]")
+            .Select(m => m.Groups[1].Value).ToArray();
+        Check(shortAudioEnds.Length > 0 && shortAudioEnds.All(end => string.CompareOrdinal(end, "00:00:02.000") <= 0),
+            "decoder padding does not extend timestamps past the declared audio track");
         var truncated = await Run("truncated-audio");
         Check(truncated.Outcome.State == JobState.Failed && truncated.Transcript.Length == 0 &&
             truncated.Outcome.Details.Contains("expected end of the audio track"), "unexpectedly short audio fails visibly");
         var delayed = await Run("delayed");
         Check(delayed.Outcome.State == JobState.Completed && delayed.Transcript.StartsWith("[00:00:06", StringComparison.Ordinal),
             "delayed audio starts at the original MP4 presentation time");
+
+        string legacyClip = Path.Combine(root, "delayed.mp4");
+        const string legacyText = "Original plain-text transcript with manual edits.";
+        await File.WriteAllTextAsync(Output(legacyClip), legacyText);
+        var upgraded = await Transcription.RunAsync(legacyClip, false, false, root, new TestProgress(), CancellationToken.None);
+        string timestampedCopy = TimestampedCopy(legacyClip);
+        Check(upgraded.State == JobState.Completed && upgraded.Details.Contains(timestampedCopy)
+            && (await File.ReadAllTextAsync(timestampedCopy)).StartsWith("[00:00:06", StringComparison.Ordinal)
+            && await File.ReadAllTextAsync(Output(legacyClip)) == legacyText,
+            "a legacy transcript gets a timestamped copy at the original video time and keeps manual edits");
+        var skippedUpgrade = await Transcription.RunAsync(legacyClip, false, false, root, new TestProgress(), CancellationToken.None);
+        Check(skippedUpgrade.State == JobState.Completed && skippedUpgrade.Details.Contains("Existing: 1")
+            && skippedUpgrade.Details.Contains(timestampedCopy), "re-running a legacy clip finds its timestamped copy");
 
         AtomicJson.Save(Path.Combine(root, "transcription_settings.json"), new TranscriptionSettings { EmotePrompt = Hint });
         var emotes = await Run("emotes");
@@ -182,6 +212,8 @@ internal static class TranscriptionChecks
     }
 
     private static string Output(string path) => Path.ChangeExtension(path, ".transcript.txt");
+
+    private static string TimestampedCopy(string path) => Path.ChangeExtension(path, ".transcript.timestamped.txt");
 
     private static VadSegmentData Vad(double start, double end) => new(TimeSpan.FromSeconds(start), TimeSpan.FromSeconds(end));
 
